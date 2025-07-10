@@ -5,6 +5,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class BillingPeriod extends Model
@@ -109,5 +110,10 @@ class BillingPeriod extends Model
         if ($total == 0) return 0;
 
         return ($this->getTotalPaid() / $total) * 100;
+    }
+
+    public function village(): BelongsTo
+    {
+        return $this->belongsTo(Village::class, 'village_id', 'id');
     }
 }

@@ -5,7 +5,7 @@ namespace App\Services;
 
 use App\Models\Bill;
 use App\Models\BillingPeriod;
-use App\Models\Customer;
+use App\Models\Village;
 use App\Models\WaterUsage;
 use App\Models\WaterTariff;
 use Illuminate\Support\Collection;
@@ -31,6 +31,7 @@ class BillingService
         return $bills;
     }
 
+
     public function generateBillForUsage(WaterUsage $usage): ?Bill
     {
         $calculation = WaterTariff::calculateBill(
@@ -38,8 +39,11 @@ class BillingService
             $usage->customer->village_id
         );
 
-        $adminFee = config('village.pamdes.default_admin_fee', 5000);
-        $maintenanceFee = config('village.pamdes.default_maintenance_fee', 2000);
+        // Get village-specific fees
+        $village = Village::find($usage->customer->village_id);
+        $adminFee = $village?->getDefaultAdminFee() ?? 5000;
+        $maintenanceFee = $village?->getDefaultMaintenanceFee() ?? 2000;
+
         $waterCharge = $calculation['total_charge'];
         $totalAmount = $waterCharge + $adminFee + $maintenanceFee;
 

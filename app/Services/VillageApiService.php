@@ -60,6 +60,44 @@ class VillageApiService
     }
 
     /**
+     * Get village data by ID from the main village system
+     */
+    public function getVillageById(string $villageId): ?array
+    {
+        $cacheKey = "village_data_id_{$villageId}";
+
+        return Cache::remember($cacheKey, 300, function () use ($villageId) {
+            try {
+                $response = Http::withHeaders([
+                    'Authorization' => 'Bearer ' . $this->apiKey,
+                    'Accept' => 'application/json',
+                ])
+                    ->timeout($this->timeout)
+                    ->get("{$this->baseUrl}/api/villages/{$villageId}");
+
+                if ($response->successful()) {
+                    return $response->json('data');
+                }
+
+                Log::warning('Failed to fetch village data by ID', [
+                    'village_id' => $villageId,
+                    'status' => $response->status(),
+                    'response' => $response->body(),
+                ]);
+
+                return null;
+            } catch (\Exception $e) {
+                Log::error('Village API error by ID', [
+                    'village_id' => $villageId,
+                    'error' => $e->getMessage(),
+                ]);
+
+                return null;
+            }
+        });
+    }
+
+    /**
      * Get all active villages
      */
     public function getActiveVillages(): array
@@ -222,12 +260,54 @@ class VillageApiService
     /**
      * Clear village cache
      */
-    public function clearVillageCache(string $slug = null): void
+    public function clearVillageCache(string $slug = null, string $villageId = null): void
     {
         if ($slug) {
             Cache::forget("village_data_{$slug}");
-        } else {
+        }
+
+        if ($villageId) {
+            Cache::forget("village_data_id_{$villageId}");
+            Cache::forget("village_settings_{$villageId}");
+        }
+
+        if (!$slug && !$villageId) {
             Cache::forget('active_villages');
         }
+    }
+
+    /**
+     * Batch get villages by multiple IDs
+     */
+    public function getVillagesByIds(array $villageIds): array
+    {
+        $villages = [];
+
+        foreach ($villageIds as $villageId) {
+            $village = $this->getVillageById($villageId);
+            if ($village) {
+                $villages[$villageId] = $village;
+            }
+        }
+
+        return $villages;
+    }
+
+    /**
+     * Check if village exists and is active
+     */
+    public function isVillageActive(string $villageId): bool
+    {
+        $village = $this->getVillageById($villageId);
+        return $village && ($village['status'] ?? '') === 'active';
+    }
+
+    /**
+     * Get village name by ID (utility method)
+     */
+    public function getVillageName(string $villageId): string
+    {
+        $village = $this->getVillageById($villageId);
+        return $village['name'] ?? 'Unknown Village';
     }
 }

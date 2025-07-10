@@ -1,6 +1,5 @@
 <?php
 
-// app/Providers/Filament/AdminPanelProvider.php - Updated
 namespace App\Providers\Filament;
 
 use Filament\Http\Middleware\Authenticate;
@@ -44,11 +43,6 @@ class AdminPanelProvider extends PanelProvider
             ->widgets([
                 Widgets\AccountWidget::class,
                 \App\Filament\Widgets\StatsOverview::class,
-            ])
-            ->authGuard('admin')
-            ->userMenuItems([
-                'profile' => \Filament\Navigation\MenuItem::make()->label('Profile'),
-                'settings' => \Filament\Navigation\MenuItem::make()->label('Settings'),
             ])
             ->middleware([
                 EncryptCookies::class,

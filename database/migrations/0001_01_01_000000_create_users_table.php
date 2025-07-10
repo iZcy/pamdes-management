@@ -17,8 +17,13 @@ return new class extends Migration
             $table->string('email')->unique();
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
+            $table->string('village_id')->nullable(); // Link to village system, null = super admin
+            $table->string('contact_info')->nullable();
+            $table->boolean('is_active')->default(true);
             $table->rememberToken();
             $table->timestamps();
+
+            $table->index(['village_id', 'is_active']);
         });
 
         Schema::create('password_reset_tokens', function (Blueprint $table) {
