@@ -17,6 +17,7 @@ use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
+use Filament\Navigation\NavigationGroup;
 
 class AdminPanelProvider extends PanelProvider
 {
@@ -59,24 +60,6 @@ class AdminPanelProvider extends PanelProvider
             ->authMiddleware([
                 Authenticate::class,
             ])
-            ->databaseNotifications()
-            ->navigationGroups([
-                'Manajemen Data' => [
-                    'label' => 'Manajemen Data',
-                    'icon' => 'heroicon-o-folder',
-                ],
-                'Tagihan & Pembayaran' => [
-                    'label' => 'Tagihan & Pembayaran',
-                    'icon' => 'heroicon-o-banknotes',
-                ],
-                'Laporan' => [
-                    'label' => 'Laporan',
-                    'icon' => 'heroicon-o-document-chart-bar',
-                ],
-                'Pengaturan' => [
-                    'label' => 'Pengaturan',
-                    'icon' => 'heroicon-o-cog-6-tooth',
-                ],
-            ]);
+            ->databaseNotifications();
     }
 }

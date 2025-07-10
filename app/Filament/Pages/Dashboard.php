@@ -2,17 +2,11 @@
 
 namespace App\Filament\Pages;
 
-use Filament\Pages\Page;
-use App\Models\Customer;
-use App\Models\Bill;
-use App\Models\Payment;
-use App\Models\BillingPeriod;
-use Filament\Widgets\StatsOverviewWidget\Stat;
+use Filament\Pages\Dashboard as BaseDashboard;
 
-class Dashboard extends Page
+class Dashboard extends BaseDashboard
 {
     protected static ?string $navigationIcon = 'heroicon-o-home';
-    protected static string $view = 'filament.pages.dashboard';
     protected static ?string $title = 'Dashboard PAMDes';
 
     public function getHeaderWidgets(): array
@@ -26,9 +20,9 @@ class Dashboard extends Page
     {
         $villageId = config('pamdes.current_village.id');
 
-        $customerQuery = Customer::query();
-        $billQuery = Bill::query();
-        $paymentQuery = Payment::query();
+        $customerQuery = \App\Models\Customer::query();
+        $billQuery = \App\Models\Bill::query();
+        $paymentQuery = \App\Models\Payment::query();
 
         if ($villageId) {
             $customerQuery->byVillage($villageId);
@@ -37,25 +31,34 @@ class Dashboard extends Page
         }
 
         return [
-            Stat::make('Total Pelanggan', $customerQuery->count())
-                ->description('Pelanggan terdaftar')
-                ->descriptionIcon('heroicon-m-users')
-                ->color('primary'),
-
-            Stat::make('Pelanggan Aktif', $customerQuery->active()->count())
-                ->description('Status aktif')
-                ->descriptionIcon('heroicon-m-check-circle')
-                ->color('success'),
-
-            Stat::make('Tagihan Belum Bayar', 'Rp ' . number_format($billQuery->unpaid()->sum('total_amount')))
-                ->description('Total outstanding')
-                ->descriptionIcon('heroicon-m-document-text')
-                ->color('warning'),
-
-            Stat::make('Pembayaran Bulan Ini', 'Rp ' . number_format($paymentQuery->thisMonth()->sum('amount_paid')))
-                ->description('Total terkumpul')
-                ->descriptionIcon('heroicon-m-banknotes')
-                ->color('success'),
+            [
+                'label' => 'Total Pelanggan',
+                'value' => $customerQuery->count(),
+                'description' => 'Pelanggan terdaftar',
+                'icon' => 'heroicon-m-users',
+                'color' => 'primary',
+            ],
+            [
+                'label' => 'Pelanggan Aktif',
+                'value' => $customerQuery->active()->count(),
+                'description' => 'Status aktif',
+                'icon' => 'heroicon-m-check-circle',
+                'color' => 'success',
+            ],
+            [
+                'label' => 'Tagihan Belum Bayar',
+                'value' => 'Rp ' . number_format($billQuery->unpaid()->sum('total_amount')),
+                'description' => 'Total outstanding',
+                'icon' => 'heroicon-m-document-text',
+                'color' => 'warning',
+            ],
+            [
+                'label' => 'Pembayaran Bulan Ini',
+                'value' => 'Rp ' . number_format($paymentQuery->thisMonth()->sum('amount_paid')),
+                'description' => 'Total terkumpul',
+                'icon' => 'heroicon-m-banknotes',
+                'color' => 'success',
+            ],
         ];
     }
 }

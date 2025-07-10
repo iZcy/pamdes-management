@@ -1,21 +1,20 @@
 <?php
-// app/Filament/Resources/VillageResource/Pages/EditVillage.php
+// app/Filament/Resources/VillageResource/Pages/ViewVillage.php
 
 namespace App\Filament\Resources\VillageResource\Pages;
 
 use App\Filament\Resources\VillageResource;
 use Filament\Actions;
-use Filament\Resources\Pages\EditRecord;
+use Filament\Resources\Pages\ViewRecord;
 
-class EditVillage extends EditRecord
+class ViewVillage extends ViewRecord
 {
     protected static string $resource = VillageResource::class;
 
     protected function getHeaderActions(): array
     {
         return [
-            Actions\ViewAction::make(),
-            Actions\DeleteAction::make(),
+            Actions\EditAction::make(),
         ];
     }
 }
