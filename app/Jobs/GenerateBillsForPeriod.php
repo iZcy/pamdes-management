@@ -1,6 +1,6 @@
 <?php
+// app/Jobs/GenerateBillsForPeriod.php - Updated for independent system
 
-// app/Jobs/GenerateBillsForPeriod.php - Complete implementation
 namespace App\Jobs;
 
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -26,18 +26,14 @@ class GenerateBillsForPeriod implements ShouldQueue
 
             Log::info("Generated {$bills->count()} bills for period: {$this->period->period_name}");
 
-            // Send notification to village system if enabled
-            if (config('village.features.notifications_enabled')) {
-                app(\App\Services\VillageApiService::class)->sendNotification(
-                    $this->period->village_id,
-                    'bills_generated',
-                    [
-                        'period' => $this->period->period_name,
-                        'bills_count' => $bills->count(),
-                        'total_amount' => $bills->sum('total_amount'),
-                    ]
-                );
-            }
+            // Log notification locally instead of sending to external system
+            Log::info("Bills generated notification", [
+                'village_id' => $this->period->village_id,
+                'period' => $this->period->period_name,
+                'bills_count' => $bills->count(),
+                'total_amount' => $bills->sum('total_amount'),
+                'timestamp' => now()->toISOString(),
+            ]);
         } catch (\Exception $e) {
             Log::error("Failed to generate bills for period {$this->period->period_name}: " . $e->getMessage());
             throw $e;

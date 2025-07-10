@@ -34,16 +34,4 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
-
-    'village_system' => [
-        'url' => env('VILLAGE_SYSTEM_URL', 'https://kecamatanbayan.id'),
-        'api_key' => env('VILLAGE_SYSTEM_API_KEY'),
-        'timeout' => env('VILLAGE_SYSTEM_TIMEOUT', 10),
-    ],
-
-    'pamdes' => [
-        'url' => env('PAMDES_URL', 'https://pamdes.kecamatanbayan.id'),
-        'api_key' => env('PAMDES_API_KEY'),
-    ],
-
 ];

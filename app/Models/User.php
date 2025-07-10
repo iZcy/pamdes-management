@@ -82,8 +82,7 @@ class User extends Authenticatable implements FilamentUser
     public function getVillageNameAttribute(): string
     {
         if ($this->village_id) {
-            // Get village name from API or cache
-            $village = app(\App\Services\VillageApiService::class)->getVillageById($this->village_id);
+            $village = Village::find($this->village_id);
             return $village['name'] ?? 'Unknown Village';
         }
         return 'All Villages';

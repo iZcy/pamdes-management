@@ -5,6 +5,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\CustomerResource\Pages;
 use App\Models\Customer;
+use App\Models\Village;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -27,6 +28,13 @@ class CustomerResource extends Resource
             ->schema([
                 Forms\Components\Section::make('Informasi Pelanggan')
                     ->schema([
+                        Forms\Components\Select::make('village_id')
+                            ->label('Desa')
+                            ->options(Village::active()->pluck('name', 'id'))
+                            ->searchable()
+                            ->nullable()
+                            ->helperText('Pilih desa untuk pelanggan ini'),
+
                         Forms\Components\TextInput::make('customer_code')
                             ->label('Kode Pelanggan')
                             ->required()
@@ -73,9 +81,6 @@ class CustomerResource extends Resource
                         Forms\Components\TextInput::make('village')
                             ->label('Desa/Kelurahan')
                             ->maxLength(100),
-
-                        Forms\Components\Hidden::make('village_id')
-                            ->default(fn() => request()->get('village_id')),
                     ])
                     ->columns(3),
             ]);
@@ -85,6 +90,11 @@ class CustomerResource extends Resource
     {
         return $table
             ->columns([
+                Tables\Columns\TextColumn::make('village.name')
+                    ->label('Desa')
+                    ->sortable()
+                    ->toggleable(),
+
                 Tables\Columns\TextColumn::make('customer_code')
                     ->label('Kode')
                     ->searchable()
@@ -103,11 +113,6 @@ class CustomerResource extends Resource
                     ->searchable()
                     ->toggleable(),
 
-                Tables\Columns\TextColumn::make('full_address')
-                    ->label('Alamat')
-                    ->limit(50)
-                    ->toggleable(),
-
                 Tables\Columns\BadgeColumn::make('status')
                     ->label('Status')
                     ->colors([
@@ -119,11 +124,6 @@ class CustomerResource extends Resource
                         'inactive' => 'Tidak Aktif',
                     }),
 
-                Tables\Columns\TextColumn::make('current_balance')
-                    ->label('Tagihan')
-                    ->money('IDR')
-                    ->sortable(),
-
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Terdaftar')
                     ->dateTime()
@@ -131,6 +131,10 @@ class CustomerResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                Tables\Filters\SelectFilter::make('village_id')
+                    ->label('Desa')
+                    ->options(Village::active()->pluck('name', 'id')),
+
                 Tables\Filters\SelectFilter::make('status')
                     ->label('Status')
                     ->options([
@@ -141,16 +145,6 @@ class CustomerResource extends Resource
             ->actions([
                 Tables\Actions\ViewAction::make(),
                 Tables\Actions\EditAction::make(),
-                Tables\Actions\Action::make('view_bills')
-                    ->label('Tagihan')
-                    ->icon('heroicon-o-document-text')
-                    ->color('primary')
-                    ->url(fn(Customer $record): string => "/admin/bills?customer_id={$record->customer_id}"),
-            ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
-                ]),
             ]);
     }
 

@@ -1,45 +1,53 @@
 <?php
+// app/Console/Commands/SyncVillageData.php - Updated for independent system
 
-// app/Console/Commands/SyncVillageData.php
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
-use App\Services\VillageApiService;
+use App\Services\VillageService;
+use Illuminate\Support\Facades\Log;
 
 class SyncVillageData extends Command
 {
     protected $signature = 'pamdes:sync-village {village_id?}';
-    protected $description = 'Sync data with village system';
+    protected $description = 'Generate local village reports (no external sync)';
 
-    public function handle(VillageApiService $villageService)
+    public function handle(VillageService $villageService)
     {
         $villageId = $this->argument('village_id');
 
         if ($villageId) {
-            $this->syncVillage($villageService, $villageId);
+            $this->generateVillageReport($villageService, $villageId);
         } else {
-            $villages = $villageService->getActiveVillages();
+            $villages = $villageService->getAllVillages();
             foreach ($villages as $village) {
-                $this->syncVillage($villageService, $village['id']);
+                $this->generateVillageReport($villageService, $village->id);
             }
         }
     }
 
-    protected function syncVillage(VillageApiService $villageService, string $villageId)
+    protected function generateVillageReport(VillageService $villageService, string $villageId)
     {
-        $this->info("Syncing village {$villageId}...");
+        $this->info("Generating report for village {$villageId}...");
 
-        // Generate summary data
+        $village = $villageService->getVillageById($villageId);
+        if (!$village) {
+            $this->error("Village {$villageId} not found");
+            return;
+        }
+
+        // Generate summary data locally
         $summaryData = app(\App\Http\Controllers\Api\ReportController::class)
             ->villageReport(request()->merge(['village_id' => $villageId]))
             ->getData();
 
-        $success = $villageService->sendPamdesSummary($villageId, $summaryData->data);
+        // Log the report locally instead of sending to external API
+        Log::info("Village Report Generated", [
+            'village_id' => $villageId,
+            'village_name' => $village['name'],
+            'data' => $summaryData->data,
+        ]);
 
-        if ($success) {
-            $this->info("Successfully synced village {$villageId}");
-        } else {
-            $this->error("Failed to sync village {$villageId}");
-        }
+        $this->info("Successfully generated report for village {$villageId}");
     }
 }

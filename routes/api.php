@@ -1,5 +1,5 @@
 <?php
-// routes/api.php
+// routes/api.php - Updated for independent system
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -9,7 +9,7 @@ use App\Http\Controllers\Api\ReportController;
 
 /*
 |--------------------------------------------------------------------------
-| API Routes
+| API Routes - Independent PAMDes System
 |--------------------------------------------------------------------------
 */
 
@@ -24,13 +24,14 @@ Route::middleware(['throttle:60,1'])->group(function () {
     Route::get('/health', function () {
         return response()->json([
             'status' => 'ok',
-            'service' => 'PAMDes Management',
+            'service' => 'PAMDes Management System',
+            'mode' => 'independent',
             'timestamp' => now()->toISOString(),
             'version' => config('app.version', '1.0.0'),
         ]);
     });
 
-    // Village integration endpoints
+    // Village endpoints - now works with local data only
     Route::prefix('villages/{village_id}')->group(function () {
 
         // Customer endpoints
@@ -46,10 +47,40 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::get('/reports/monthly', [ReportController::class, 'monthlyReport']);
         Route::get('/reports/village', [ReportController::class, 'villageReport']);
     });
+
+    // Local village management
+    Route::prefix('villages')->group(function () {
+        Route::get('/', function () {
+            $villages = \App\Models\Village::active()->get();
+            return response()->json([
+                'success' => true,
+                'data' => $villages->map(function ($village) {
+                    return [
+                        'id' => $village->id,
+                        'name' => $village->name,
+                        'slug' => $village->slug,
+                        'is_active' => $village->is_active,
+                    ];
+                }),
+            ]);
+        });
+
+        Route::get('/{village_id}', function ($villageId) {
+            $village = \App\Models\Village::find($villageId);
+            if (!$village) {
+                return response()->json(['error' => 'Village not found'], 404);
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => app(\App\Services\VillageService::class)->getVillageById($villageId),
+            ]);
+        });
+    });
 });
 
-// Protected API routes (require village system authentication)
-Route::middleware(['auth:sanctum', 'validate.village.token'])->group(function () {
+// Protected API routes (require authentication)
+Route::middleware(['auth:sanctum'])->group(function () {
 
     // Administrative endpoints
     Route::prefix('admin')->group(function () {
@@ -66,35 +97,84 @@ Route::middleware(['auth:sanctum', 'validate.village.token'])->group(function ()
         Route::get('reports/dashboard', [ReportController::class, 'dashboard']);
         Route::get('reports/collections', [ReportController::class, 'collections']);
         Route::get('reports/export/{type}', [ReportController::class, 'export']);
-    });
-});
 
-// Webhook endpoints for village system integration
-Route::prefix('webhooks')->middleware(['throttle:30,1'])->group(function () {
+        // Village management (local)
+        Route::prefix('villages')->group(function () {
+            Route::get('/', function () {
+                $villages = \App\Models\Village::with(['customers', 'billingPeriods'])->get();
+                return response()->json([
+                    'success' => true,
+                    'data' => $villages,
+                ]);
+            });
 
-    Route::post('village/updated', function (Request $request) {
-        // Handle village data updates from main system
-        $villageData = $request->validate([
-            'village_id' => 'required|string',
-            'action' => 'required|in:updated,deleted,activated,deactivated',
-            'data' => 'sometimes|array',
-        ]);
+            Route::post('/', function (Request $request) {
+                $request->validate([
+                    'name' => 'required|string|max:255',
+                    'slug' => 'required|string|max:255|unique:villages,slug',
+                    'description' => 'nullable|string',
+                    'phone_number' => 'nullable|string',
+                    'email' => 'nullable|email',
+                    'address' => 'nullable|string',
+                ]);
 
-        // Clear relevant caches
-        app(\App\Services\VillageApiService::class)->clearVillageCache();
+                $villageData = array_merge($request->all(), [
+                    'id' => \Illuminate\Support\Str::uuid()->toString(),
+                    'is_active' => true,
+                    'established_at' => now(),
+                ]);
 
-        return response()->json(['status' => 'processed']);
-    });
+                $village = app(\App\Services\VillageService::class)->createOrUpdateVillage($villageData);
 
-    Route::post('user/updated', function (Request $request) {
-        // Handle user updates from main system for SSO
-        $userData = $request->validate([
-            'user_id' => 'required|string',
-            'action' => 'required|in:updated,deleted,role_changed',
-            'data' => 'sometimes|array',
-        ]);
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Village created successfully',
+                    'data' => $village,
+                ], 201);
+            });
 
-        // Process user updates if needed
-        return response()->json(['status' => 'processed']);
+            Route::put('/{village_id}', function (Request $request, $villageId) {
+                $village = \App\Models\Village::find($villageId);
+                if (!$village) {
+                    return response()->json(['error' => 'Village not found'], 404);
+                }
+
+                $request->validate([
+                    'name' => 'sometimes|string|max:255',
+                    'slug' => 'sometimes|string|max:255|unique:villages,slug,' . $villageId,
+                    'description' => 'nullable|string',
+                    'phone_number' => 'nullable|string',
+                    'email' => 'nullable|email',
+                    'address' => 'nullable|string',
+                    'is_active' => 'sometimes|boolean',
+                ]);
+
+                $villageData = array_merge(['id' => $villageId], $request->all());
+                $updatedVillage = app(\App\Services\VillageService::class)->createOrUpdateVillage($villageData);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Village updated successfully',
+                    'data' => $updatedVillage,
+                ]);
+            });
+
+            Route::patch('/{village_id}/status', function (Request $request, $villageId) {
+                $request->validate([
+                    'is_active' => 'required|boolean',
+                ]);
+
+                $success = app(\App\Services\VillageService::class)->setVillageStatus($villageId, $request->is_active);
+
+                if (!$success) {
+                    return response()->json(['error' => 'Village not found'], 404);
+                }
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Village status updated successfully',
+                ]);
+            });
+        });
     });
 });

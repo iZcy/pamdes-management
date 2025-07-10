@@ -1,11 +1,11 @@
 <?php
 
-// app/Providers/VillageServiceProvider.php
+// Update app/Providers/VillageServiceProvider.php
 
 namespace App\Providers;
 
 use Illuminate\Support\ServiceProvider;
-use App\Services\VillageApiService;
+use App\Services\VillageService;
 
 class VillageServiceProvider extends ServiceProvider
 {
@@ -14,8 +14,8 @@ class VillageServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        $this->app->singleton(VillageApiService::class, function ($app) {
-            return new VillageApiService();
+        $this->app->singleton(VillageService::class, function ($app) {
+            return new VillageService();
         });
     }
 

@@ -10,11 +10,15 @@ use App\Models\Bill;
 |--------------------------------------------------------------------------
 */
 
-// Public homepage - customer portal
 Route::get('/', function () {
-    $village = request()->attributes->get('village');
-    return view('customer-portal.index', compact('village'));
-})->middleware(['village.context'])->name('home');
+    return view('welcome');
+});
+
+// Public homepage - customer portal
+// Route::get('/', function () {
+//     $village = request()->attributes->get('village');
+//     return view('customer-portal.index', compact('village'));
+// })->middleware(['village.context'])->name('home');
 
 // Village-specific routes (with village context middleware)
 Route::middleware(['village.context'])->group(function () {
@@ -91,9 +95,4 @@ Route::middleware(['auth'])->prefix('admin')->group(function () {
     Route::get('bills/{bill}/invoice', function (Bill $bill) {
         return view('receipts.invoice', compact('bill'));
     })->name('bill.invoice');
-});
-
-// Redirect admin to Filament
-Route::get('/admin', function () {
-    return redirect('/admin/admin');
 });
