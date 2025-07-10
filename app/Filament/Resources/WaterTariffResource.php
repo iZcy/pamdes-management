@@ -20,6 +20,7 @@ class WaterTariffResource extends Resource
     protected static ?string $modelLabel = 'Tarif Air';
     protected static ?string $pluralModelLabel = 'Tarif Air';
     protected static ?int $navigationSort = 5;
+    protected static ?string $navigationGroup = 'Pengaturan';
 
     public static function form(Form $form): Form
     {

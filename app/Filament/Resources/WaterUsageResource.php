@@ -22,6 +22,7 @@ class WaterUsageResource extends Resource
     protected static ?string $modelLabel = 'Pembacaan Meter';
     protected static ?string $pluralModelLabel = 'Pembacaan Meter';
     protected static ?int $navigationSort = 3;
+    protected static ?string $navigationGroup = 'Manajemen Data';
 
     public static function form(Form $form): Form
     {

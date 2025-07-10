@@ -21,6 +21,7 @@ class BillResource extends Resource
     protected static ?string $modelLabel = 'Tagihan';
     protected static ?string $pluralModelLabel = 'Tagihan';
     protected static ?int $navigationSort = 4;
+    protected static ?string $navigationGroup = 'Tagihan & Pembayaran';
 
     public static function form(Form $form): Form
     {

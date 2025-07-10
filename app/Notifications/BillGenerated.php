@@ -1,54 +1,48 @@
 <?php
 
+// app/Notifications/BillGenerated.php - Complete implementation
 namespace App\Notifications;
 
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
+use App\Models\Bill;
 
-class BillGenerated extends Notification
+class BillGenerated extends Notification implements ShouldQueue
 {
     use Queueable;
 
-    /**
-     * Create a new notification instance.
-     */
-    public function __construct()
-    {
-        //
-    }
+    public function __construct(
+        public Bill $bill
+    ) {}
 
-    /**
-     * Get the notification's delivery channels.
-     *
-     * @return array<int, string>
-     */
     public function via(object $notifiable): array
     {
-        return ['mail'];
+        return ['mail', 'database'];
     }
 
-    /**
-     * Get the mail representation of the notification.
-     */
     public function toMail(object $notifiable): MailMessage
     {
         return (new MailMessage)
-            ->line('The introduction to the notification.')
-            ->action('Notification Action', url('/'))
-            ->line('Thank you for using our application!');
+            ->subject('Tagihan Air Baru - ' . $this->bill->waterUsage->billingPeriod->period_name)
+            ->greeting('Halo ' . $this->bill->waterUsage->customer->name)
+            ->line('Tagihan air untuk periode ' . $this->bill->waterUsage->billingPeriod->period_name . ' telah dibuat.')
+            ->line('Pemakaian air: ' . $this->bill->waterUsage->total_usage_m3 . ' m³')
+            ->line('Total tagihan: Rp ' . number_format($this->bill->total_amount))
+            ->line('Jatuh tempo: ' . $this->bill->due_date->format('d F Y'))
+            ->action('Lihat Tagihan', route('customer.bills', $this->bill->waterUsage->customer->customer_code))
+            ->line('Harap lakukan pembayaran sebelum tanggal jatuh tempo.');
     }
 
-    /**
-     * Get the array representation of the notification.
-     *
-     * @return array<string, mixed>
-     */
     public function toArray(object $notifiable): array
     {
         return [
-            //
+            'bill_id' => $this->bill->bill_id,
+            'customer_name' => $this->bill->waterUsage->customer->name,
+            'period' => $this->bill->waterUsage->billingPeriod->period_name,
+            'amount' => $this->bill->total_amount,
+            'due_date' => $this->bill->due_date,
         ];
     }
 }

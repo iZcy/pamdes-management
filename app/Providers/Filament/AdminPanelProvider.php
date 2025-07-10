@@ -1,5 +1,6 @@
 <?php
 
+// app/Providers/Filament/AdminPanelProvider.php - Updated
 namespace App\Providers\Filament;
 
 use Filament\Http\Middleware\Authenticate;
@@ -27,8 +28,12 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->login()
+            ->brandName('PAMDes Management')
+            ->brandLogo(asset('images/logo.png'))
+            ->favicon(asset('images/favicon.ico'))
             ->colors([
-                'primary' => Color::Amber,
+                'primary' => Color::Blue,
+                'gray' => Color::Slate,
             ])
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')
@@ -38,7 +43,12 @@ class AdminPanelProvider extends PanelProvider
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\\Filament\\Widgets')
             ->widgets([
                 Widgets\AccountWidget::class,
-                Widgets\FilamentInfoWidget::class,
+                \App\Filament\Widgets\StatsOverview::class,
+            ])
+            ->authGuard('admin')
+            ->userMenuItems([
+                'profile' => \Filament\Navigation\MenuItem::make()->label('Profile'),
+                'settings' => \Filament\Navigation\MenuItem::make()->label('Settings'),
             ])
             ->middleware([
                 EncryptCookies::class,
@@ -50,9 +60,29 @@ class AdminPanelProvider extends PanelProvider
                 SubstituteBindings::class,
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
+                \App\Http\Middleware\ResolveVillageContext::class,
             ])
             ->authMiddleware([
                 Authenticate::class,
+            ])
+            ->databaseNotifications()
+            ->navigationGroups([
+                'Manajemen Data' => [
+                    'label' => 'Manajemen Data',
+                    'icon' => 'heroicon-o-folder',
+                ],
+                'Tagihan & Pembayaran' => [
+                    'label' => 'Tagihan & Pembayaran',
+                    'icon' => 'heroicon-o-banknotes',
+                ],
+                'Laporan' => [
+                    'label' => 'Laporan',
+                    'icon' => 'heroicon-o-document-chart-bar',
+                ],
+                'Pengaturan' => [
+                    'label' => 'Pengaturan',
+                    'icon' => 'heroicon-o-cog-6-tooth',
+                ],
             ]);
     }
 }

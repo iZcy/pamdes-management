@@ -20,6 +20,7 @@ class PaymentResource extends Resource
     protected static ?string $modelLabel = 'Pembayaran';
     protected static ?string $pluralModelLabel = 'Pembayaran';
     protected static ?int $navigationSort = 6;
+    protected static ?string $navigationGroup = 'Tagihan & Pembayaran';
 
     public static function form(Form $form): Form
     {

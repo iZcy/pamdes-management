@@ -19,6 +19,7 @@ class BillingPeriodResource extends Resource
     protected static ?string $modelLabel = 'Periode Tagihan';
     protected static ?string $pluralModelLabel = 'Periode Tagihan';
     protected static ?int $navigationSort = 2;
+    protected static ?string $navigationGroup = 'Manajemen Data';
 
     public static function form(Form $form): Form
     {
