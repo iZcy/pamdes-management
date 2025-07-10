@@ -1,4 +1,5 @@
 <?php
+// app/Providers/Filament/AdminPanelProvider.php - Tenant-aware version
 
 namespace App\Providers\Filament;
 
@@ -17,7 +18,6 @@ use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
-use Filament\Navigation\NavigationGroup;
 
 class AdminPanelProvider extends PanelProvider
 {
@@ -28,7 +28,20 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->login()
-            ->brandName('PAMDes Management')
+            ->brandName(function () {
+                // Dynamic brand name based on tenant
+                $tenantContext = config('pamdes.tenant');
+
+                if ($tenantContext && $tenantContext['is_super_admin']) {
+                    return 'PAMDes Super Admin';
+                }
+
+                if ($tenantContext && $tenantContext['type'] === 'village_website' && $tenantContext['village']) {
+                    return 'PAMDes ' . $tenantContext['village']['name'];
+                }
+
+                return 'PAMDes Management';
+            })
             ->brandLogo(asset('images/logo.png'))
             ->favicon(asset('images/favicon.ico'))
             ->colors([
@@ -56,6 +69,7 @@ class AdminPanelProvider extends PanelProvider
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
                 \App\Http\Middleware\ResolveVillageContext::class,
+                \App\Http\Middleware\EnforceVillageAccess::class, // New middleware
             ])
             ->authMiddleware([
                 Authenticate::class,
