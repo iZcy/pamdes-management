@@ -50,14 +50,6 @@ class Kernel extends ConsoleKernel
             ->weekly()
             ->saturdays()
             ->at('02:00');
-
-        // Backup database (if configured)
-        if (config('backup.enabled', false)) {
-            $schedule->command('backup:run')
-                ->daily()
-                ->at('03:00')
-                ->withoutOverlapping();
-        }
     }
 
     protected function commands(): void

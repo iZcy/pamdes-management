@@ -12,10 +12,7 @@ return [
     */
 
     'features' => [
-        'auto_sync_enabled' => false, // Disabled for independent system
         'notifications_enabled' => true,
-        'sso_enabled' => false, // Disabled for independent system
-        'external_api_enabled' => false, // New flag to disable external APIs
     ],
 
     'pamdes' => [
