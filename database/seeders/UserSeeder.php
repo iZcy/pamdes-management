@@ -41,10 +41,13 @@ class UserSeeder extends Seeder
         $villages = Village::all();
 
         foreach ($villages as $village) {
+            // Remove "pamdes-" from the slug (if present)
+            $slugCleaned = str_replace('pamdes-', '', $village->slug);
+
             // Create primary village admin
             $villageAdmin = User::create([
                 'name' => 'Admin PAMDes ' . $village->name,
-                'email' => 'admin@' . $village->slug . '.' . $domain,
+                'email' => 'admin@' . $slugCleaned . '.' . $domain,
                 'password' => Hash::make('password'),
                 'contact_info' => '+62 813-' . rand(1000, 9999) . '-' . rand(1000, 9999),
                 'role' => 'village_admin',
@@ -57,7 +60,7 @@ class UserSeeder extends Seeder
             // Create secondary village admin (operator)
             $villageOperator = User::create([
                 'name' => 'Operator PAMDes ' . $village->name,
-                'email' => 'operator@' . $village->slug . '.' . $domain,
+                'email' => 'operator@' . $slugCleaned . '.' . $domain,
                 'password' => Hash::make('password'),
                 'contact_info' => '+62 814-' . rand(1000, 9999) . '-' . rand(1000, 9999),
                 'role' => 'village_admin',
@@ -108,8 +111,8 @@ class UserSeeder extends Seeder
         $this->command->info('  - Email: system@' . $domain);
         $this->command->info('Village Admins:');
         foreach ($villages as $village) {
-            $this->command->info("  - {$village->name} Admin: admin@{$village->slug}.{$domain}");
-            $this->command->info("  - {$village->name} Operator: operator@{$village->slug}.{$domain}");
+            $this->command->info("  - {$village->name} Admin: admin@{$slugCleaned}.{$domain}");
+            $this->command->info("  - {$village->name} Operator: operator@{$slugCleaned}.{$domain}");
         }
         $this->command->info('Multi-Village Admin:');
         $this->command->info('  - Email: multi@' . $domain);

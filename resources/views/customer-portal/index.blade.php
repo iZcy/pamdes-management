@@ -22,7 +22,8 @@
       <div class="max-w-md mx-auto bg-white rounded-lg shadow-md p-6">
         <h2 class="text-xl font-semibold mb-6 text-center">Cek Tagihan Air</h2>
 
-        <form action="{{ route('customer.bills', '') }}" method="GET" class="space-y-4">
+        <form action="{{ route('portal.lookup') }}" method="POST" class="space-y-4">
+          @csrf
           <div>
             <label for="customer_code" class="block text-sm font-medium text-gray-700 mb-2">
               Kode Pelanggan
