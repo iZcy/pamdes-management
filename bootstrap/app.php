@@ -1,5 +1,5 @@
 <?php
-// bootstrap/app.php - Clean version
+// Update bootstrap/app.php - Add the session domain middleware
 
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -17,9 +17,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'village.context' => \App\Http\Middleware\SetVillageContext::class,
             'super.admin' => \App\Http\Middleware\RequireSuperAdmin::class,
+            'session.domain' => \App\Http\Middleware\SetSessionDomain::class,
         ]);
 
-        // Apply village context to web routes
+        // Apply middleware to web routes
         $middleware->web(append: [
             \App\Http\Middleware\SetVillageContext::class,
         ]);

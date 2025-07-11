@@ -3,6 +3,9 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Models\Customer;
+use App\Models\User;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 
 /*
 |--------------------------------------------------------------------------
@@ -93,5 +96,108 @@ Route::get('/health', function () {
         'timestamp' => now()->toISOString(),
         'village' => config('pamdes.current_village.name', 'Unknown'),
         'host' => request()->getHost(),
+    ]);
+});
+
+Route::get('/debug-context', function () {
+    return response()->json([
+        'host' => request()->getHost(),
+        'current_village' => config('pamdes.current_village'),
+        'current_village_id' => config('pamdes.current_village_id'),
+        'is_super_admin_domain' => config('pamdes.is_super_admin_domain'),
+        'tenant_context' => config('pamdes.tenant'),
+        'env_pattern' => env('PAMDES_VILLAGE_DOMAIN_PATTERN', 'village'),
+        'config_pattern' => config('pamdes.domains.village_pattern'),
+    ]);
+});
+
+Route::get('/debug-user-access', function () {
+    $currentVillageId = config('pamdes.current_village_id');
+
+    // Find the Bayan admin user
+    $user = \App\Models\User::where('email', 'admin@bayan.dev-pamdes.id')->first();
+
+    if (!$user) {
+        return response()->json(['error' => 'User not found']);
+    }
+
+    // Check user's village relationships
+    $userVillages = $user->villages()->get();
+    $primaryVillage = $user->primaryVillage();
+
+    // Check access methods
+    $hasAccessToCurrentVillage = $user->hasAccessToVillage($currentVillageId);
+    $accessibleVillages = $user->getAccessibleVillages();
+
+    return response()->json([
+        'current_village_id' => $currentVillageId,
+        'user' => [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'role' => $user->role,
+            'is_active' => $user->is_active,
+        ],
+        'user_villages' => $userVillages->map(function ($village) {
+            return [
+                'id' => $village->id,
+                'name' => $village->name,
+                'slug' => $village->slug,
+                'is_primary' => $village->pivot->is_primary ?? false,
+            ];
+        }),
+        'primary_village' => $primaryVillage ? [
+            'id' => $primaryVillage->id,
+            'name' => $primaryVillage->name,
+            'slug' => $primaryVillage->slug,
+        ] : null,
+        'has_access_to_current_village' => $hasAccessToCurrentVillage,
+        'accessible_villages' => $accessibleVillages->map(function ($village) {
+            return [
+                'id' => $village->id,
+                'name' => $village->name,
+                'slug' => $village->slug,
+            ];
+        }),
+        'user_village_pivot_table' => DB::table('user_villages')->where('user_id', $user->id)->get(),
+    ]);
+});
+
+Route::middleware(['auth'])->get('/debug-auth', function () {
+    $user = User::find(Auth::id());
+    $currentVillageId = config('pamdes.current_village_id');
+    $tenantContext = config('pamdes.tenant');
+
+    if (!$user) {
+        return response()->json(['error' => 'Not authenticated']);
+    }
+
+    // Get the full user model to access methods
+    $fullUser = \App\Models\User::find($user->id);
+
+    // Test the canAccessPanel method
+    $panel = new \Filament\Panel(); // Create a dummy panel for testing
+
+    return response()->json([
+        'authenticated_user' => [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'role' => $user->role,
+            'is_active' => $user->is_active,
+        ],
+        'current_village_id' => $currentVillageId,
+        'tenant_context' => $tenantContext,
+        'user_methods' => [
+            'isSuperAdmin' => $fullUser->isSuperAdmin(),
+            'isVillageAdmin' => $fullUser->isVillageAdmin(),
+            'hasAccessToVillage' => $fullUser->hasAccessToVillage($currentVillageId),
+            'getCurrentVillageContext' => $fullUser->getCurrentVillageContext(),
+        ],
+        'config_values' => [
+            'is_super_admin_domain' => config('pamdes.is_super_admin_domain'),
+            'current_village' => config('pamdes.current_village.name'),
+        ],
+        // 'can_access_panel' => $fullUser->canAccessPanel($panel), // This might cause issues
     ]);
 });

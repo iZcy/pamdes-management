@@ -1,5 +1,5 @@
 <?php
-// app/Http/Middleware/SetVillageContext.php - Working version for your domains
+// app/Http/Middleware/SetVillageContext.php - Fixed version
 
 namespace App\Http\Middleware;
 
@@ -26,24 +26,29 @@ class SetVillageContext
 
         Log::info("SetVillageContext: Processing host: {$host}");
 
-        // Extract village from domain pattern
-        $villageSlug = $this->extractVillageSlug($host);
+        // Check if this is super admin domain
+        $superAdminDomain = config('pamdes.domains.super_admin', env('PAMDES_SUPER_ADMIN_DOMAIN'));
+        $mainDomain = config('pamdes.domains.main', env('PAMDES_MAIN_DOMAIN'));
 
-        if ($villageSlug) {
-            Log::info("SetVillageContext: Found village slug: {$villageSlug}");
-            $villageData = $this->villageService->getVillageBySlug($villageSlug);
-            if ($villageData) {
-                $village = $villageData;
-                $villageId = $villageData['id'];
-                Log::info("SetVillageContext: Found village: {$village['name']}");
-            }
+        if ($host === $superAdminDomain || $host === $mainDomain) {
+            $isSuperAdmin = true;
+            Log::info("SetVillageContext: Super admin domain detected");
         } else {
-            // Main domain or development fallback
-            Log::info("SetVillageContext: No village slug found, using default village");
-            $villageData = $this->villageService->getDefaultVillage();
-            if ($villageData) {
-                $village = $villageData;
-                $villageId = $villageData['id'];
+            // Extract village from domain pattern
+            $villageSlug = $this->extractVillageSlug($host);
+
+            if ($villageSlug) {
+                Log::info("SetVillageContext: Found village slug: {$villageSlug}");
+                $villageData = $this->villageService->getVillageBySlug($villageSlug);
+                if ($villageData) {
+                    $village = $villageData;
+                    $villageId = $villageData['id'];
+                    Log::info("SetVillageContext: Found village: {$village['name']}");
+                } else {
+                    Log::warning("SetVillageContext: Village not found for slug: {$villageSlug}");
+                }
+            } else {
+                Log::warning("SetVillageContext: No village slug found for host: {$host}");
             }
         }
 
@@ -52,6 +57,13 @@ class SetVillageContext
             'pamdes.current_village' => $village,
             'pamdes.current_village_id' => $villageId,
             'pamdes.is_super_admin_domain' => $isSuperAdmin,
+            // Also set tenant context for compatibility with User model
+            'pamdes.tenant' => [
+                'type' => $villageId ? 'village_website' : 'super_admin',
+                'village_id' => $villageId,
+                'village' => $village,
+                'is_super_admin' => $isSuperAdmin,
+            ],
         ]);
 
         // Share with views
@@ -64,6 +76,7 @@ class SetVillageContext
         Log::info("SetVillageContext: Context set", [
             'village_id' => $villageId,
             'village_name' => $village['name'] ?? 'None',
+            'is_super_admin' => $isSuperAdmin,
         ]);
 
         return $next($request);
@@ -77,6 +90,7 @@ class SetVillageContext
         Log::info("SetVillageContext: Using pattern: {$pattern}");
 
         if (!$pattern || !str_contains($pattern, '{village}')) {
+            Log::warning("SetVillageContext: No valid pattern found");
             return null;
         }
 

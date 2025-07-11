@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
+use Illuminate\Support\Facades\Log;
 
 class User extends Authenticatable implements FilamentUser
 {
@@ -39,27 +40,55 @@ class User extends Authenticatable implements FilamentUser
     // Filament User Interface - Village-aware
     public function canAccessPanel(Panel $panel): bool
     {
+        // Simple check: active users can access
         if (!$this->is_active) {
+            Log::info("Access denied: User not active", ['user_id' => $this->id]);
             return false;
         }
 
-        $tenantContext = config('pamdes.tenant');
-
-        // Super admin can access from any domain
+        // Super admin can always access
         if ($this->isSuperAdmin()) {
+            Log::info("Access granted: Super admin", ['user_id' => $this->id]);
             return true;
         }
 
-        // Regular admin can only access their assigned villages
-        if ($tenantContext && $tenantContext['type'] === 'village_website') {
-            return $this->hasAccessToVillage($tenantContext['village_id']);
+        // Village admin check
+        if ($this->isVillageAdmin()) {
+            $currentVillageId = config('pamdes.current_village_id');
+            $isSuperAdminDomain = config('pamdes.is_super_admin_domain', false);
+
+            Log::info("Village admin access check", [
+                'user_id' => $this->id,
+                'current_village_id' => $currentVillageId,
+                'is_super_admin_domain' => $isSuperAdminDomain,
+            ]);
+
+            // Don't allow village admin on super admin domain
+            if ($isSuperAdminDomain) {
+                Log::info("Access denied: Village admin on super admin domain", ['user_id' => $this->id]);
+                return false;
+            }
+
+            // If we have a village context, check access
+            if ($currentVillageId) {
+                $hasAccess = $this->hasAccessToVillage($currentVillageId);
+                Log::info("Village access check result", [
+                    'user_id' => $this->id,
+                    'village_id' => $currentVillageId,
+                    'has_access' => $hasAccess,
+                ]);
+                return $hasAccess;
+            }
+
+            // If no village context, allow access (shouldn't happen but be permissive)
+            Log::info("Access granted: No village context, allowing village admin", ['user_id' => $this->id]);
+            return true;
         }
 
-        // Block regular users from super admin domain
-        if ($tenantContext && $tenantContext['is_super_admin']) {
-            return false;
-        }
-
+        Log::info("Access denied: Unknown role or condition", [
+            'user_id' => $this->id,
+            'role' => $this->role,
+        ]);
         return false;
     }
 
