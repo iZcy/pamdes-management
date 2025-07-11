@@ -1,17 +1,21 @@
 <?php
-
-// app/Filament/Resources/BillResource.php
+// app/Filament/Resources/BillResource.php - Updated for village context
 
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\BillResource\Pages;
 use App\Models\Bill;
+use App\Models\Customer;
+use App\Models\User;
+use App\Models\WaterUsage;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Support\Colors\Color;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Auth;
 
 class BillResource extends Resource
 {
@@ -23,6 +27,29 @@ class BillResource extends Resource
     protected static ?int $navigationSort = 4;
     protected static ?string $navigationGroup = 'Tagihan & Pembayaran';
 
+    public static function getEloquentQuery(): Builder
+    {
+        $query = parent::getEloquentQuery();
+
+        $user = User::find(Auth::user()->id);
+        $currentVillage = $user?->getCurrentVillageContext();
+
+        if ($user?->isSuperAdmin() && $currentVillage) {
+            // Super admin sees bills for current village context
+            $query->whereHas('waterUsage.customer', function ($q) use ($currentVillage) {
+                $q->where('village_id', $currentVillage);
+            });
+        } elseif ($user?->isVillageAdmin()) {
+            // Village admin sees bills for their accessible villages
+            $accessibleVillages = $user->getAccessibleVillages()->pluck('id');
+            $query->whereHas('waterUsage.customer', function ($q) use ($accessibleVillages) {
+                $q->whereIn('village_id', $accessibleVillages);
+            });
+        }
+
+        return $query;
+    }
+
     public static function form(Form $form): Form
     {
         return $form
@@ -31,11 +58,25 @@ class BillResource extends Resource
                     ->schema([
                         Forms\Components\Select::make('usage_id')
                             ->label('Pembacaan Meter')
-                            ->relationship('waterUsage')
-                            ->getOptionLabelFromRecordUsing(fn($record) =>
-                            "{$record->customer->customer_code} - {$record->customer->name} ({$record->billingPeriod->period_name})")
+                            ->options(function () {
+                                $user = User::find(Auth::user()->id);
+                                $currentVillage = $user?->getCurrentVillageContext();
+
+                                if (!$currentVillage) {
+                                    return [];
+                                }
+
+                                return WaterUsage::whereHas('customer', function ($q) use ($currentVillage) {
+                                    $q->where('village_id', $currentVillage);
+                                })->with(['customer', 'billingPeriod'])
+                                    ->get()
+                                    ->mapWithKeys(function ($usage) {
+                                        return [
+                                            $usage->usage_id => "{$usage->customer->customer_code} - {$usage->customer->name} ({$usage->billingPeriod->period_name})"
+                                        ];
+                                    });
+                            })
                             ->searchable()
-                            ->preload()
                             ->required(),
 
                         Forms\Components\TextInput::make('water_charge')
@@ -49,14 +90,20 @@ class BillResource extends Resource
                             ->required()
                             ->numeric()
                             ->prefix('Rp')
-                            ->default(5000),
+                            ->default(function () {
+                                $village = \App\Models\Village::find(User::find(Auth::user()->id)?->getCurrentVillageContext());
+                                return $village?->getDefaultAdminFee() ?? 5000;
+                            }),
 
                         Forms\Components\TextInput::make('maintenance_fee')
                             ->label('Biaya Pemeliharaan')
                             ->required()
                             ->numeric()
                             ->prefix('Rp')
-                            ->default(2000),
+                            ->default(function () {
+                                $village = \App\Models\Village::find(User::find(Auth::user()->id)?->getCurrentVillageContext());
+                                return $village?->getDefaultMaintenanceFee() ?? 2000;
+                            }),
 
                         Forms\Components\TextInput::make('total_amount')
                             ->label('Total Tagihan')
@@ -64,7 +111,7 @@ class BillResource extends Resource
                             ->numeric()
                             ->prefix('Rp')
                             ->live()
-                            ->afterStateHydrated(function (Forms\Set $set, Forms\Get $get) {
+                            ->afterStateUpdated(function (Forms\Set $set, Forms\Get $get) {
                                 $water = $get('water_charge') ?? 0;
                                 $admin = $get('admin_fee') ?? 0;
                                 $maintenance = $get('maintenance_fee') ?? 0;
@@ -138,18 +185,6 @@ class BillResource extends Resource
                     ->label('Jatuh Tempo')
                     ->date()
                     ->sortable(),
-
-                Tables\Columns\TextColumn::make('payment_date')
-                    ->label('Tgl Bayar')
-                    ->date()
-                    ->sortable()
-                    ->toggleable(),
-
-                Tables\Columns\TextColumn::make('days_overdue')
-                    ->label('Hari Terlambat')
-                    // ->visible(fn(Bill $record) => $record->is_overdue)
-                    ->getStateUsing(fn(Bill $record) => $record->days_overdue . ' hari')
-                    ->color('danger'),
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('status')
@@ -163,10 +198,6 @@ class BillResource extends Resource
                 Tables\Filters\Filter::make('overdue')
                     ->label('Tagihan Terlambat')
                     ->query(fn($query) => $query->overdue()),
-
-                Tables\Filters\Filter::make('this_month')
-                    ->label('Bulan Ini')
-                    ->query(fn($query) => $query->whereMonth('created_at', now()->month)),
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),
@@ -202,11 +233,6 @@ class BillResource extends Resource
                     ->action(function (Bill $record, array $data) {
                         $record->markAsPaid($data);
                     }),
-            ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
-                ]),
             ])
             ->defaultSort('created_at', 'desc');
     }

@@ -1,208 +1,97 @@
 <?php
-// routes/web.php - Fixed version without closure middleware
+// routes/web.php - Working version with village context
 
 use Illuminate\Support\Facades\Route;
 use App\Models\Customer;
-use App\Models\Bill;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 /*
 |--------------------------------------------------------------------------
-| Web Routes - Multi-Tenant (Fixed)
+| Web Routes - PAMDes System with Village Context
 |--------------------------------------------------------------------------
 */
 
-// Apply tenant context to all routes
+// Apply village context middleware to all routes
 Route::middleware(['village.context'])->group(function () {
-    // Default route - handle based on tenant type
+
+    // Homepage
     Route::get('/', function () {
-        return view('welcome');
+        $village = config('pamdes.current_village');
 
-        $tenantType = request()->attributes->get('tenant_type');
-
-        switch ($tenantType) {
-            case 'super_admin':
-                // Redirect to admin panel for super admin
-                return redirect('/admin');
-
-            case 'public_website':
-                // Main PAMDes website homepage
-                $villages = \App\Models\Village::active()->get();
-                return view('public.homepage', compact('villages'));
-
-            case 'village_website':
-                // Village homepage
-                $village = request()->attributes->get('village');
-                $stats = [
-                    'total_customers' => \App\Models\Customer::byVillage($village['id'])->count(),
-                    'active_customers' => \App\Models\Customer::byVillage($village['id'])->active()->count(),
-                    'total_outstanding' => \App\Models\Bill::whereHas('waterUsage.customer', function ($q) use ($village) {
-                        $q->where('village_id', $village['id']);
-                    })->unpaid()->sum('total_amount'),
-                ];
-                return view('village.homepage', compact('village', 'stats'));
-
-            case 'village_not_found':
-                abort(404, 'Village not found');
-
-            default:
-                abort(404, 'Unknown domain');
+        if ($village) {
+            // Show village-specific welcome page
+            return view('welcome', compact('village'));
         }
+
+        // Default welcome page
+        return view('welcome');
     })->name('home');
 
-    // Village-Specific Routes - only for village websites
-    Route::group(['middleware' => 'ensure.village'], function () {
+    // Customer Portal - Village-specific bill checking
+    Route::prefix('portal')->name('portal.')->group(function () {
+        Route::get('/', function () {
+            $village = config('pamdes.current_village');
+            return view('customer-portal.index', compact('village'));
+        })->name('index');
 
-        // Customer Portal (public access)
-        Route::prefix('portal')->name('village.portal')->group(function () {
+        Route::post('/lookup', function () {
+            request()->validate([
+                'customer_code' => 'required|string|max:20'
+            ]);
 
-            Route::get('/', function () {
-                $village = request()->attributes->get('village');
-                return view('village.portal.index', compact('village'));
-            })->name('');
+            $villageId = config('pamdes.current_village_id');
 
-            Route::get('/check/{customer_code}', function ($customerCode) {
-                $village = request()->attributes->get('village');
+            if (!$villageId) {
+                return back()->withErrors(['customer_code' => 'Village context not found.']);
+            }
 
-                try {
-                    $customer = Customer::where('customer_code', $customerCode)
-                        ->byVillage($village['id'])
-                        ->firstOrFail();
+            $customer = Customer::where('customer_code', request('customer_code'))
+                ->where('village_id', $villageId)
+                ->first();
 
-                    $bills = $customer->bills()->unpaid()->with(['waterUsage.billingPeriod'])->get();
+            if (!$customer) {
+                return back()->withErrors(['customer_code' => 'Kode pelanggan tidak ditemukan.']);
+            }
 
-                    return view('village.portal.bills', compact('village', 'customer', 'bills'));
-                } catch (\Exception $e) {
-                    abort(404, 'Customer not found');
-                }
-            })->name('.bills');
+            return redirect()->route('portal.bills', $customer->customer_code);
+        })->name('lookup');
 
-            Route::post('/lookup', function () {
-                $village = request()->attributes->get('village');
+        Route::get('/bills/{customer_code}', function ($customerCode) {
+            $villageId = config('pamdes.current_village_id');
 
-                try {
-                    request()->validate([
-                        'customer_code' => 'required|string|max:20'
-                    ]);
+            if (!$villageId) {
+                abort(404, 'Village not found');
+            }
 
-                    $customer = Customer::where('customer_code', request('customer_code'))
-                        ->byVillage($village['id'])
-                        ->first();
+            $customer = Customer::where('customer_code', $customerCode)
+                ->where('village_id', $villageId)
+                ->firstOrFail();
 
-                    if (!$customer) {
-                        return back()->withErrors(['customer_code' => 'Kode pelanggan tidak ditemukan.']);
-                    }
+            $bills = $customer->bills()->unpaid()->with(['waterUsage.billingPeriod'])->get();
 
-                    return redirect()->route('village.portal.bills', $customer->customer_code);
-                } catch (\Exception $e) {
-                    return back()->withErrors(['customer_code' => 'Terjadi kesalahan. Silakan coba lagi.']);
-                }
-            })->name('.lookup');
-        });
-
-        // Village API endpoints
-        Route::prefix('api')->name('village.api')->group(function () {
-
-            Route::get('/stats', function () {
-                $village = request()->attributes->get('village');
-
-                return response()->json([
-                    'village' => $village,
-                    'stats' => [
-                        'customers' => \App\Models\Customer::byVillage($village['id'])->count(),
-                        'active_customers' => \App\Models\Customer::byVillage($village['id'])->active()->count(),
-                        'outstanding' => \App\Models\Bill::whereHas('waterUsage.customer', function ($q) use ($village) {
-                            $q->where('village_id', $village['id']);
-                        })->unpaid()->sum('total_amount'),
-                    ]
-                ]);
-            })->name('.stats');
-
-            Route::get('/customer/{customer_code}', function ($customerCode) {
-                $village = request()->attributes->get('village');
-
-                try {
-                    $customer = Customer::where('customer_code', $customerCode)
-                        ->byVillage($village['id'])
-                        ->with(['bills.waterUsage.billingPeriod'])
-                        ->first();
-
-                    if (!$customer) {
-                        return response()->json(['error' => 'Customer not found'], 404);
-                    }
-
-                    return response()->json([
-                        'customer' => $customer,
-                        'bills' => $customer->bills->map(function ($bill) {
-                            return [
-                                'id' => $bill->bill_id,
-                                'period' => $bill->waterUsage->billingPeriod->period_name,
-                                'usage' => $bill->waterUsage->total_usage_m3,
-                                'amount' => $bill->total_amount,
-                                'status' => $bill->status,
-                                'due_date' => $bill->due_date,
-                                'is_overdue' => $bill->is_overdue,
-                            ];
-                        })
-                    ]);
-                } catch (\Exception $e) {
-                    return response()->json(['error' => 'Internal server error'], 500);
-                }
-            })->name('.customer');
-        });
-    });
-
-    // Public Website Routes (pamdes.local only)
-    Route::group(['middleware' => 'ensure.public'], function () {
-
-        Route::get('/villages', function () {
-            $villages = \App\Models\Village::active()->get();
-            return view('public.villages', compact('villages'));
-        })->name('public.villages');
-
-        Route::get('/about', function () {
-            return view('public.about');
-        })->name('public.about');
+            return view('customer-portal.bills', compact('customer', 'bills'));
+        })->name('bills');
     });
 });
 
 // Admin routes (protected by auth)
-Route::middleware(['auth', 'village.access'])->prefix('admin')->group(function () {
+Route::middleware(['auth'])->prefix('admin')->group(function () {
 
     // Receipt printing routes
     Route::get('payments/{payment}/receipt', function (\App\Models\Payment $payment) {
-        try {
-            return view('receipts.payment', compact('payment'));
-        } catch (\Exception $e) {
-            Log::error('Error generating payment receipt: ' . $e->getMessage());
-            abort(500, 'Unable to generate receipt');
-        }
+        return view('receipts.payment', compact('payment'));
     })->name('payment.receipt');
 
-    Route::get('bills/{bill}/invoice', function (Bill $bill) {
-        try {
-            return view('receipts.invoice', compact('bill'));
-        } catch (\Exception $e) {
-            Log::error('Error generating bill invoice: ' . $e->getMessage());
-            abort(500, 'Unable to generate invoice');
-        }
+    Route::get('bills/{bill}/invoice', function (\App\Models\Bill $bill) {
+        return view('receipts.invoice', compact('bill'));
     })->name('bill.invoice');
 });
 
-// Health check (no middleware)
+// Health check (no middleware needed)
 Route::get('/health', function () {
-    try {
-        DB::connection()->getPdo();
-        return response()->json([
-            'status' => 'ok',
-            'timestamp' => now()->toISOString(),
-            'tenant' => request()->attributes->get('tenant_type', 'unknown'),
-        ]);
-    } catch (\Exception $e) {
-        return response()->json([
-            'status' => 'error',
-            'timestamp' => now()->toISOString(),
-        ], 500);
-    }
+    return response()->json([
+        'status' => 'ok',
+        'timestamp' => now()->toISOString(),
+        'village' => config('pamdes.current_village.name', 'Unknown'),
+        'host' => request()->getHost(),
+    ]);
 });

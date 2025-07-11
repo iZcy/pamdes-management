@@ -1,5 +1,5 @@
 <?php
-// database/seeders/UserSeeder.php - Updated for dynamic domains
+// database/seeders/UserSeeder.php - Updated for new user-village relationship
 
 namespace Database\Seeders;
 
@@ -12,28 +12,22 @@ class UserSeeder extends Seeder
 {
     public function run(): void
     {
-        // Get domain configuration
-        $superAdminDomain = config('pamdes.domains.super_admin');
-        $mainDomain = config('pamdes.domains.main');
-
-        // Create super admin (can access from super admin domain)
-        User::create([
+        // Create super admin
+        $superAdmin = User::create([
             'name' => 'PAMDes Super Administrator',
-            'email' => 'admin@' . $mainDomain,
+            'email' => 'admin@pamdes.local',
             'password' => Hash::make('password'),
             'contact_info' => '+62 812-3456-7890',
-            'village_id' => null, // Super admin - no village restriction
             'role' => 'super_admin',
             'is_active' => true,
         ]);
 
         // Create another super admin
-        User::create([
+        $systemAdmin = User::create([
             'name' => 'System Administrator',
-            'email' => 'system@' . $superAdminDomain,
+            'email' => 'system@pamdes.local',
             'password' => Hash::make('password'),
             'contact_info' => '+62 813-1111-2222',
-            'village_id' => null,
             'role' => 'super_admin',
             'is_active' => true,
         ]);
@@ -42,45 +36,63 @@ class UserSeeder extends Seeder
         $villages = Village::all();
 
         foreach ($villages as $village) {
-            // Get village domain
-            $villageDomain = str_replace('{village}', $village->slug, config('pamdes.domains.village_pattern'));
-
             // Create primary village admin
-            User::create([
+            $villageAdmin = User::create([
                 'name' => 'Admin PAMDes ' . $village->name,
-                'email' => 'admin@' . $villageDomain,
+                'email' => 'admin@' . $village->slug . '.local',
                 'password' => Hash::make('password'),
                 'contact_info' => '+62 813-' . rand(1000, 9999) . '-' . rand(1000, 9999),
-                'village_id' => $village->id,
                 'role' => 'village_admin',
                 'is_active' => true,
             ]);
 
-            // Create secondary village admin (kasir/operator)
-            User::create([
+            // Assign village to admin (primary)
+            $villageAdmin->assignToVillage($village->id, true);
+
+            // Create secondary village admin (operator)
+            $villageOperator = User::create([
                 'name' => 'Operator PAMDes ' . $village->name,
-                'email' => 'operator@' . $villageDomain,
+                'email' => 'operator@' . $village->slug . '.local',
                 'password' => Hash::make('password'),
                 'contact_info' => '+62 814-' . rand(1000, 9999) . '-' . rand(1000, 9999),
-                'village_id' => $village->id,
-                'role' => 'village_operator',
+                'role' => 'village_admin',
                 'is_active' => true,
             ]);
+
+            // Assign village to operator (not primary)
+            $villageOperator->assignToVillage($village->id, false);
         }
 
-        $this->command->info('Created users:');
-        $this->command->info('- Super Admins: Can access from ' . $superAdminDomain);
-        $this->command->info('- Village Admins: Can access from their respective village domains');
+        // Create a multi-village admin (example)
+        if ($villages->count() > 1) {
+            $multiVillageAdmin = User::create([
+                'name' => 'Multi Village Administrator',
+                'email' => 'multi@pamdes.local',
+                'password' => Hash::make('password'),
+                'contact_info' => '+62 815-' . rand(1000, 9999) . '-' . rand(1000, 9999),
+                'role' => 'village_admin',
+                'is_active' => true,
+            ]);
+
+            // Assign first two villages
+            $firstVillage = $villages->first();
+            $secondVillage = $villages->skip(1)->first();
+
+            $multiVillageAdmin->assignToVillage($firstVillage->id, true); // Primary
+            $multiVillageAdmin->assignToVillage($secondVillage->id, false); // Secondary
+        }
+
+        $this->command->info('Created users with village assignments:');
+        $this->command->info('- Super Admins: Can access all villages');
+        $this->command->info('- Village Admins: Assigned to specific villages');
+        $this->command->info('- Multi-village Admin: Can access multiple villages');
         $this->command->info('- All passwords: password');
         $this->command->info('');
-        $this->command->info('Access URLs:');
-        $this->command->info('- Super Admin: ' . (request()->isSecure() ? 'https' : 'http') . '://' . $superAdminDomain . '/admin');
-        $this->command->info('- Main Website: ' . (request()->isSecure() ? 'https' : 'http') . '://' . $mainDomain);
+        $this->command->info('Login URLs:');
+        $this->command->info('- Development: http://localhost:8000/admin');
 
         foreach ($villages as $village) {
-            $villageDomain = str_replace('{village}', $village->slug, config('pamdes.domains.village_pattern'));
-            $protocol = request()->isSecure() ? 'https' : 'http';
-            $this->command->info("- {$village->name}: {$protocol}://{$villageDomain}/admin");
+            $this->command->info("- {$village->name}: http://{$village->slug}.localhost:8000/admin");
         }
     }
 }

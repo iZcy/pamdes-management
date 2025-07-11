@@ -1,6 +1,5 @@
 <?php
-
-// app/Filament/Resources/WaterUsageResource.php
+// app/Filament/Resources/WaterUsageResource.php - Updated for village context
 
 namespace App\Filament\Resources;
 
@@ -8,11 +7,14 @@ use App\Filament\Resources\WaterUsageResource\Pages;
 use App\Models\WaterUsage;
 use App\Models\Customer;
 use App\Models\BillingPeriod;
+use App\Models\User;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Auth;
 
 class WaterUsageResource extends Resource
 {
@@ -24,6 +26,28 @@ class WaterUsageResource extends Resource
     protected static ?int $navigationSort = 3;
     protected static ?string $navigationGroup = 'Manajemen Data';
 
+    public static function getEloquentQuery(): Builder
+    {
+        $query = parent::getEloquentQuery();
+
+        $user = Auth::user();
+        $user = User::find($user->id);
+        $currentVillage = $user?->getCurrentVillageContext();
+
+        if ($user?->isSuperAdmin() && $currentVillage) {
+            $query->whereHas('customer', function ($q) use ($currentVillage) {
+                $q->where('village_id', $currentVillage);
+            });
+        } elseif ($user?->isVillageAdmin()) {
+            $accessibleVillages = $user->getAccessibleVillages()->pluck('id');
+            $query->whereHas('customer', function ($q) use ($accessibleVillages) {
+                $q->whereIn('village_id', $accessibleVillages);
+            });
+        }
+
+        return $query;
+    }
+
     public static function form(Form $form): Form
     {
         return $form
@@ -32,18 +56,41 @@ class WaterUsageResource extends Resource
                     ->schema([
                         Forms\Components\Select::make('customer_id')
                             ->label('Pelanggan')
-                            ->relationship('customer', 'name')
-                            ->searchable()
-                            ->preload()
-                            ->required()
-                            ->getOptionLabelFromRecordUsing(fn(Customer $record) => "{$record->customer_code} - {$record->name}"),
+                            ->options(function () {
+                                $user = Auth::user();
+                                $user = User::find($user->id);
+                                $currentVillage = $user?->getCurrentVillageContext();
 
-                        // Forms\Components\Select::make('period_id')
-                        //     ->label('Periode Tagihan')
-                        //     ->relationship('billingPeriod', 'period_name')
-                        //     ->searchable()
-                        //     ->preload()
-                        //     ->required(),
+                                if (!$currentVillage) {
+                                    return [];
+                                }
+
+                                return Customer::where('village_id', $currentVillage)
+                                    ->where('status', 'active')
+                                    ->get()
+                                    ->mapWithKeys(function ($customer) {
+                                        return [
+                                            $customer->customer_id => "{$customer->customer_code} - {$customer->name}"
+                                        ];
+                                    });
+                            })
+                            ->searchable()
+                            ->required(),
+
+                        Forms\Components\Select::make('period_id')
+                            ->label('Periode Tagihan')
+                            ->options(function () {
+                                $user = Auth::user();
+                                $user = User::find($user->id);
+                                $currentVillage = $user?->getCurrentVillageContext();
+
+                                return BillingPeriod::where('village_id', $currentVillage)
+                                    ->orderBy('year', 'desc')
+                                    ->orderBy('month', 'desc')
+                                    ->get()
+                                    ->pluck('period_name', 'period_id');
+                            })
+                            ->required(),
 
                         Forms\Components\TextInput::make('initial_meter')
                             ->label('Meter Awal')
@@ -99,9 +146,9 @@ class WaterUsageResource extends Resource
                     ->searchable()
                     ->limit(30),
 
-                // Tables\Columns\TextColumn::make('billingPeriod.period_name')
-                //     ->label('Periode')
-                //     ->sortable(),
+                Tables\Columns\TextColumn::make('billingPeriod.period_name')
+                    ->label('Periode')
+                    ->sortable(),
 
                 Tables\Columns\TextColumn::make('initial_meter')
                     ->label('Meter Awal')
@@ -121,11 +168,7 @@ class WaterUsageResource extends Resource
                     ->date()
                     ->sortable(),
 
-                Tables\Columns\TextColumn::make('reader_name')
-                    ->label('Pembaca')
-                    ->toggleable(),
-
-                Tables\Columns\IconColumn::make('bill')
+                Tables\Columns\IconColumn::make('bill_exists')
                     ->label('Sudah Dibill')
                     ->boolean()
                     ->getStateUsing(fn(WaterUsage $record): bool => $record->bill !== null)
@@ -133,10 +176,6 @@ class WaterUsageResource extends Resource
                     ->falseIcon('heroicon-o-x-circle'),
             ])
             ->filters([
-                // Tables\Filters\SelectFilter::make('period_id')
-                //     ->label('Periode')
-                //     ->relationship('billingPeriod', 'period_name'),
-
                 Tables\Filters\Filter::make('has_bill')
                     ->label('Sudah Dibill')
                     ->query(fn($query) => $query->whereHas('bill')),
@@ -154,16 +193,12 @@ class WaterUsageResource extends Resource
                     ->color('success')
                     ->visible(fn(WaterUsage $record): bool => $record->bill === null)
                     ->action(function (WaterUsage $record) {
+                        $village = \App\Models\Village::find($record->customer->village_id);
                         $record->generateBill([
-                            'admin_fee' => 5000,
-                            'maintenance_fee' => 2000,
+                            'admin_fee' => $village?->getDefaultAdminFee() ?? 5000,
+                            'maintenance_fee' => $village?->getDefaultMaintenanceFee() ?? 2000,
                         ]);
                     }),
-            ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
-                ]),
             ])
             ->defaultSort('usage_date', 'desc');
     }

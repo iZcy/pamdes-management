@@ -22,9 +22,5 @@ class VillageServiceProvider extends ServiceProvider
     /**
      * Bootstrap services.
      */
-    public function boot(): void
-    {
-        // Register village-related configurations
-        $this->mergeConfigFrom(__DIR__ . '/../../config/village.php', 'village');
-    }
+    public function boot(): void {}
 }

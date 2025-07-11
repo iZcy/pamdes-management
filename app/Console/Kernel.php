@@ -11,9 +11,7 @@ class Kernel extends ConsoleKernel
     protected $commands = [
         Commands\GenerateBills::class,
         Commands\UpdateOverdueBills::class,
-        Commands\SyncVillageData::class, // Now generates local reports
         Commands\CreateVillage::class, // New command
-        Commands\ShowDomainConfig::class, // New command for domain management
     ];
 
     protected function schedule(Schedule $schedule): void

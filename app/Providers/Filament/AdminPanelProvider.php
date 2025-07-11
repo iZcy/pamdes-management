@@ -3,6 +3,8 @@
 
 namespace App\Providers\Filament;
 
+use App\Http\Middleware\RequireSuperAdmin;
+use App\Http\Middleware\SetVillageContext;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -68,8 +70,8 @@ class AdminPanelProvider extends PanelProvider
                 SubstituteBindings::class,
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
-                \App\Http\Middleware\ResolveVillageContext::class,
-                \App\Http\Middleware\EnforceVillageAccess::class, // New middleware
+                RequireSuperAdmin::class,
+                SetVillageContext::class
             ])
             ->authMiddleware([
                 Authenticate::class,

@@ -1,5 +1,5 @@
 <?php
-// app/Models/User.php - Updated with tenant awareness
+// app/Models/User.php - Updated with village relationships
 
 namespace App\Models;
 
@@ -16,10 +16,9 @@ class User extends Authenticatable implements FilamentUser
         'name',
         'email',
         'password',
-        'village_id',
         'contact_info',
         'is_active',
-        'role', // Add role field
+        'role',
     ];
 
     protected $hidden = [
@@ -33,10 +32,11 @@ class User extends Authenticatable implements FilamentUser
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_active' => 'boolean',
+            'role' => 'string',
         ];
     }
 
-    // Filament User Interface - Tenant-aware
+    // Filament User Interface - Village-aware
     public function canAccessPanel(Panel $panel): bool
     {
         if (!$this->is_active) {
@@ -50,9 +50,9 @@ class User extends Authenticatable implements FilamentUser
             return true;
         }
 
-        // Regular admin can only access their village's admin panel
+        // Regular admin can only access their assigned villages
         if ($tenantContext && $tenantContext['type'] === 'village_website') {
-            return $this->village_id === $tenantContext['village_id'];
+            return $this->hasAccessToVillage($tenantContext['village_id']);
         }
 
         // Block regular users from super admin domain
@@ -64,9 +64,19 @@ class User extends Authenticatable implements FilamentUser
     }
 
     // Relationships
-    public function village()
+    public function villages()
     {
-        return $this->belongsTo(Village::class, 'village_id', 'id');
+        return $this->belongsToMany(Village::class, 'user_villages')
+            ->withPivot('is_primary')
+            ->withTimestamps();
+    }
+
+    public function primaryVillage()
+    {
+        return $this->belongsToMany(Village::class, 'user_villages')
+            ->wherePivot('is_primary', true)
+            ->withTimestamps()
+            ->first();
     }
 
     // Scopes
@@ -77,99 +87,90 @@ class User extends Authenticatable implements FilamentUser
 
     public function scopeForVillage($query, $villageId)
     {
-        return $query->where('village_id', $villageId);
+        return $query->whereHas('villages', function ($q) use ($villageId) {
+            $q->where('village_id', $villageId);
+        });
     }
 
     public function scopeSuperAdmins($query)
     {
-        return $query->whereNull('village_id')->orWhere('role', 'super_admin');
+        return $query->where('role', 'super_admin');
     }
 
     public function scopeVillageAdmins($query)
     {
-        return $query->whereNotNull('village_id')->where('role', '!=', 'super_admin');
+        return $query->where('role', 'village_admin');
     }
 
     // Helper methods
     public function isSuperAdmin(): bool
     {
-        return $this->village_id === null || $this->role === 'super_admin';
+        return $this->role === 'super_admin';
     }
 
     public function isVillageAdmin(): bool
     {
-        return $this->village_id !== null && $this->role !== 'super_admin';
+        return $this->role === 'village_admin';
     }
 
-    public function canManageVillage($villageId): bool
+    public function hasAccessToVillage($villageId): bool
     {
-        // Super admin can manage any village
+        // Super admin can access any village
         if ($this->isSuperAdmin()) {
             return true;
         }
 
-        // Regular admin can only manage their assigned village
-        return $this->village_id === $villageId;
+        // Check if user is assigned to this village
+        return $this->villages()->where('village_id', $villageId)->exists();
     }
 
-    public function getVillageNameAttribute(): string
-    {
-        if ($this->village_id && $this->village) {
-            return $this->village->name;
-        }
-
-        if ($this->isSuperAdmin()) {
-            return 'All Villages (Super Admin)';
-        }
-
-        return 'No Village Assigned';
-    }
-
-    public function getRoleDisplayAttribute(): string
-    {
-        if ($this->isSuperAdmin()) {
-            return 'Super Administrator';
-        }
-
-        if ($this->isVillageAdmin()) {
-            return 'Village Administrator - ' . $this->village_name;
-        }
-
-        return 'User';
-    }
-
-    // Get accessible villages for this user
     public function getAccessibleVillages()
     {
         if ($this->isSuperAdmin()) {
             return Village::active()->get();
         }
 
-        if ($this->village_id) {
-            return Village::where('id', $this->village_id)->get();
-        }
-
-        return collect();
+        return $this->villages()->where('is_active', true)->get();
     }
 
-    // Check if user can access specific tenant context
-    public function canAccessTenant(array $tenantContext): bool
+    public function getPrimaryVillageId(): ?string
     {
-        // Super admin can access everything
+        return $this->primaryVillage()?->id;
+    }
+
+    public function assignToVillage(string $villageId, bool $isPrimary = false): void
+    {
+        // If setting as primary, remove primary flag from other villages
+        if ($isPrimary) {
+            $this->villages()->updateExistingPivot(
+                $this->villages()->pluck('id'),
+                ['is_primary' => false]
+            );
+        }
+
+        $this->villages()->syncWithoutDetaching([
+            $villageId => ['is_primary' => $isPrimary]
+        ]);
+    }
+
+    public function removeFromVillage(string $villageId): void
+    {
+        $this->villages()->detach($villageId);
+    }
+
+    public function getCurrentVillageContext(): ?string
+    {
+        $tenantContext = config('pamdes.tenant');
+
+        if ($tenantContext && $tenantContext['type'] === 'village_website') {
+            return $tenantContext['village_id'];
+        }
+
+        // Fallback to primary village for super admin
         if ($this->isSuperAdmin()) {
-            return true;
+            return $this->getPrimaryVillageId();
         }
 
-        // Village admin can only access their village
-        if ($tenantContext['type'] === 'village_website') {
-            return $this->village_id === $tenantContext['village_id'];
-        }
-
-        // Regular users cannot access super admin context
-        if ($tenantContext['is_super_admin']) {
-            return false;
-        }
-
-        return false;
+        return $this->getPrimaryVillageId();
     }
 }

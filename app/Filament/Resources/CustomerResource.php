@@ -1,16 +1,18 @@
 <?php
-// app/Filament/Resources/CustomerResource.php
+// app/Filament/Resources/CustomerResource.php - Updated for village context
 
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\CustomerResource\Pages;
 use App\Models\Customer;
-use App\Models\Village;
+use App\Models\User;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Auth;
 
 class CustomerResource extends Resource
 {
@@ -22,24 +24,44 @@ class CustomerResource extends Resource
     protected static ?int $navigationSort = 1;
     protected static ?string $navigationGroup = 'Manajemen Data';
 
+    public static function getEloquentQuery(): Builder
+    {
+        $query = parent::getEloquentQuery();
+
+        // For super admin, show all customers or filter by current village context
+        $user = User::find(Auth::user()->id);
+        if ($user?->isSuperAdmin()) {
+            $currentVillage = $user->getCurrentVillageContext();
+            if ($currentVillage) {
+                $query->byVillage($currentVillage);
+            }
+        } else {
+            // For village admin, only show customers from their accessible villages
+            $accessibleVillages = $user?->getAccessibleVillages()->pluck('id') ?? collect();
+            $query->whereIn('village_id', $accessibleVillages);
+        }
+
+        return $query;
+    }
+
     public static function form(Form $form): Form
     {
         return $form
             ->schema([
                 Forms\Components\Section::make('Informasi Pelanggan')
                     ->schema([
-                        Forms\Components\Select::make('village_id')
-                            ->label('Desa')
-                            ->options(Village::active()->pluck('name', 'id'))
-                            ->searchable()
-                            ->nullable()
-                            ->helperText('Pilih desa untuk pelanggan ini'),
+                        Forms\Components\Hidden::make('village_id')
+                            ->default(function () {
+                                $user = Auth::user();
+                                $user = User::find($user->id);
+                                return $user && $user?->getCurrentVillageContext();
+                            }),
 
                         Forms\Components\TextInput::make('customer_code')
                             ->label('Kode Pelanggan')
                             ->required()
                             ->unique(ignoreRecord: true)
-                            ->default(fn() => Customer::generateCustomerCode())
+                            ->default(fn() => Customer::generateCustomerCode(User::find(Auth::user()->id)?->getCurrentVillageContext()))
                             ->maxLength(20),
 
                         Forms\Components\TextInput::make('name')
@@ -90,11 +112,6 @@ class CustomerResource extends Resource
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('village.name')
-                    ->label('Desa')
-                    ->sortable()
-                    ->toggleable(),
-
                 Tables\Columns\TextColumn::make('customer_code')
                     ->label('Kode')
                     ->searchable()
@@ -113,7 +130,7 @@ class CustomerResource extends Resource
                     ->searchable()
                     ->toggleable(),
 
-                Tables\Columns\BadgeColumn::make('status')
+                Tables\Columns\TextColumn::make('status')
                     ->label('Status')
                     ->colors([
                         'success' => 'active',
@@ -131,10 +148,6 @@ class CustomerResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                Tables\Filters\SelectFilter::make('village_id')
-                    ->label('Desa')
-                    ->options(Village::active()->pluck('name', 'id')),
-
                 Tables\Filters\SelectFilter::make('status')
                     ->label('Status')
                     ->options([
