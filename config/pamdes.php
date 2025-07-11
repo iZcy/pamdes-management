@@ -1,5 +1,5 @@
 <?php
-// config/pamdes.php - Optimized version without redundancy
+// config/pamdes.php - Updated with better defaults
 
 return [
     /*
@@ -8,10 +8,10 @@ return [
     |--------------------------------------------------------------------------
     */
     'domains' => [
-        'main' => env('PAMDES_MAIN_DOMAIN', 'pamdes.local'),
-        // Super admin uses APP_DOMAIN - no separate config needed
-        'super_admin' => env('APP_DOMAIN', 'localhost'),
-        'village_pattern' => env('PAMDES_VILLAGE_DOMAIN_PATTERN', 'pamdes-{village}.local'),
+        'main' => env('PAMDES_MAIN_DOMAIN', env('APP_URL', 'localhost:8000')),
+        // Super admin uses APP_DOMAIN with fallback to APP_URL
+        'super_admin' => env('APP_DOMAIN', parse_url(env('APP_URL', 'localhost:8000'), PHP_URL_HOST) . (parse_url(env('APP_URL', 'localhost:8000'), PHP_URL_PORT) ? ':' . parse_url(env('APP_URL'), PHP_URL_PORT) : '')),
+        'village_pattern' => env('PAMDES_VILLAGE_DOMAIN_PATTERN', env('APP_URL', 'localhost:8000')),
     ],
 
     /*
@@ -19,9 +19,9 @@ return [
     | Village System Configuration (Independent)
     |--------------------------------------------------------------------------
     */
-    'features' => [
-        'notifications_enabled' => env('PAMDES_NOTIFICATIONS_ENABLED', true),
-    ],
+    // 'features' => [
+    //     'notifications_enabled' => env('PAMDES_NOTIFICATIONS_ENABLED', true),
+    // ],
 
     'billing' => [
         'default_admin_fee' => env('PAMDES_DEFAULT_ADMIN_FEE', 5000),

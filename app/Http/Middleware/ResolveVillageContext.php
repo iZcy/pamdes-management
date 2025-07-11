@@ -1,5 +1,5 @@
 <?php
-// app/Http/Middleware/ResolveVillageContext.php - Dynamic domain version
+// app/Http/Middleware/ResolveVillageContext.php - Fixed for localhost
 
 namespace App\Http\Middleware;
 
@@ -21,7 +21,10 @@ class ResolveVillageContext
     {
         try {
             $host = $request->getHost();
-            $tenantContext = $this->resolveTenantContext($host);
+            $port = $request->getPort();
+            $fullHost = $host . ($port && !in_array($port, [80, 443]) ? ':' . $port : '');
+
+            $tenantContext = $this->resolveTenantContext($fullHost);
 
             // Set tenant context in request
             $request->attributes->set('tenant_type', $tenantContext['type']);
@@ -35,13 +38,13 @@ class ResolveVillageContext
         } catch (\Exception $e) {
             // Log error but don't break the request
             Log::warning('Failed to resolve tenant context: ' . $e->getMessage(), [
-                'host' => $host,
+                'host' => $fullHost,
                 'path' => $request->getPathInfo(),
             ]);
 
-            // Set safe defaults
+            // Set safe defaults for localhost development
             $defaultContext = [
-                'type' => 'unknown',
+                'type' => 'public_website', // Default to public website for localhost
                 'village' => null,
                 'village_id' => null,
                 'is_super_admin' => false,
@@ -59,15 +62,25 @@ class ResolveVillageContext
         return $next($request);
     }
 
-    private function resolveTenantContext(string $host): array
+    private function resolveTenantContext(string $fullHost): array
     {
-        // Get domains from config
-        $superAdminDomain = config('pamdes.domains.super_admin');
-        $mainDomain = config('pamdes.domains.main');
-        $villagePattern = config('pamdes.domains.village_pattern');
+        // Get domains from config with fallbacks
+        $superAdminDomain = config('pamdes.domains.super_admin', config('app.domain', 'localhost:8000'));
+        $mainDomain = config('pamdes.domains.main', 'localhost:8000');
+        $villagePattern = config('pamdes.domains.village_pattern', 'localhost:8000');
+
+        // For localhost development, treat as public website by default
+        if (str_contains($fullHost, 'localhost') || str_contains($fullHost, '127.0.0.1')) {
+            return [
+                'type' => 'public_website',
+                'village' => null,
+                'village_id' => null,
+                'is_super_admin' => false,
+            ];
+        }
 
         // Super Admin: Configured super admin domain
-        if ($host === $superAdminDomain) {
+        if ($fullHost === $superAdminDomain) {
             return [
                 'type' => 'super_admin',
                 'village' => null,
@@ -77,7 +90,7 @@ class ResolveVillageContext
         }
 
         // Main PAMDes website: Configured main domain
-        if ($host === $mainDomain) {
+        if ($fullHost === $mainDomain) {
             return [
                 'type' => 'public_website',
                 'village' => null,
@@ -87,7 +100,7 @@ class ResolveVillageContext
         }
 
         // Village-specific websites: Extract pattern and village slug
-        $villageSlug = $this->extractVillageSlug($host, $villagePattern);
+        $villageSlug = $this->extractVillageSlug($fullHost, $villagePattern);
 
         if ($villageSlug) {
             // Get village data by slug
@@ -111,16 +124,16 @@ class ResolveVillageContext
             }
         }
 
-        // Unknown domain
+        // Unknown domain - default to public website
         return [
-            'type' => 'unknown',
+            'type' => 'public_website',
             'village' => null,
             'village_id' => null,
             'is_super_admin' => false,
         ];
     }
 
-    private function extractVillageSlug(string $host, string $pattern): ?string
+    private function extractVillageSlug(string $fullHost, string $pattern): ?string
     {
         // Convert pattern to regex
         // Example: pamdes-{village}.example.com -> /^pamdes-(.+)\.example\.com$/
@@ -131,7 +144,7 @@ class ResolveVillageContext
         );
         $regex = str_replace('\(\.\+\)', '(.+)', $regex);
 
-        if (preg_match($regex, $host, $matches)) {
+        if (preg_match($regex, $fullHost, $matches)) {
             return $matches[1];
         }
 

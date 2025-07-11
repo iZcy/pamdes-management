@@ -29,10 +29,10 @@
           <div class="bg-white rounded-lg shadow-md p-6">
             <h3 class="text-xl font-bold mb-2">{{ $village->name }}</h3>
             <p class="text-gray-600 mb-4">{{ $village->description ?? 'PAMDes ' . $village->name }}</p>
-            <a href="{{ village_url($village->slug) }}"
+            {{-- <a href="{{ village_url($village->slug) }}"
               class="inline-block bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
               Kunjungi Website
-            </a>
+            </a> --}}
           </div>
         @empty
           <div class="col-span-full text-center text-gray-500">

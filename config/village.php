@@ -11,9 +11,9 @@ return [
     |
     */
 
-    'features' => [
-        'notifications_enabled' => true,
-    ],
+    // 'features' => [
+    //     'notifications_enabled' => true,
+    // ],
 
     'pamdes' => [
         'default_admin_fee' => 5000,

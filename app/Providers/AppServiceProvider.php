@@ -1,4 +1,5 @@
 <?php
+// app/Providers/AppServiceProvider.php - Fixed helper registration
 
 namespace App\Providers;
 
@@ -11,7 +12,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Register domain helper functions early in register method
+        $this->registerDomainHelpers();
     }
 
     /**
@@ -19,8 +21,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        // Register domain helper functions
-        $this->registerDomainHelpers();
+        // Additional boot logic can go here
     }
 
     private function registerDomainHelpers(): void
@@ -29,7 +30,8 @@ class AppServiceProvider extends ServiceProvider
         if (!function_exists('village_url')) {
             function village_url($villageSlug, $path = '')
             {
-                $domain = str_replace('{village}', $villageSlug, config('pamdes.domains.village_pattern'));
+                $pattern = config('pamdes.domains.village_pattern', 'localhost:8000');
+                $domain = str_replace('{village}', $villageSlug, $pattern);
                 $protocol = request()->isSecure() ? 'https' : 'http';
                 return $protocol . '://' . $domain . ($path ? '/' . ltrim($path, '/') : '');
             }
@@ -38,7 +40,7 @@ class AppServiceProvider extends ServiceProvider
         if (!function_exists('main_pamdes_url')) {
             function main_pamdes_url($path = '')
             {
-                $domain = config('pamdes.domains.main');
+                $domain = config('pamdes.domains.main', 'localhost:8000');
                 $protocol = request()->isSecure() ? 'https' : 'http';
                 return $protocol . '://' . $domain . ($path ? '/' . ltrim($path, '/') : '');
             }
@@ -47,7 +49,7 @@ class AppServiceProvider extends ServiceProvider
         if (!function_exists('super_admin_url')) {
             function super_admin_url($path = '')
             {
-                $domain = config('pamdes.domains.super_admin');
+                $domain = config('pamdes.domains.super_admin', config('app.domain', 'localhost:8000'));
                 $protocol = request()->isSecure() ? 'https' : 'http';
                 return $protocol . '://' . $domain . ($path ? '/' . ltrim($path, '/') : '');
             }

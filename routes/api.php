@@ -38,11 +38,6 @@ Route::middleware(['throttle:60,1'])->group(function () {
         Route::get('/customers', [CustomerController::class, 'index']);
         Route::get('/customers/summary', [CustomerController::class, 'summary']);
 
-        // Billing endpoints
-        Route::get('/bills', [BillController::class, 'index']);
-        Route::get('/bills/summary', [BillController::class, 'summary']);
-        Route::get('/bills/overdue', [BillController::class, 'overdue']);
-
         // Reports
         Route::get('/reports/monthly', [ReportController::class, 'monthlyReport']);
         Route::get('/reports/village', [ReportController::class, 'villageReport']);
@@ -87,11 +82,6 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
         // Customer management
         Route::apiResource('customers', CustomerController::class);
-
-        // Billing management
-        Route::apiResource('bills', BillController::class);
-        Route::post('bills/{bill}/pay', [BillController::class, 'markAsPaid']);
-        Route::post('bills/bulk/generate', [BillController::class, 'bulkGenerate']);
 
         // Reports
         Route::get('reports/dashboard', [ReportController::class, 'dashboard']);

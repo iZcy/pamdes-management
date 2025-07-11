@@ -72,14 +72,6 @@ class WaterTariffResource extends Resource
                     ->money('IDR')
                     ->sortable(),
 
-                Tables\Columns\BadgeColumn::make('is_active')
-                    ->label('Status')
-                    ->boolean()
-                    ->trueColor('success')
-                    ->falseColor('danger')
-                    ->trueLabel('Aktif')
-                    ->falseLabel('Tidak Aktif'),
-
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Dibuat')
                     ->dateTime()

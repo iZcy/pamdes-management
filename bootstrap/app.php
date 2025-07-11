@@ -36,6 +36,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->throttleApi();
     })
     ->withProviders([
+        App\Providers\AppServiceProvider::class,
         App\Providers\VillageServiceProvider::class,
     ])
     ->withExceptions(function (Exceptions $exceptions) {

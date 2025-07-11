@@ -38,12 +38,12 @@ class WaterUsageResource extends Resource
                             ->required()
                             ->getOptionLabelFromRecordUsing(fn(Customer $record) => "{$record->customer_code} - {$record->name}"),
 
-                        Forms\Components\Select::make('period_id')
-                            ->label('Periode Tagihan')
-                            ->relationship('billingPeriod', 'period_name')
-                            ->searchable()
-                            ->preload()
-                            ->required(),
+                        // Forms\Components\Select::make('period_id')
+                        //     ->label('Periode Tagihan')
+                        //     ->relationship('billingPeriod', 'period_name')
+                        //     ->searchable()
+                        //     ->preload()
+                        //     ->required(),
 
                         Forms\Components\TextInput::make('initial_meter')
                             ->label('Meter Awal')
@@ -99,9 +99,9 @@ class WaterUsageResource extends Resource
                     ->searchable()
                     ->limit(30),
 
-                Tables\Columns\TextColumn::make('billingPeriod.period_name')
-                    ->label('Periode')
-                    ->sortable(),
+                // Tables\Columns\TextColumn::make('billingPeriod.period_name')
+                //     ->label('Periode')
+                //     ->sortable(),
 
                 Tables\Columns\TextColumn::make('initial_meter')
                     ->label('Meter Awal')
@@ -133,9 +133,9 @@ class WaterUsageResource extends Resource
                     ->falseIcon('heroicon-o-x-circle'),
             ])
             ->filters([
-                Tables\Filters\SelectFilter::make('period_id')
-                    ->label('Periode')
-                    ->relationship('billingPeriod', 'period_name'),
+                // Tables\Filters\SelectFilter::make('period_id')
+                //     ->label('Periode')
+                //     ->relationship('billingPeriod', 'period_name'),
 
                 Tables\Filters\Filter::make('has_bill')
                     ->label('Sudah Dibill')

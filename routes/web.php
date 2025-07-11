@@ -15,32 +15,10 @@ use Illuminate\Support\Facades\Log;
 
 // Apply tenant context to all routes
 Route::middleware(['village.context'])->group(function () {
-
-    // Super Admin Routes (localhost or APP_URL)
-    Route::prefix('super-admin')->name('super.')->group(function () {
-        Route::get('/', function () {
-            // Check if user has super admin access
-            if (!request()->attributes->get('is_super_admin')) {
-                abort(404);
-            }
-
-            // Super admin dashboard - can see all villages
-            $villages = \App\Models\Village::with(['customers', 'billingPeriods'])->get();
-            return view('super-admin.dashboard', compact('villages'));
-        })->name('dashboard');
-
-        Route::get('/villages', function () {
-            if (!request()->attributes->get('is_super_admin')) {
-                abort(404);
-            }
-
-            $villages = \App\Models\Village::with(['customers', 'billingPeriods'])->get();
-            return view('super-admin.villages', compact('villages'));
-        })->name('villages');
-    });
-
     // Default route - handle based on tenant type
     Route::get('/', function () {
+        return view('welcome');
+
         $tenantType = request()->attributes->get('tenant_type');
 
         switch ($tenantType) {

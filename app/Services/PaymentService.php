@@ -5,7 +5,6 @@ namespace App\Services;
 
 use App\Models\Bill;
 use App\Models\Payment;
-use App\Notifications\PaymentReceived;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -17,9 +16,9 @@ class PaymentService
             $payment = $bill->markAsPaid($paymentData);
 
             // Send notification locally (log instead of external API)
-            if (config('village.features.notifications_enabled')) {
-                $this->logPaymentNotification($payment);
-            }
+            // if (config('village.features.notifications_enabled')) {
+            //     $this->logPaymentNotification($payment);
+            // }
 
             return $payment;
         });

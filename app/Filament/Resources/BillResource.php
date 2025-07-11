@@ -147,7 +147,7 @@ class BillResource extends Resource
 
                 Tables\Columns\TextColumn::make('days_overdue')
                     ->label('Hari Terlambat')
-                    ->visible(fn(Bill $record) => $record->is_overdue)
+                    // ->visible(fn(Bill $record) => $record->is_overdue)
                     ->getStateUsing(fn(Bill $record) => $record->days_overdue . ' hari')
                     ->color('danger'),
             ])

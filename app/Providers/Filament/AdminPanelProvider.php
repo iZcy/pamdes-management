@@ -42,21 +42,21 @@ class AdminPanelProvider extends PanelProvider
 
                 return 'PAMDes Management';
             })
-            ->brandLogo(asset('images/logo.png'))
-            ->favicon(asset('images/favicon.ico'))
+            // ->brandLogo(asset('images/logo.png'))
+            ->favicon(asset('favicon.ico'))
             ->colors([
                 'primary' => Color::Blue,
                 'gray' => Color::Slate,
             ])
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')
-            ->pages([
-                Pages\Dashboard::class,
-            ])
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\\Filament\\Widgets')
             ->widgets([
                 Widgets\AccountWidget::class,
                 \App\Filament\Widgets\StatsOverview::class,
+            ])
+            ->pages([
+                Pages\Dashboard::class,
             ])
             ->middleware([
                 EncryptCookies::class,
@@ -73,7 +73,6 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->authMiddleware([
                 Authenticate::class,
-            ])
-            ->databaseNotifications();
+            ]);
     }
 }
