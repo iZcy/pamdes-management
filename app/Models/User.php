@@ -178,6 +178,11 @@ class User extends Authenticatable implements FilamentUser
             ->first();
     }
 
+    public function payments()
+    {
+        return $this->hasMany(Payment::class, 'collector_id');
+    }
+
     // Scopes
     public function scopeActive($query)
     {

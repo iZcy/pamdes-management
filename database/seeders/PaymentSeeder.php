@@ -1,5 +1,5 @@
 <?php
-// database/seeders/PaymentSeeder.php - Generate payments from existing paid bills with collector references
+// database/seeders/PaymentSeeder.php - Fixed to use correct relationship
 
 namespace Database\Seeders;
 
@@ -7,7 +7,6 @@ use Illuminate\Database\Seeder;
 use App\Models\Payment;
 use App\Models\Bill;
 use App\Models\Village;
-use App\Models\Collector;
 use App\Models\User;
 
 class PaymentSeeder extends Seeder
@@ -168,7 +167,7 @@ class PaymentSeeder extends Seeder
             $this->command->info("- {$village->name}: {$villagePaymentCount} payments - Total Collected: Rp " . number_format($totalPaid) . " (Change Given: Rp " . number_format($totalChange) . ")");
         }
 
-        // Show collector performance summary
+        // Show collector performance summary (Fixed)
         $this->command->info('');
         $this->command->info('Collector Performance Summary:');
         foreach ($villages as $village) {
@@ -179,16 +178,18 @@ class PaymentSeeder extends Seeder
             })
                 ->whereIn('role', ['collector', 'cashier', 'operator'])
                 ->where('is_active', true)
-                ->withCount(['payments as payments_count' => function ($q) {
-                    $q->whereDate('payment_date', '>=', now()->subDays(30)); // Last 30 days
-                }])
                 ->get();
 
             foreach ($collectors as $collector) {
-                $totalCollected = Payment::where('collector_id', $collector->collector_id)
+                // Get payment count for this collector in the last 30 days
+                $recentPaymentCount = Payment::where('collector_id', $collector->id)
+                    ->whereDate('payment_date', '>=', now()->subDays(30))
+                    ->count();
+
+                $totalCollected = Payment::where('collector_id', $collector->id)
                     ->sum('amount_paid');
 
-                $this->command->info("  - {$collector->name}: {$collector->payments_count} payments, Rp " . number_format($totalCollected) . " collected");
+                $this->command->info("  - {$collector->name}: {$recentPaymentCount} payments (last 30 days), Rp " . number_format($totalCollected) . " total collected");
             }
         }
 
@@ -203,5 +204,8 @@ class PaymentSeeder extends Seeder
         // Show payments with notes
         $paymentsWithNotes = Payment::whereNotNull('notes')->count();
         $this->command->info("- {$paymentsWithNotes} payments have notes");
+
+        $this->command->info('');
+        $this->command->info('✅ Payment seeding completed successfully!');
     }
 }

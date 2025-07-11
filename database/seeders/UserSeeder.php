@@ -1,5 +1,5 @@
 <?php
-// database/seeders/UserSeeder.php - Updated for new user-village relationship with ENV domain
+// database/seeders/UserSeeder.php - Fixed to prevent duplicate emails
 
 namespace Database\Seeders;
 
@@ -17,25 +17,31 @@ class UserSeeder extends Seeder
         $mainDomain = env('PAMDES_MAIN_DOMAIN', $domain);
         $villagePattern = env('PAMDES_VILLAGE_DOMAIN_PATTERN', 'pamdes-{village}.' . $domain);
 
+        $this->command->info('Creating users with domain: ' . $domain);
+
         // Create super admin
-        $superAdmin = User::create([
-            'name' => 'PAMDes Super Administrator',
-            'email' => 'admin@' . $domain,
-            'password' => Hash::make('password'),
-            'contact_info' => '+62 812-3456-7890',
-            'role' => 'super_admin',
-            'is_active' => true,
-        ]);
+        $superAdmin = User::firstOrCreate(
+            ['email' => 'admin@' . $domain],
+            [
+                'name' => 'PAMDes Super Administrator',
+                'password' => Hash::make('password'),
+                'contact_info' => '+62 812-3456-7890',
+                'role' => 'super_admin',
+                'is_active' => true,
+            ]
+        );
 
         // Create another super admin
-        $systemAdmin = User::create([
-            'name' => 'System Administrator',
-            'email' => 'system@' . $domain,
-            'password' => Hash::make('password'),
-            'contact_info' => '+62 813-1111-2222',
-            'role' => 'super_admin',
-            'is_active' => true,
-        ]);
+        $systemAdmin = User::firstOrCreate(
+            ['email' => 'system@' . $domain],
+            [
+                'name' => 'System Administrator',
+                'password' => Hash::make('password'),
+                'contact_info' => '+62 813-1111-2222',
+                'role' => 'super_admin',
+                'is_active' => true,
+            ]
+        );
 
         // Get all villages to create village-specific admins
         $villages = Village::all();
@@ -44,69 +50,103 @@ class UserSeeder extends Seeder
             // Remove "pamdes-" from the slug (if present)
             $slugCleaned = str_replace('pamdes-', '', $village->slug);
 
-            // Create primary village admin
-            $villageAdmin = User::create([
-                'name' => 'Admin PAMDes ' . $village->name,
-                'email' => 'admin@' . $slugCleaned . '.' . $domain,
-                'password' => Hash::make('password'),
-                'contact_info' => '+62 813-' . rand(1000, 9999) . '-' . rand(1000, 9999),
-                'role' => 'village_admin',
-                'is_active' => true,
-            ]);
+            $this->command->info("Creating users for village: {$village->name} (slug: {$slugCleaned})");
 
-            // Assign village to admin (primary)
-            $villageAdmin->assignToVillage($village->id, true);
+            // Create primary village admin
+            $villageAdmin = User::firstOrCreate(
+                ['email' => 'admin@' . $slugCleaned . '.' . $domain],
+                [
+                    'name' => 'Admin PAMDes ' . $village->name,
+                    'password' => Hash::make('password'),
+                    'contact_info' => '+62 813-' . rand(1000, 9999) . '-' . rand(1000, 9999),
+                    'role' => 'village_admin',
+                    'is_active' => true,
+                ]
+            );
+
+            // Assign village to admin (primary) - check if not already assigned
+            if (!$villageAdmin->villages()->where('villages.id', $village->id)->exists()) {
+                $villageAdmin->assignToVillage($village->id, true);
+            }
 
             // Create secondary village admin (operator)
-            $villageOperator = User::create([
-                'name' => 'Operator PAMDes ' . $village->name,
-                'email' => 'operator@' . $slugCleaned . '.' . $domain,
-                'password' => Hash::make('password'),
-                'contact_info' => '+62 814-' . rand(1000, 9999) . '-' . rand(1000, 9999),
-                'role' => 'village_admin',
-                'is_active' => true,
-            ]);
+            $villageOperator = User::firstOrCreate(
+                ['email' => 'operator@' . $slugCleaned . '.' . $domain],
+                [
+                    'name' => 'Operator PAMDes ' . $village->name,
+                    'password' => Hash::make('password'),
+                    'contact_info' => '+62 814-' . rand(1000, 9999) . '-' . rand(1000, 9999),
+                    'role' => 'village_admin',
+                    'is_active' => true,
+                ]
+            );
 
-            // Assign village to operator (not primary)
-            $villageOperator->assignToVillage($village->id, false);
+            // Assign village to operator (not primary) - check if not already assigned
+            if (!$villageOperator->villages()->where('villages.id', $village->id)->exists()) {
+                $villageOperator->assignToVillage($village->id, false);
+            }
         }
 
+        // Create collectors/cashiers for each village
         foreach ($villages as $village) {
-            // Create collectors/cashiers for each village
-            $collectorRoles = ['collector', 'cashier', 'operator'];
+            $slugCleaned = str_replace('pamdes-', '', $village->slug);
+            $collectorRoles = ['collector', 'cashier'];
 
             foreach ($collectorRoles as $index => $role) {
-                $collector = User::create([
-                    'name' => ucfirst($role) . ' ' . $village->name,
-                    'email' => $role . '@' . str_replace('pamdes-', '', $village->slug) . '.' . $domain,
-                    'password' => Hash::make('password'),
-                    'contact_info' => '+62 816-' . rand(1000, 9999) . '-' . rand(1000, 9999),
-                    'role' => $role,
-                    'is_active' => true,
-                ]);
+                $email = $role . '@' . $slugCleaned . '.' . $domain;
 
-                // Assign village to collector (not primary)
-                $collector->assignToVillage($village->id, false);
+                // Check if user already exists
+                $existingUser = User::where('email', $email)->first();
+
+                if (!$existingUser) {
+                    $collector = User::create([
+                        'name' => ucfirst($role) . ' ' . $village->name,
+                        'email' => $email,
+                        'password' => Hash::make('password'),
+                        'contact_info' => '+62 816-' . rand(1000, 9999) . '-' . rand(1000, 9999),
+                        'role' => $role,
+                        'is_active' => true,
+                    ]);
+
+                    // Assign village to collector (not primary)
+                    $collector->assignToVillage($village->id, false);
+
+                    $this->command->info("Created {$role} for {$village->name}: {$email}");
+                } else {
+                    $this->command->warn("User already exists: {$email}");
+
+                    // Ensure village assignment exists
+                    if (!$existingUser->villages()->where('villages.id', $village->id)->exists()) {
+                        $existingUser->assignToVillage($village->id, false);
+                    }
+                }
             }
         }
 
         // Create a multi-village admin (example)
         if ($villages->count() > 1) {
-            $multiVillageAdmin = User::create([
-                'name' => 'Multi Village Administrator',
-                'email' => 'multi@' . $domain,
-                'password' => Hash::make('password'),
-                'contact_info' => '+62 815-' . rand(1000, 9999) . '-' . rand(1000, 9999),
-                'role' => 'village_admin',
-                'is_active' => true,
-            ]);
+            $multiVillageAdmin = User::firstOrCreate(
+                ['email' => 'multi@' . $domain],
+                [
+                    'name' => 'Multi Village Administrator',
+                    'password' => Hash::make('password'),
+                    'contact_info' => '+62 815-' . rand(1000, 9999) . '-' . rand(1000, 9999),
+                    'role' => 'village_admin',
+                    'is_active' => true,
+                ]
+            );
 
             // Assign first two villages
             $firstVillage = $villages->first();
             $secondVillage = $villages->skip(1)->first();
 
-            $multiVillageAdmin->assignToVillage($firstVillage->id, true); // Primary
-            $multiVillageAdmin->assignToVillage($secondVillage->id, false); // Secondary
+            if (!$multiVillageAdmin->villages()->where('villages.id', $firstVillage->id)->exists()) {
+                $multiVillageAdmin->assignToVillage($firstVillage->id, true); // Primary
+            }
+
+            if (!$multiVillageAdmin->villages()->where('villages.id', $secondVillage->id)->exists()) {
+                $multiVillageAdmin->assignToVillage($secondVillage->id, false); // Secondary
+            }
         }
 
         $this->command->info('Created users with village assignments:');
@@ -130,6 +170,7 @@ class UserSeeder extends Seeder
         $this->command->info('  - Email: system@' . $domain);
         $this->command->info('Village Admins:');
         foreach ($villages as $village) {
+            $slugCleaned = str_replace('pamdes-', '', $village->slug);
             $this->command->info("  - {$village->name} Admin: admin@{$slugCleaned}.{$domain}");
             $this->command->info("  - {$village->name} Operator: operator@{$slugCleaned}.{$domain}");
         }
