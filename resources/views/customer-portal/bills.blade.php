@@ -101,8 +101,23 @@
                           Rp {{ number_format($bill->total_amount) }}
                         </div>
                         <div class="text-xs text-gray-500">
+                          @php
+                            $breakdown = \App\Models\WaterTariff::calculateBill(
+                                $bill->waterUsage->total_usage_m3,
+                                $bill->waterUsage->customer->village_id,
+                            );
+                          @endphp
+                          @if (count($breakdown['breakdown']) > 1)
+                            <div class="mb-1">
+                              @foreach ($breakdown['breakdown'] as $index => $tier)
+                                {{ $tier['usage'] }} ×
+                                Rp{{ number_format($tier['rate']) }}{{ $index < count($breakdown['breakdown']) - 1 ? ' + ' : '' }}
+                              @endforeach
+                            </div>
+                          @endif
                           Air: Rp {{ number_format($bill->water_charge) }} +
-                          Admin: Rp {{ number_format($bill->admin_fee) }}
+                          Admin: Rp {{ number_format($bill->admin_fee) }} +
+                          Pemeliharaan: Rp {{ number_format($bill->maintenance_fee) }}
                         </div>
                       </td>
                       <td class="px-6 py-4 whitespace-nowrap">
@@ -191,8 +206,23 @@
                           Rp {{ number_format($bill->total_amount) }}
                         </div>
                         <div class="text-xs text-gray-500">
+                          @php
+                            $breakdown = \App\Models\WaterTariff::calculateBill(
+                                $bill->waterUsage->total_usage_m3,
+                                $bill->waterUsage->customer->village_id,
+                            );
+                          @endphp
+                          @if (count($breakdown['breakdown']) > 1)
+                            <div class="mb-1">
+                              @foreach ($breakdown['breakdown'] as $index => $tier)
+                                {{ $tier['usage'] }} ×
+                                Rp{{ number_format($tier['rate']) }}{{ $index < count($breakdown['breakdown']) - 1 ? ' + ' : '' }}
+                              @endforeach
+                            </div>
+                          @endif
                           Air: Rp {{ number_format($bill->water_charge) }} +
-                          Admin: Rp {{ number_format($bill->admin_fee) }}
+                          Admin: Rp {{ number_format($bill->admin_fee) }} +
+                          Pemeliharaan: Rp {{ number_format($bill->maintenance_fee) }}
                         </div>
                       </td>
                       <td class="px-6 py-4 whitespace-nowrap">

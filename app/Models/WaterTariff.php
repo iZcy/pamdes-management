@@ -1,5 +1,5 @@
 <?php
-// app/Models/WaterTariff.php - Updated with proper village relationship
+// app/Models/WaterTariff.php - Fixed with correct calculation logic and no global tariffs
 
 namespace App\Models;
 
@@ -18,7 +18,7 @@ class WaterTariff extends Model
         'usage_min',
         'usage_max',
         'price_per_m3',
-        'village_id',
+        'village_id', // Always required - no more global tariffs
         'is_active',
     ];
 
@@ -46,10 +46,7 @@ class WaterTariff extends Model
 
     public function scopeForVillage($query, $villageId)
     {
-        return $query->where(function ($q) use ($villageId) {
-            $q->where('village_id', $villageId)
-                ->orWhereNull('village_id'); // Allow global tariffs
-        });
+        return $query->where('village_id', $villageId);
     }
 
     public function scopeForUsage($query, $usage)
@@ -58,59 +55,86 @@ class WaterTariff extends Model
             ->where('usage_max', '>=', $usage);
     }
 
-    public function scopeGlobal($query)
-    {
-        return $query->whereNull('village_id');
-    }
-
     // Accessors
     public function getUsageRangeAttribute(): string
     {
-        return "{$this->usage_min} - {$this->usage_max} m³";
+        if ($this->usage_max === null) {
+            return "{$this->usage_min}+ m³";
+        }
+        return "{$this->usage_min}-{$this->usage_max} m³";
     }
 
     public function getVillageNameAttribute(): string
     {
-        return $this->village?->name ?? 'Global';
+        return $this->village?->name ?? 'Unknown Village';
     }
 
-    public function getIsGlobalAttribute(): bool
+    // Fixed calculation method
+    public static function calculateBill($usage, $villageId): array
     {
-        return $this->village_id === null;
-    }
+        if (!$villageId) {
+            throw new \Exception('Village ID is required for tariff calculation');
+        }
 
-    // Helper methods
-    public static function calculateBill($usage, $villageId = null): array
-    {
         $tariffs = static::active()
             ->forVillage($villageId)
             ->orderBy('usage_min')
             ->get();
 
+        if ($tariffs->isEmpty()) {
+            throw new \Exception("No active tariffs found for village ID: {$villageId}");
+        }
+
         $totalCharge = 0;
-        $remainingUsage = $usage;
         $breakdown = [];
+        $usedSoFar = 0;
 
-        foreach ($tariffs as $tariff) {
-            if ($remainingUsage <= 0) break;
+        foreach ($tariffs as $index => $tariff) {
+            $tierMin = $tariff->usage_min;
+            $tierMax = $tariff->usage_max;
 
-            $bracketUsage = min(
-                $remainingUsage,
-                $tariff->usage_max - $tariff->usage_min + 1
-            );
+            // Skip if we haven't reached this tier yet
+            if ($usedSoFar >= $tierMax && $tierMax !== null) continue;
 
-            if ($usage >= $tariff->usage_min) {
-                $charge = $bracketUsage * $tariff->price_per_m3;
+            // Calculate the actual start position for this tier
+            $actualStart = max($tierMin, $usedSoFar + 1);
+
+            // Skip if our total usage doesn't reach this tier
+            if ($usage < $actualStart) break;
+
+            // Check if this is the last tier (infinite tier)
+            $isLastTier = ($index === $tariffs->count() - 1) || ($tierMax === null);
+
+            // Calculate usage in this tier
+            if ($isLastTier) {
+                // Last tier covers all remaining usage
+                $tierUsage = $usage - $usedSoFar;
+            } else {
+                $tierUsage = min($usage, $tierMax) - max($usedSoFar, $tierMin - 1);
+            }
+
+            if ($tierUsage > 0) {
+                $charge = $tierUsage * $tariff->price_per_m3;
                 $totalCharge += $charge;
 
+                // Format range display
+                if ($isLastTier) {
+                    $rangeDisplay = "{$tierMin}+ m³";
+                } else {
+                    $rangeDisplay = "{$tierMin}-{$tierMax} m³";
+                }
+
                 $breakdown[] = [
-                    'range' => "{$tariff->usage_min}-{$tariff->usage_max} m³",
-                    'usage' => $bracketUsage,
+                    'range' => $rangeDisplay,
+                    'usage' => $tierUsage,
                     'rate' => $tariff->price_per_m3,
                     'charge' => $charge,
                 ];
 
-                $remainingUsage -= $bracketUsage;
+                $usedSoFar += $tierUsage;
+
+                // If this is the last tier, we're done
+                if ($isLastTier) break;
             }
         }
 
