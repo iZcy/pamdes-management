@@ -8,6 +8,8 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
+require __DIR__ . '/tripay.php';
+
 // Apply village context middleware to all routes
 Route::middleware(['village.context'])->group(function () {
     Route::get('/', function () {
@@ -137,5 +139,3 @@ Route::get('/health', function () {
         'host' => request()->getHost(),
     ]);
 });
-
-require __DIR__ . '/tripay.php';
