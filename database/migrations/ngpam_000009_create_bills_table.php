@@ -11,6 +11,7 @@ return new class extends Migration
     {
         Schema::create('bills', function (Blueprint $table) {
             $table->id('bill_id');
+            $table->string('bill_ref')->nullable();
             $table->foreignId('usage_id')->constrained('water_usages', 'usage_id')->onDelete('cascade');
             $table->foreignId('tariff_id')->nullable()->constrained('water_tariffs', 'tariff_id')->onDelete('set null');
             $table->decimal('water_charge', 10, 2)->default(0);
@@ -18,6 +19,7 @@ return new class extends Migration
             $table->decimal('maintenance_fee', 10, 2)->default(0);
             $table->decimal('total_amount', 10, 2);
             $table->enum('status', ['paid', 'unpaid', 'overdue'])->default('unpaid');
+            $table->timestamp('paid_at')->nullable();
             $table->date('due_date')->nullable();
             $table->date('payment_date')->nullable();
             $table->timestamps();

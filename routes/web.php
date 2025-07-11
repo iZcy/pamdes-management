@@ -137,3 +137,5 @@ Route::get('/health', function () {
         'host' => request()->getHost(),
     ]);
 });
+
+require __DIR__ . '/tripay.php';
