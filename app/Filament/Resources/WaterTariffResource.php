@@ -59,7 +59,12 @@ class WaterTariffResource extends Resource
                             ->default($currentVillageId)
                             ->required()
                             ->disabled(fn(?WaterTariff $record) => $record !== null) // Can't change village on edit
-                            ->visible(fn() => $user?->isSuperAdmin()),
+                            ->visible(fn() => $user?->isSuperAdmin())
+                            ->live() // Make it reactive
+                            ->afterStateUpdated(function (Forms\Set $set, $state) {
+                                // Trigger refresh of dependent sections
+                                $set('_refresh_trigger', now()->toString());
+                            }),
 
                         Forms\Components\Placeholder::make('village_display')
                             ->label('Desa')
@@ -81,7 +86,11 @@ class WaterTariffResource extends Resource
 
                         Forms\Components\Toggle::make('is_active')
                             ->label('Aktif')
-                            ->default(true),
+                            ->default(true)
+                            ->live() // Make it reactive
+                            ->afterStateUpdated(function (Forms\Set $set, $state) {
+                                $set('_refresh_trigger', now()->toString());
+                            }),
 
                         // Smart field management based on context
                         Forms\Components\Group::make([
@@ -122,6 +131,7 @@ class WaterTariffResource extends Resource
 
                                                         // Store preview message for helper text
                                                         $set('_preview_message', "Akan membagi rentang {$originalRange} menjadi [{$newRange1}] dan [{$newRange2}]");
+                                                        $set('_refresh_trigger', now()->toString());
                                                         return;
                                                     }
                                                 }
@@ -130,17 +140,21 @@ class WaterTariffResource extends Resource
                                                 foreach ($existingTariffs as $tariff) {
                                                     if ($tariff['usage_min'] == $state) {
                                                         $set('_preview_message', "⚠️ Rentang {$state} m³ sudah ada!");
+                                                        $set('_refresh_trigger', now()->toString());
                                                         return;
                                                     }
                                                 }
 
                                                 $set('_preview_message', "✅ Nilai {$state} m³ dapat ditambahkan");
+                                                $set('_refresh_trigger', now()->toString());
                                             } catch (\Exception $e) {
                                                 $set('_preview_message', "❌ Error: " . $e->getMessage());
+                                                $set('_refresh_trigger', now()->toString());
                                             }
                                         }
                                     } else {
                                         $set('_preview_message', '');
+                                        $set('_refresh_trigger', now()->toString());
                                     }
                                 })
                                 ->helperText(function (string $context, ?WaterTariff $record, Forms\Get $get) {
@@ -179,10 +193,14 @@ class WaterTariffResource extends Resource
                             // Hidden field to store preview message
                             Forms\Components\Hidden::make('_preview_message'),
 
+                            // Hidden field to trigger refresh
+                            Forms\Components\Hidden::make('_refresh_trigger'),
+
                             Forms\Components\TextInput::make('usage_max')
                                 ->label('Pemakaian Maksimum (m³)')
                                 ->numeric()
                                 ->minValue(0)
+                                ->live(onBlur: true) // Make it reactive
                                 ->disabled(function (string $context, ?WaterTariff $record) {
                                     if ($context === 'create') return true;
                                     if (!$record) return true;
@@ -192,6 +210,9 @@ class WaterTariffResource extends Resource
                                     return !$editableFields['can_edit_max'];
                                 })
                                 ->visible(fn(string $context) => $context === 'edit')
+                                ->afterStateUpdated(function (Forms\Set $set, $state) {
+                                    $set('_refresh_trigger', now()->toString());
+                                })
                                 ->helperText(function (?WaterTariff $record) {
                                     if (!$record) return '';
 
@@ -211,7 +232,19 @@ class WaterTariffResource extends Resource
                         Forms\Components\Group::make([
                             Forms\Components\Placeholder::make('current_range')
                                 ->label('Rentang Saat Ini')
-                                ->content(fn(?WaterTariff $record) => $record ? $record->usage_range : 'Akan dibuat otomatis')
+                                ->content(function (?WaterTariff $record, Forms\Get $get) {
+                                    if (!$record) return 'Akan dibuat otomatis';
+
+                                    // Get current form values for dynamic preview
+                                    $usageMin = $get('usage_min') ?? $record->usage_min;
+                                    $usageMax = $get('usage_max') ?? $record->usage_max;
+
+                                    if ($usageMax === null) {
+                                        return $usageMin . '+ m³';
+                                    }
+
+                                    return $usageMin . '-' . $usageMax . ' m³';
+                                })
                                 ->visible(fn(string $context, ?WaterTariff $record) => $context === 'edit' && $record),
 
                             Forms\Components\TextInput::make('price_per_m3')
@@ -220,6 +253,10 @@ class WaterTariffResource extends Resource
                                 ->numeric()
                                 ->prefix('Rp')
                                 ->minValue(0)
+                                ->live(onBlur: true) // Make it reactive
+                                ->afterStateUpdated(function (Forms\Set $set, $state) {
+                                    $set('_refresh_trigger', now()->toString());
+                                })
                                 ->helperText('Harga dapat selalu diubah'),
                         ])->columnSpan(2),
                     ])->columns(2),
@@ -231,12 +268,91 @@ class WaterTariffResource extends Resource
                             ->label('')
                             ->content(function (?WaterTariff $record, Forms\Get $get) {
                                 $villageId = $record?->village_id ?? $get('village_id') ?? config('pamdes.current_village_id');
+                                $refreshTrigger = $get('_refresh_trigger'); // This will trigger refresh when changed
 
                                 if (!$villageId) return 'Pilih desa terlebih dahulu';
 
                                 try {
                                     $service = app(TariffRangeService::class);
                                     $tariffs = $service->getVillageTariffs($villageId);
+
+                                    // For create context, simulate adding new tariff
+                                    if (!$record && $get('usage_min') && $get('price_per_m3')) {
+                                        $newMin = (int) $get('usage_min');
+                                        $newPrice = (float) $get('price_per_m3');
+
+                                        // Simulate the range splitting/adjustment
+                                        $updatedTariffs = [];
+                                        $newTariffAdded = false;
+
+                                        foreach ($tariffs as $tariff) {
+                                            if (
+                                                $newMin > $tariff['usage_min'] &&
+                                                ($tariff['usage_max'] === null || $newMin <= $tariff['usage_max'])
+                                            ) {
+                                                // Split existing range - first part
+                                                $updatedTariffs[] = [
+                                                    'usage_min' => $tariff['usage_min'],
+                                                    'usage_max' => $newMin - 1,
+                                                    'price_per_m3' => $tariff['price_per_m3'],
+                                                    'range_display' => $tariff['usage_min'] . '-' . ($newMin - 1) . ' m³',
+                                                    'editable_fields' => $tariff['editable_fields'],
+                                                ];
+
+                                                // Add new tariff
+                                                $updatedTariffs[] = [
+                                                    'usage_min' => $newMin,
+                                                    'usage_max' => $tariff['usage_max'],
+                                                    'price_per_m3' => $newPrice,
+                                                    'range_display' => $newMin . ($tariff['usage_max'] ? '-' . $tariff['usage_max'] : '+') . ' m³',
+                                                    'editable_fields' => [
+                                                        'can_edit_min' => true,
+                                                        'can_edit_max' => $tariff['usage_max'] !== null,
+                                                    ],
+                                                    'is_preview' => true,
+                                                ];
+                                                $newTariffAdded = true;
+                                            } else {
+                                                $updatedTariffs[] = $tariff;
+                                            }
+                                        }
+
+                                        // If new tariff wasn't added (new minimum is larger than all existing), add it at the end
+                                        if (!$newTariffAdded) {
+                                            $updatedTariffs[] = [
+                                                'usage_min' => $newMin,
+                                                'usage_max' => null,
+                                                'price_per_m3' => $newPrice,
+                                                'range_display' => $newMin . '+ m³',
+                                                'editable_fields' => [
+                                                    'can_edit_min' => true,
+                                                    'can_edit_max' => false,
+                                                ],
+                                                'is_preview' => true,
+                                            ];
+                                        }
+
+                                        $tariffs = $updatedTariffs;
+                                    }
+
+                                    // For edit context, update current record values
+                                    if ($record) {
+                                        foreach ($tariffs as &$tariff) {
+                                            if ($tariff['usage_min'] == $record->usage_min) {
+                                                $tariff['usage_min'] = (int) ($get('usage_min') ?? $record->usage_min);
+                                                $tariff['usage_max'] = $get('usage_max') !== null ? (int) $get('usage_max') : $record->usage_max;
+                                                $tariff['price_per_m3'] = (float) ($get('price_per_m3') ?? $record->price_per_m3);
+
+                                                if ($tariff['usage_max'] === null) {
+                                                    $tariff['range_display'] = $tariff['usage_min'] . '+ m³';
+                                                } else {
+                                                    $tariff['range_display'] = $tariff['usage_min'] . '-' . $tariff['usage_max'] . ' m³';
+                                                }
+                                                $tariff['is_preview'] = true;
+                                                break;
+                                            }
+                                        }
+                                    }
 
                                     if (empty($tariffs)) {
                                         return '<div class="text-transparent italic">Belum ada tarif untuk desa ini</div>';
@@ -249,8 +365,11 @@ class WaterTariffResource extends Resource
                                         if ($tariff['editable_fields']['can_edit_max']) $editableInfo[] = 'max';
                                         $editableText = !empty($editableInfo) ? ' <span class="text-xs text-blue-600">(dapat edit: ' . implode(', ', $editableInfo) . ')</span>' : '';
 
-                                        $content .= '<div class="flex justify-between items-center p-3 bg-transparent rounded-lg border">';
-                                        $content .= '<span class="font-medium text-transparent">' . $tariff['range_display'] . '</span>';
+                                        $previewClass = isset($tariff['is_preview']) ? 'border-blue-500 bg-blue-50' : 'border-transparent';
+                                        $previewLabel = isset($tariff['is_preview']) ? ' <span class="text-xs text-blue-600 font-bold">(PREVIEW)</span>' : '';
+
+                                        $content .= '<div class="flex justify-between items-center p-3 rounded-lg border ' . $previewClass . '">';
+                                        $content .= '<span class="font-medium text-transparent">' . $tariff['range_display'] . $previewLabel . '</span>';
                                         $content .= '<span class="text-green-600 font-semibold">Rp ' . number_format($tariff['price_per_m3']) . '/m³' . $editableText . '</span>';
                                         $content .= '</div>';
                                     }
@@ -263,7 +382,6 @@ class WaterTariffResource extends Resource
                             })
                             ->columnSpanFull(),
                     ])
-                    ->visible(fn(string $context) => $context === 'create')
                     ->collapsible(),
 
                 // Show example calculations
@@ -273,28 +391,207 @@ class WaterTariffResource extends Resource
                             ->label('')
                             ->content(function (?WaterTariff $record, Forms\Get $get) {
                                 $villageId = $record?->village_id ?? $get('village_id') ?? config('pamdes.current_village_id');
+                                $refreshTrigger = $get('_refresh_trigger'); // This will trigger refresh when changed
 
                                 if (!$villageId) return 'Pilih desa untuk melihat contoh perhitungan';
 
                                 try {
-                                    $content = '<div class="space-y-3">';
-                                    $content .= '<div class="text-sm text-transparent mb-3">Contoh perhitungan biaya air:</div>';
+                                    // Get existing tariffs to generate relevant examples
+                                    $service = app(\App\Services\TariffRangeService::class);
+                                    $existingTariffs = $service->getVillageTariffs($villageId);
 
-                                    $usageExamples = [10, 15, 25, 35, 50];
+                                    // Create temporary tariff structure for calculation with form values
+                                    $tempTariffs = [];
+                                    foreach ($existingTariffs as $tariff) {
+                                        $tempTariffs[] = [
+                                            'usage_min' => $tariff['usage_min'],
+                                            'usage_max' => $tariff['usage_max'],
+                                            'price_per_m3' => $tariff['price_per_m3'],
+                                        ];
+                                    }
+
+                                    // Apply form changes for preview
+                                    if ($record) {
+                                        // Update existing record
+                                        foreach ($tempTariffs as &$tariff) {
+                                            if ($tariff['usage_min'] == $record->usage_min) {
+                                                $tariff['usage_min'] = (int) ($get('usage_min') ?? $record->usage_min);
+                                                $tariff['usage_max'] = $get('usage_max') !== null ? (int) $get('usage_max') : $record->usage_max;
+                                                $tariff['price_per_m3'] = (float) ($get('price_per_m3') ?? $record->price_per_m3);
+                                                break;
+                                            }
+                                        }
+                                    } else if ($get('usage_min') && $get('price_per_m3')) {
+                                        // Add new tariff for preview calculation
+                                        $newMin = (int) $get('usage_min');
+                                        $newPrice = (float) $get('price_per_m3');
+
+                                        // Handle range splitting logic for calculation
+                                        $updatedTariffs = [];
+                                        $newTariffAdded = false;
+
+                                        foreach ($tempTariffs as $tariff) {
+                                            if (
+                                                $newMin > $tariff['usage_min'] &&
+                                                ($tariff['usage_max'] === null || $newMin <= $tariff['usage_max'])
+                                            ) {
+                                                // Split existing range - first part
+                                                $updatedTariffs[] = [
+                                                    'usage_min' => $tariff['usage_min'],
+                                                    'usage_max' => $newMin - 1,
+                                                    'price_per_m3' => $tariff['price_per_m3'],
+                                                ];
+
+                                                // Add new tariff with correct range
+                                                $updatedTariffs[] = [
+                                                    'usage_min' => $newMin,
+                                                    'usage_max' => $tariff['usage_max'],
+                                                    'price_per_m3' => $newPrice,
+                                                ];
+                                                $newTariffAdded = true;
+                                            } else {
+                                                $updatedTariffs[] = $tariff;
+                                            }
+                                        }
+
+                                        // If new tariff wasn't added (new minimum is larger than all existing), add it at the end
+                                        if (!$newTariffAdded) {
+                                            $updatedTariffs[] = [
+                                                'usage_min' => $newMin,
+                                                'usage_max' => null,
+                                                'price_per_m3' => $newPrice,
+                                            ];
+                                        }
+
+                                        $tempTariffs = $updatedTariffs;
+                                    }
+
+                                    $content = '<div class="space-y-3">';
+                                    $content .= '<div class="text-sm text-transparent mb-3">Contoh perhitungan biaya air berdasarkan rentang tarif:</div>';
+
+                                    // Generate examples based on tariff ranges
+                                    $usageExamples = [];
+
+                                    if (empty($tempTariffs)) {
+                                        // Default examples if no tariffs exist
+                                        $usageExamples = [5, 15, 25, 35, 50];
+                                    } else {
+                                        // Sort tariffs to ensure proper order
+                                        usort($tempTariffs, function ($a, $b) {
+                                            return $a['usage_min'] <=> $b['usage_min'];
+                                        });
+
+                                        // Generate examples to cover all ranges
+                                        foreach ($tempTariffs as $index => $tariff) {
+                                            $min = $tariff['usage_min'];
+                                            $max = $tariff['usage_max'];
+
+                                            // Add example from middle of each range
+                                            if ($max !== null) {
+                                                // For finite ranges, add middle point
+                                                $midpoint = intval(($min + $max) / 2);
+                                                $usageExamples[] = $midpoint;
+
+                                                // If range is wide enough, also add examples near boundaries
+                                                if (($max - $min) >= 10) {
+                                                    $usageExamples[] = $min + 2; // Near start
+                                                    $usageExamples[] = $max - 2; // Near end
+                                                }
+                                            } else {
+                                                // For infinite ranges (last tier), add a few examples
+                                                $usageExamples[] = $min + 5;
+                                                $usageExamples[] = $min + 15;
+                                                if ($index === count($tempTariffs) - 1) {
+                                                    // Only add higher examples for the last tier
+                                                    $usageExamples[] = $min + 30;
+                                                }
+                                            }
+                                        }
+
+                                        // Add one example that spans multiple tiers (higher usage)
+                                        if (count($tempTariffs) > 1) {
+                                            $lastTariff = end($tempTariffs);
+                                            $highUsage = $lastTariff['usage_min'] + 20;
+                                            $usageExamples[] = $highUsage;
+                                        }
+
+                                        // Remove duplicates and sort
+                                        $usageExamples = array_unique($usageExamples);
+                                        sort($usageExamples);
+
+                                        // Ensure we don't have too many examples (limit to 8)
+                                        $usageExamples = array_slice($usageExamples, 0, 8);
+                                    }
 
                                     foreach ($usageExamples as $usage) {
                                         try {
-                                            $calculation = \App\Models\WaterTariff::calculateBill($usage, $villageId);
-
+                                            // Calculate using temporary tariff structure with proper tiered pricing
+                                            $totalCharge = 0;
                                             $breakdown = [];
-                                            foreach ($calculation['breakdown'] as $tier) {
-                                                $breakdown[] = "{$tier['usage']} m³ × Rp" . number_format($tier['rate']);
+
+                                            // Sort tariffs by usage_min to ensure proper calculation order
+                                            usort($tempTariffs, function ($a, $b) {
+                                                return $a['usage_min'] <=> $b['usage_min'];
+                                            });
+
+                                            $remainingUsage = $usage;
+
+                                            foreach ($tempTariffs as $tariff) {
+                                                if ($remainingUsage <= 0) break;
+
+                                                $tierMin = $tariff['usage_min'];
+                                                $tierMax = $tariff['usage_max'];
+                                                $rate = $tariff['price_per_m3'];
+
+                                                // Calculate usage that falls within this tier
+                                                if ($usage >= $tierMin) {
+                                                    // How much of the total usage falls in this tier?
+                                                    $tierStart = $tierMin;
+                                                    $tierEnd = $tierMax ?? $usage; // If no max, use total usage
+
+                                                    // Usage in this tier is the overlap between [tierStart, tierEnd] and [1, usage]
+                                                    $usageStart = max($tierStart, 1);
+                                                    $usageEnd = min($tierEnd, $usage);
+
+                                                    if ($usageEnd >= $usageStart) {
+                                                        $usageInThisTier = $usageEnd - $usageStart + 1;
+                                                        $tierCharge = $usageInThisTier * $rate;
+                                                        $totalCharge += $tierCharge;
+
+                                                        $breakdown[] = [
+                                                            'usage' => $usageInThisTier,
+                                                            'rate' => $rate,
+                                                            'charge' => $tierCharge,
+                                                            'range' => $tierMax === null ? $tierMin . '+' : $tierMin . '-' . $tierMax
+                                                        ];
+                                                    }
+                                                }
+                                            }
+
+                                            $breakdownText = [];
+                                            foreach ($breakdown as $tier) {
+                                                $breakdownText[] = "{$tier['usage']} m³ × Rp" . number_format($tier['rate']);
+                                            }
+
+                                            // Determine which range this usage falls into
+                                            $rangeInfo = '';
+                                            foreach ($tempTariffs as $tariff) {
+                                                if (
+                                                    $usage >= $tariff['usage_min'] &&
+                                                    ($tariff['usage_max'] === null || $usage <= $tariff['usage_max'])
+                                                ) {
+                                                    $rangeDisplay = $tariff['usage_max'] === null ?
+                                                        $tariff['usage_min'] . '+ m³' :
+                                                        $tariff['usage_min'] . '-' . $tariff['usage_max'] . ' m³';
+                                                    $rangeInfo = " ({$rangeDisplay})";
+                                                    break;
+                                                }
                                             }
 
                                             $content .= '<div class="flex justify-between items-center p-2 bg-transparent rounded">';
-                                            $content .= '<span class="font-medium">' . $usage . ' m³:</span>';
-                                            $content .= '<span class="text-sm text-transparent">' . implode(' + ', $breakdown) . '</span>';
-                                            $content .= '<span class="font-semibold text-green-600">Rp ' . number_format($calculation['total_charge']) . '</span>';
+                                            $content .= '<span class="font-medium">' . $usage . ' m³' . $rangeInfo . ':</span>';
+                                            $content .= '<span class="text-sm text-transparent">' . implode(' + ', $breakdownText) . '</span>';
+                                            $content .= '<span class="font-semibold text-green-600">Rp ' . number_format($totalCharge) . '</span>';
                                             $content .= '</div>';
                                         } catch (\Exception $e) {
                                             $content .= '<div class="flex justify-between items-center p-2 bg-red-50 rounded">';

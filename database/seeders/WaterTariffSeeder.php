@@ -1,5 +1,5 @@
 <?php
-// database/seeders/WaterTariffSeeder.php - Updated to use TariffRangeService
+// database/seeders/WaterTariffSeeder.php - Updated to ensure minimum 3 ranges per village
 
 namespace Database\Seeders;
 
@@ -25,36 +25,45 @@ class WaterTariffSeeder extends Seeder
         foreach ($villages as $village) {
             $this->command->info("Creating smart tariff structure for: {$village->name}");
 
-            // Define tariff ranges to create (only need starting points and prices)
+            // Ensure each village has at least 3 ranges with good variation
             $tariffRanges = [];
 
-            // Customize tariffs for specific villages
+            // Customize tariffs for specific villages but ensure minimum 3 ranges
             if ($village->slug === 'bayan') {
                 $tariffRanges = [
-                    ['start' => 0, 'price' => 2500],
-                    ['start' => 11, 'price' => 3000],
-                    ['start' => 21, 'price' => 3500],
-                    ['start' => 31, 'price' => 4000],
+                    ['start' => 0, 'price' => 2500],   // 0-10 m³
+                    ['start' => 11, 'price' => 3000],  // 11-20 m³
+                    ['start' => 21, 'price' => 3500],  // 21-30 m³
+                    ['start' => 31, 'price' => 4000],  // 31+ m³
                 ];
             } elseif ($village->slug === 'senaru') {
                 $tariffRanges = [
-                    ['start' => 0, 'price' => 2800],
-                    ['start' => 16, 'price' => 3200],
-                    ['start' => 26, 'price' => 3800],
+                    ['start' => 0, 'price' => 2800],   // 0-15 m³
+                    ['start' => 16, 'price' => 3200],  // 16-25 m³
+                    ['start' => 26, 'price' => 3800],  // 26+ m³
                 ];
             } elseif ($village->slug === 'pemenang') {
                 $tariffRanges = [
-                    ['start' => 0, 'price' => 3000],
-                    ['start' => 13, 'price' => 3500],
-                    ['start' => 23, 'price' => 4000],
+                    ['start' => 0, 'price' => 3000],   // 0-12 m³
+                    ['start' => 13, 'price' => 3500],  // 13-22 m³
+                    ['start' => 23, 'price' => 4000],  // 23+ m³
                 ];
             } else {
-                // Default structure for other villages
+                // Default structure for other villages (minimum 3 ranges)
+                $tariffRanges = [
+                    ['start' => 0, 'price' => 2500],   // 0-10 m³
+                    ['start' => 11, 'price' => 3000],  // 11-20 m³
+                    ['start' => 21, 'price' => 3500],  // 21+ m³
+                ];
+            }
+
+            // Ensure we have at least 3 ranges
+            if (count($tariffRanges) < 3) {
+                $this->command->warn("Village {$village->name} has less than 3 ranges, adding defaults");
                 $tariffRanges = [
                     ['start' => 0, 'price' => 2500],
                     ['start' => 11, 'price' => 3000],
                     ['start' => 21, 'price' => 3500],
-                    ['start' => 31, 'price' => 4000],
                 ];
             }
 
@@ -76,6 +85,14 @@ class WaterTariffSeeder extends Seeder
             }
 
             $this->command->info("Created {$createdCount} smart tariff ranges for {$village->name}");
+
+            // Validate that we have at least 3 ranges
+            $actualRanges = \App\Models\WaterTariff::where('village_id', $village->id)->count();
+            if ($actualRanges < 3) {
+                $this->command->error("WARNING: {$village->name} only has {$actualRanges} tariff ranges!");
+            } else {
+                $this->command->info("✓ {$village->name} has {$actualRanges} tariff ranges (minimum requirement met)");
+            }
         }
 
         $totalTariffs = \App\Models\WaterTariff::count();
@@ -113,15 +130,15 @@ class WaterTariffSeeder extends Seeder
             $this->command->info('');
         }
 
-        // Show example calculations
+        // Show example calculations for each village
         $this->command->info('🧮 EXAMPLE CALCULATIONS:');
         $this->command->info('========================');
 
-        foreach ($villages->take(1) as $village) { // Show example for first village
+        foreach ($villages as $village) {
             $this->command->info("📍 Example for {$village->name}:");
 
             try {
-                $usageExamples = [15, 25, 35, 50];
+                $usageExamples = [8, 15, 25, 35];
 
                 foreach ($usageExamples as $usage) {
                     $calculation = \App\Models\WaterTariff::calculateBill($usage, $village->id);
@@ -136,11 +153,12 @@ class WaterTariffSeeder extends Seeder
             } catch (\Exception $e) {
                 $this->command->error("   Error calculating examples: " . $e->getMessage());
             }
+            $this->command->info('');
         }
 
-        $this->command->info('');
         $this->command->info('✅ Smart tariff seeding completed successfully!');
         $this->command->info('🎯 Features enabled:');
+        $this->command->info('   • Minimum 3 ranges per village');
         $this->command->info('   • No range conflicts');
         $this->command->info('   • Auto-adjustment on edits');
         $this->command->info('   • Smart validation rules');

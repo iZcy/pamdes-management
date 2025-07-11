@@ -1,5 +1,5 @@
 <?php
-// database/seeders/WaterUsageSeeder.php - Fixed to use existing data
+// database/seeders/WaterUsageSeeder.php - Updated with more realistic usage patterns
 
 namespace Database\Seeders;
 
@@ -49,12 +49,17 @@ class WaterUsageSeeder extends Seeder
 
             $villageUsages = 0;
 
+            // Create usage patterns that will work well with tariff ranges
             foreach ($customers as $customer) {
                 $lastMeterReading = rand(100, 500); // Starting meter reading
 
+                // Assign customer type for realistic usage patterns
+                $customerType = $this->getCustomerType();
+
                 foreach ($periods as $period) {
-                    // Generate realistic usage (5-50 m³ per month)
-                    $usage = rand(5, 50);
+                    // Generate realistic usage based on customer type and tariff ranges
+                    $usage = $this->generateRealisticUsage($customerType);
+
                     $initialMeter = $lastMeterReading;
                     $finalMeter = $initialMeter + $usage;
 
@@ -81,17 +86,117 @@ class WaterUsageSeeder extends Seeder
 
             $this->command->info("Created {$villageUsages} water usages for {$village->name}");
             $totalUsages += $villageUsages;
+
+            // Show usage distribution for this village
+            $this->showUsageDistribution($village);
         }
 
         $this->command->info("Total water usages created: {$totalUsages}");
 
-        // Show summary by village
+        // Show overall summary
+        $this->command->info('');
+        $this->command->info('📊 Usage Summary by Village:');
         foreach ($villages as $village) {
             $villageUsageCount = WaterUsage::whereHas('customer', function ($q) use ($village) {
                 $q->where('village_id', $village->id);
             })->count();
 
+            $avgUsage = WaterUsage::whereHas('customer', function ($q) use ($village) {
+                $q->where('village_id', $village->id);
+            })->avg('total_usage_m3');
+
+            $minUsage = WaterUsage::whereHas('customer', function ($q) use ($village) {
+                $q->where('village_id', $village->id);
+            })->min('total_usage_m3');
+
+            $maxUsage = WaterUsage::whereHas('customer', function ($q) use ($village) {
+                $q->where('village_id', $village->id);
+            })->max('total_usage_m3');
+
             $this->command->info("- {$village->name}: {$villageUsageCount} usages");
+            $this->command->info("  Range: {$minUsage}-{$maxUsage}m³ | Average: " . round($avgUsage, 1) . "m³");
+        }
+    }
+
+    /**
+     * Get customer type for realistic usage patterns
+     */
+    private function getCustomerType(): string
+    {
+        $types = [
+            'low_usage' => 30,      // 30% - Small households (5-15 m³)
+            'medium_usage' => 40,   // 40% - Average households (10-25 m³)
+            'high_usage' => 25,     // 25% - Large households (20-40 m³)
+            'very_high_usage' => 5  // 5% - Very large households/small business (35-60 m³)
+        ];
+
+        $random = rand(1, 100);
+        $cumulative = 0;
+
+        foreach ($types as $type => $percentage) {
+            $cumulative += $percentage;
+            if ($random <= $cumulative) {
+                return $type;
+            }
+        }
+
+        return 'medium_usage';
+    }
+
+    /**
+     * Generate realistic usage based on customer type
+     * Ensures good distribution across tariff ranges
+     */
+    private function generateRealisticUsage(string $customerType): int
+    {
+        switch ($customerType) {
+            case 'low_usage':
+                // Most will be in first tariff range (0-10 m³)
+                return rand(5, 15);
+
+            case 'medium_usage':
+                // Will span first and second tariff ranges (10-25 m³)
+                return rand(8, 25);
+
+            case 'high_usage':
+                // Will hit second and third tariff ranges (20-40 m³)
+                return rand(18, 40);
+
+            case 'very_high_usage':
+                // Will hit all tariff ranges including highest (35-60 m³)
+                return rand(32, 60);
+
+            default:
+                return rand(10, 25);
+        }
+    }
+
+    /**
+     * Show usage distribution for a village
+     */
+    private function showUsageDistribution(Village $village): void
+    {
+        $usages = WaterUsage::whereHas('customer', function ($q) use ($village) {
+            $q->where('village_id', $village->id);
+        })->pluck('total_usage_m3');
+
+        if ($usages->isEmpty()) {
+            return;
+        }
+
+        // Create distribution buckets based on typical tariff ranges
+        $distribution = [
+            '0-10 m³' => $usages->filter(fn($u) => $u >= 0 && $u <= 10)->count(),
+            '11-20 m³' => $usages->filter(fn($u) => $u >= 11 && $u <= 20)->count(),
+            '21-30 m³' => $usages->filter(fn($u) => $u >= 21 && $u <= 30)->count(),
+            '31-40 m³' => $usages->filter(fn($u) => $u >= 31 && $u <= 40)->count(),
+            '40+ m³' => $usages->filter(fn($u) => $u > 40)->count(),
+        ];
+
+        $this->command->info("  Usage Distribution:");
+        foreach ($distribution as $range => $count) {
+            $percentage = round(($count / $usages->count()) * 100, 1);
+            $this->command->info("    {$range}: {$count} ({$percentage}%)");
         }
     }
 }
