@@ -1,13 +1,14 @@
 <?php
+// app/Services/TripayService.php - Complete and fixed implementation
 
 namespace App\Services;
 
 use App\Models\Variable;
 use App\Models\Bill;
+use App\Models\Village;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Crypt;
 
 class TripayService
 {
@@ -17,6 +18,7 @@ class TripayService
     private $baseUrl;
     private $isProduction;
     private $village;
+    private $timeoutMinutes;
 
     public function __construct($village = null)
     {
@@ -26,16 +28,21 @@ class TripayService
 
     private function loadConfiguration()
     {
-        // Get village-specific variables or use main config
-        $variables = $this->village ?
-            Variable::where('village_id', $this->village->id)->first() :
-            Variable::where('village_id', null)->first();
+        // Get village-specific variables
+        if ($this->village) {
+            $variables = Variable::where('village_id', $this->village->id)->first();
+        } else {
+            // Fallback to current village context
+            $villageId = config('pamdes.current_village_id');
+            $variables = $villageId ? Variable::where('village_id', $villageId)->first() : null;
+        }
 
         if (!$variables) {
-            throw new \Exception('Tripay configuration not found');
+            throw new \Exception('Tripay configuration not found for this village');
         }
 
         $this->isProduction = $variables->tripay_is_production;
+        $this->timeoutMinutes = $variables->tripay_timeout_minutes ?? 15;
 
         // Set base URL
         $this->baseUrl = $this->isProduction
@@ -44,7 +51,7 @@ class TripayService
 
         // Set credentials
         if ($variables->tripay_use_main) {
-            // Use main/global config
+            // Use main/global config from environment
             if ($this->isProduction) {
                 $this->apiKey = config('tripay.api_key');
                 $this->privateKey = config('tripay.private_key');
@@ -55,48 +62,52 @@ class TripayService
                 $this->merchantCode = config('tripay.merchant_code_sb');
             }
         } else {
-            // Use village-specific encrypted credentials
+            // Use village-specific credentials (already decrypted by Variable model)
             if ($this->isProduction) {
-                $this->apiKey = Crypt::decryptString($variables->tripay_api_key_prod);
-                $this->privateKey = Crypt::decryptString($variables->tripay_private_key_prod);
-                $this->merchantCode = Crypt::decryptString($variables->tripay_merchant_code_prod);
+                $this->apiKey = $variables->tripay_api_key_prod;
+                $this->privateKey = $variables->tripay_private_key_prod;
+                $this->merchantCode = $variables->tripay_merchant_code_prod;
             } else {
-                $this->apiKey = Crypt::decryptString($variables->tripay_api_key_dev);
-                $this->privateKey = Crypt::decryptString($variables->tripay_private_key_dev);
-                $this->merchantCode = Crypt::decryptString($variables->tripay_merchant_code_dev);
+                $this->apiKey = $variables->tripay_api_key_dev;
+                $this->privateKey = $variables->tripay_private_key_dev;
+                $this->merchantCode = $variables->tripay_merchant_code_dev;
             }
+        }
+
+        // Validate that we have all required credentials
+        if (!$this->apiKey || !$this->privateKey || !$this->merchantCode) {
+            throw new \Exception('Incomplete Tripay configuration. Please check API key, private key, and merchant code.');
         }
     }
 
     /**
      * Create QRIS payment for bill
      */
-    public function createPayment(Bill $bill, $customerData)
+    public function createPayment(Bill $bill, array $customerData)
     {
         try {
             // Generate unique merchant reference
-            $merchantRef = 'BILL-' . $bill->id . '-' . time();
+            $merchantRef = 'BILL-' . $bill->bill_id . '-' . time();
 
             // Calculate timeout
-            $timeoutMinutes = $this->getTimeoutMinutes();
-            $timeout = Carbon::now()->addMinutes($timeoutMinutes)->timestamp;
-
-            // Generate signature
-            $signature = hash_hmac('sha256', $this->merchantCode . $merchantRef . $bill->amount, $this->privateKey);
+            $timeout = Carbon::now()->addMinutes($this->timeoutMinutes)->timestamp;
 
             // Prepare order items
             $orderItems = [[
-                "sku" => "BILL-{$bill->id}",
-                "name" => $bill->description ?: "Pembayaran Tagihan",
-                "price" => (int) $bill->amount,
+                "sku" => "BILL-{$bill->bill_id}",
+                "name" => "Pembayaran Tagihan Air " . ($bill->waterUsage->billingPeriod->period_name ?? 'Bulan Ini'),
+                "price" => (int) $bill->total_amount,
                 "quantity" => 1,
             ]];
+
+            // Generate signature
+            $signature = hash_hmac('sha256', $this->merchantCode . $merchantRef . $bill->total_amount, $this->privateKey);
 
             // Prepare payload
             $payload = [
                 "method" => "QRIS",
                 "merchant_ref" => $merchantRef,
-                "amount" => (int) $bill->amount,
+                "amount" => (int) $bill->total_amount,
                 "customer_name" => $customerData['name'],
                 "customer_email" => $customerData['email'],
                 "customer_phone" => $customerData['phone'] ?? '',
@@ -107,9 +118,11 @@ class TripayService
             ];
 
             Log::info('Creating Tripay payment for bill', [
-                'bill_id' => $bill->id,
+                'bill_id' => $bill->bill_id,
                 'merchant_ref' => $merchantRef,
-                'amount' => $bill->amount,
+                'amount' => $bill->total_amount,
+                'village_id' => $this->village?->id,
+                'is_production' => $this->isProduction,
             ]);
 
             // Send request to Tripay
@@ -119,6 +132,11 @@ class TripayService
 
             if (!$response->successful()) {
                 $errorMessage = $response->json()['message'] ?? 'Unknown error';
+                Log::error('Tripay payment creation failed', [
+                    'error' => $errorMessage,
+                    'response' => $response->body(),
+                    'status' => $response->status(),
+                ]);
                 throw new \Exception("Tripay payment creation failed: " . $errorMessage);
             }
 
@@ -131,9 +149,10 @@ class TripayService
             ]);
 
             Log::info('Tripay payment created successfully', [
-                'bill_id' => $bill->id,
+                'bill_id' => $bill->bill_id,
                 'merchant_ref' => $merchantRef,
                 'tripay_reference' => $responseData['reference'],
+                'checkout_url' => $responseData['checkout_url'],
             ]);
 
             return [
@@ -144,8 +163,9 @@ class TripayService
             ];
         } catch (\Exception $e) {
             Log::error('Failed to create Tripay payment', [
-                'bill_id' => $bill->id,
+                'bill_id' => $bill->bill_id,
                 'error' => $e->getMessage(),
+                'village_id' => $this->village?->id,
             ]);
             throw $e;
         }
@@ -217,26 +237,38 @@ class TripayService
             case 'PAID':
                 $bill->update([
                     'status' => 'paid',
-                    'paid_at' => now(),
+                    'payment_date' => now(),
                 ]);
 
-                Log::info('Bill payment completed', [
-                    'bill_id' => $bill->id,
+                // Create payment record
+                $bill->payments()->create([
+                    'payment_date' => now(),
+                    'amount_paid' => $bill->total_amount,
+                    'change_given' => 0,
+                    'payment_method' => 'qris',
+                    'payment_reference' => $callbackData['reference'] ?? null,
+                    'collector_id' => null, // System payment
+                    'notes' => 'Pembayaran QRIS melalui Tripay',
+                ]);
+
+                Log::info('Bill payment completed via Tripay', [
+                    'bill_id' => $bill->bill_id,
                     'merchant_ref' => $merchantRef,
+                    'amount' => $bill->total_amount,
                 ]);
                 break;
 
             case 'UNPAID':
-                $bill->update(['status' => 'pending']);
+                $bill->update(['status' => 'unpaid']);
                 break;
 
             case 'EXPIRED':
             case 'REFUND':
             case 'FAILED':
-                $bill->update(['status' => 'failed']);
+                $bill->update(['status' => 'unpaid', 'bill_ref' => null]);
 
-                Log::info('Bill payment failed/expired', [
-                    'bill_id' => $bill->id,
+                Log::info('Bill payment failed/expired via Tripay', [
+                    'bill_id' => $bill->bill_id,
                     'merchant_ref' => $merchantRef,
                     'status' => $status,
                 ]);
@@ -273,12 +305,25 @@ class TripayService
         }
     }
 
-    private function getTimeoutMinutes()
+    /**
+     * Test connection to Tripay
+     */
+    public function testConnection()
     {
-        $variables = $this->village ?
-            Variable::where('village_id', $this->village->id)->first() :
-            Variable::where('village_id', null)->first();
-
-        return $variables->tripay_timeout_minutes ?? 15;
+        try {
+            $channels = $this->getPaymentChannels();
+            return [
+                'success' => true,
+                'message' => 'Connection successful',
+                'channels_count' => count($channels),
+                'is_production' => $this->isProduction,
+            ];
+        } catch (\Exception $e) {
+            return [
+                'success' => false,
+                'message' => $e->getMessage(),
+                'is_production' => $this->isProduction,
+            ];
+        }
     }
 }

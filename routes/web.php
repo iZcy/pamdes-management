@@ -1,14 +1,12 @@
 <?php
-// routes/web.php - Updated with better error handling
+// routes/web.php - Cleaned with Tripay integration
 
 use Illuminate\Support\Facades\Route;
 use App\Models\Customer;
 use App\Models\User;
+use App\Http\Controllers\TripayController;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-
-require __DIR__ . '/tripay.php';
 
 // Apply village context middleware to all routes
 Route::middleware(['village.context'])->group(function () {
@@ -71,7 +69,7 @@ Route::middleware(['village.context'])->group(function () {
 
                 Log::info('Customer found, redirecting', [
                     'customer_code' => $customer->customer_code,
-                    'customer_id' => $customer->id,
+                    'customer_id' => $customer->customer_id,
                 ]);
 
                 return redirect()->route('portal.bills', $customer->customer_code);
@@ -94,12 +92,14 @@ Route::middleware(['village.context'])->group(function () {
 
             $customer = Customer::where('customer_code', $customerCode)
                 ->where('village_id', $villageId)
+                ->with('village')
                 ->firstOrFail();
 
             // Get unpaid bills
             $bills = $customer->bills()
-                ->unpaid()
+                ->whereIn('status', ['unpaid', 'overdue', 'pending'])
                 ->with(['waterUsage.billingPeriod'])
+                ->orderBy('due_date', 'asc')
                 ->get();
 
             // Get paid bills (last 10 for history)
@@ -114,9 +114,37 @@ Route::middleware(['village.context'])->group(function () {
         })->name('bills');
     });
 
+    // Tripay Payment Routes - Village-specific
+    Route::prefix('{village}')->group(function () {
+        Route::prefix('bill/{bill}')->group(function () {
+            // Show payment form
+            Route::get('/payment', [TripayController::class, 'showPaymentForm'])
+                ->name('tripay.form');
+
+            // Create payment
+            Route::post('/payment/create', [TripayController::class, 'createPayment'])
+                ->name('tripay.create');
+
+            // Check payment status (AJAX)
+            Route::get('/payment/status', [TripayController::class, 'checkStatus'])
+                ->name('tripay.status');
+        });
+    });
+
     Route::fallback(function () {
         return redirect(filament()->getLoginUrl());
     });
+});
+
+// Public Tripay callback routes (no authentication or village context required)
+Route::prefix('tripay')->group(function () {
+    // Webhook callback from Tripay
+    Route::post('/callback', [TripayController::class, 'handleCallback'])
+        ->name('tripay.callback');
+
+    // Return URL after payment
+    Route::get('/return', [TripayController::class, 'handleReturn'])
+        ->name('tripay.return');
 });
 
 // Admin routes (protected by auth)
@@ -126,7 +154,7 @@ Route::middleware(['auth'])->prefix('admin')->group(function () {
     })->name('payment.receipt');
 
     Route::get('bills/{bill}/invoice', function (\App\Models\Bill $bill) {
-        return view('receipts.invoice', compact('bill'));
+        return view('receipts.payment', compact('bill'));
     })->name('bill.invoice');
 });
 
@@ -137,5 +165,27 @@ Route::get('/health', function () {
         'timestamp' => now()->toISOString(),
         'village' => config('pamdes.current_village.name', 'Unknown'),
         'host' => request()->getHost(),
+        'system' => 'PAMDes Management System',
     ]);
 });
+
+// Debug route for development
+// Route::get('/debug/config', function () {
+//     if (app()->environment('production')) {
+//         abort(404);
+//     }
+
+//     return response()->json([
+//         'pamdes_config' => config('pamdes'),
+//         'session_info' => [
+//             'id' => session()->getId(),
+//             'token' => csrf_token(),
+//         ],
+//         'host' => request()->getHost(),
+//         'user' => auth()->user() ? [
+//             'id' => auth()->user()->id,
+//             'name' => auth()->user()->name,
+//             'role' => auth()->user()->role,
+//         ] : null,
+//     ]);
+// })->name('debug.config');

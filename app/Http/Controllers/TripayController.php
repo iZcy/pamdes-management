@@ -1,4 +1,5 @@
 <?php
+// app/Http/Controllers/TripayController.php - Complete implementation
 
 namespace App\Http\Controllers;
 
@@ -11,6 +12,26 @@ use Illuminate\Support\Facades\Validator;
 
 class TripayController extends Controller
 {
+    /**
+     * Show payment form
+     */
+    public function showPaymentForm($villageSlug, $billId)
+    {
+        try {
+            $village = Village::where('slug', $villageSlug)->firstOrFail();
+            $bill = Bill::where('bill_id', $billId)
+                ->whereHas('waterUsage.customer', function ($q) use ($village) {
+                    $q->where('village_id', $village->id);
+                })
+                ->where('status', '!=', 'paid')
+                ->firstOrFail();
+
+            return view('tripay.payment-form', compact('village', 'bill'));
+        } catch (\Exception $e) {
+            return redirect()->back()->with('error', 'Tagihan tidak ditemukan atau sudah dibayar');
+        }
+    }
+
     /**
      * Create QRIS payment for a bill
      */
@@ -30,9 +51,11 @@ class TripayController extends Controller
 
             // Find village and bill
             $village = Village::where('slug', $villageSlug)->firstOrFail();
-            $bill = Bill::where('id', $billId)
-                ->where('village_id', $village->id)
-                ->where('status', 'unpaid')
+            $bill = Bill::where('bill_id', $billId)
+                ->whereHas('waterUsage.customer', function ($q) use ($village) {
+                    $q->where('village_id', $village->id);
+                })
+                ->where('status', '!=', 'paid')
                 ->firstOrFail();
 
             // Initialize Tripay service
@@ -88,13 +111,13 @@ class TripayController extends Controller
             // Extract bill ID from merchant reference (format: BILL-{id}-{timestamp})
             if (preg_match('/^BILL-(\d+)-\d+$/', $merchantRef, $matches)) {
                 $billId = $matches[1];
-                $bill = Bill::find($billId);
+                $bill = Bill::with('waterUsage.customer.village')->find($billId);
 
                 if (!$bill) {
                     return response()->json(['error' => 'Bill not found'], 404);
                 }
 
-                $village = Village::find($bill->village_id);
+                $village = $bill->waterUsage->customer->village;
                 if (!$village) {
                     return response()->json(['error' => 'Village not found'], 404);
                 }
@@ -106,7 +129,7 @@ class TripayController extends Controller
                 $updatedBill = $tripayService->processCallback($data);
 
                 Log::info('Tripay callback processed successfully', [
-                    'bill_id' => $updatedBill->id,
+                    'bill_id' => $updatedBill->bill_id,
                     'status' => $updatedBill->status,
                 ]);
 
@@ -129,7 +152,7 @@ class TripayController extends Controller
      */
     public function handleReturn(Request $request)
     {
-        $merchantRef = $request->get('tripay_merchant_ref');
+        $merchantRef = $request->get('merchant_ref');
 
         Log::info('Tripay return received', [
             'merchant_ref' => $merchantRef,
@@ -144,21 +167,20 @@ class TripayController extends Controller
             // Extract bill ID from merchant reference
             if (preg_match('/^BILL-(\d+)-\d+$/', $merchantRef, $matches)) {
                 $billId = $matches[1];
-                $bill = Bill::find($billId);
+                $bill = Bill::with('waterUsage.customer.village')->find($billId);
 
                 if (!$bill) {
                     return redirect()->route('home')->with('error', 'Bill not found');
                 }
 
-                $village = Village::find($bill->village_id);
+                $village = $bill->waterUsage->customer->village;
                 if (!$village) {
                     return redirect()->route('home')->with('error', 'Village not found');
                 }
 
-                // Redirect to bill detail or payment status page
-                return redirect()->route('village.bill.show', [
-                    'village' => $village->slug,
-                    'bill' => $bill->id
+                // Redirect to customer portal or bill detail page
+                return redirect()->route('portal.bills', [
+                    'customer_code' => $bill->waterUsage->customer->customer_code
                 ])->with('success', 'Payment process completed. Please check your payment status.');
             }
 
@@ -180,8 +202,10 @@ class TripayController extends Controller
     {
         try {
             $village = Village::where('slug', $villageSlug)->firstOrFail();
-            $bill = Bill::where('id', $billId)
-                ->where('village_id', $village->id)
+            $bill = Bill::where('bill_id', $billId)
+                ->whereHas('waterUsage.customer', function ($q) use ($village) {
+                    $q->where('village_id', $village->id);
+                })
                 ->firstOrFail();
 
             if (!$bill->bill_ref) {
@@ -200,10 +224,11 @@ class TripayController extends Controller
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'bill_id' => $bill->id,
+                    'bill_id' => $bill->bill_id,
                     'status' => $bill->status,
-                    'amount' => $bill->amount,
-                    'paid_at' => $bill->paid_at,
+                    'amount' => $bill->total_amount,
+                    'payment_date' => $bill->payment_date,
+                    'merchant_ref' => $bill->bill_ref,
                 ]
             ]);
         } catch (\Exception $e) {
@@ -217,24 +242,6 @@ class TripayController extends Controller
                 'success' => false,
                 'message' => 'Failed to check payment status'
             ], 500);
-        }
-    }
-
-    /**
-     * Show payment form
-     */
-    public function showPaymentForm($villageSlug, $billId)
-    {
-        try {
-            $village = Village::where('slug', $villageSlug)->firstOrFail();
-            $bill = Bill::where('id', $billId)
-                ->where('village_id', $village->id)
-                ->where('status', 'unpaid')
-                ->firstOrFail();
-
-            return view('tripay.payment-form', compact('village', 'bill'));
-        } catch (\Exception $e) {
-            return redirect()->back()->with('error', 'Bill not found or already paid');
         }
     }
 }

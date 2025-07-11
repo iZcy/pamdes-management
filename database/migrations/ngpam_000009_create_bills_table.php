@@ -18,12 +18,13 @@ return new class extends Migration
             $table->decimal('admin_fee', 10, 2)->default(0);
             $table->decimal('maintenance_fee', 10, 2)->default(0);
             $table->decimal('total_amount', 10, 2);
-            $table->enum('status', ['paid', 'unpaid', 'overdue'])->default('unpaid');
+            $table->enum('status', ['paid', 'pending', 'unpaid', 'overdue'])->default('unpaid');
             $table->timestamp('paid_at')->nullable();
             $table->date('due_date')->nullable();
             $table->date('payment_date')->nullable();
             $table->timestamps();
 
+            $table->index('bill_ref');
             $table->index(['status', 'due_date']);
             $table->index('payment_date');
         });
