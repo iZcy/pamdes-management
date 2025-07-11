@@ -22,13 +22,25 @@
       <div class="max-w-md mx-auto bg-white rounded-lg shadow-md p-6">
         <h2 class="text-xl font-semibold mb-6 text-center">Cek Tagihan Air</h2>
 
+        {{-- Show errors if any --}}
+        @if ($errors->any())
+          <div class="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
+            <ul class="list-disc list-inside">
+              @foreach ($errors->all() as $error)
+                <li>{{ $error }}</li>
+              @endforeach
+            </ul>
+          </div>
+        @endif
+
         <form action="{{ route('portal.lookup') }}" method="POST" class="space-y-4">
           @csrf
           <div>
             <label for="customer_code" class="block text-sm font-medium text-gray-700 mb-2">
               Kode Pelanggan
             </label>
-            <input type="text" id="customer_code" name="customer_code" placeholder="Masukkan kode pelanggan"
+            <input type="text" id="customer_code" name="customer_code" value="{{ old('customer_code') }}"
+              placeholder="Masukkan kode pelanggan"
               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               required>
           </div>
@@ -38,6 +50,19 @@
             Cek Tagihan
           </button>
         </form>
+
+        {{-- Debug info (remove in production) --}}
+        @if (app()->environment('local'))
+          <div class="mt-4 p-3 bg-gray-100 border rounded text-xs">
+            <strong>Debug Info:</strong><br>
+            Host: {{ request()->getHost() }}<br>
+            Session ID: {{ session()->getId() }}<br>
+            CSRF Token: {{ csrf_token() }}<br>
+            Village: {{ $village['name'] ?? 'None' }}<br>
+            Domain: {{ config('session.domain') }}<br>
+            Cookie: {{ config('session.cookie') }}
+          </div>
+        @endif
 
         <div class="mt-6 text-center text-sm text-gray-600">
           <p>Hubungi petugas PAMDes jika Anda tidak mengetahui kode pelanggan.</p>

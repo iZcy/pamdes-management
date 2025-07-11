@@ -1,17 +1,12 @@
 <?php
-// routes/web.php - Working version with village context
+// routes/web.php - Updated with better error handling
 
 use Illuminate\Support\Facades\Route;
 use App\Models\Customer;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-
-/*
-|--------------------------------------------------------------------------
-| Web Routes - PAMDes System with Village Context
-|--------------------------------------------------------------------------
-*/
+use Illuminate\Support\Facades\Log;
 
 // Apply village context middleware to all routes
 Route::middleware(['village.context'])->group(function () {
@@ -23,29 +18,69 @@ Route::middleware(['village.context'])->group(function () {
     Route::prefix('portal')->name('portal.')->group(function () {
         Route::get('/', function () {
             $village = config('pamdes.current_village');
+
+            // Debug session and CSRF
+            Log::info('Portal index accessed', [
+                'village' => $village,
+                'session_id' => session()->getId(),
+                'csrf_token' => csrf_token(),
+                'host' => request()->getHost(),
+            ]);
+
             return view('customer-portal.index', compact('village'));
         })->name('index');
 
         Route::post('/lookup', function () {
-            request()->validate([
-                'customer_code' => 'required|string|max:20'
+            // Add debugging
+            Log::info('Lookup request received', [
+                'request_data' => request()->all(),
+                'session_id' => session()->getId(),
+                'csrf_token' => csrf_token(),
+                'host' => request()->getHost(),
+                'village_id' => config('pamdes.current_village_id'),
             ]);
 
-            $villageId = config('pamdes.current_village_id');
+            try {
+                request()->validate([
+                    'customer_code' => 'required|string|max:20'
+                ]);
 
-            if (!$villageId) {
-                return back()->withErrors(['customer_code' => 'Village context not found.']);
+                $villageId = config('pamdes.current_village_id');
+
+                if (!$villageId) {
+                    Log::error('Village context not found', [
+                        'host' => request()->getHost(),
+                        'config' => config('pamdes'),
+                    ]);
+                    return back()->withErrors(['customer_code' => 'Village context not found.']);
+                }
+
+                $customer = Customer::where('customer_code', request('customer_code'))
+                    ->where('village_id', $villageId)
+                    ->first();
+
+                if (!$customer) {
+                    Log::info('Customer not found', [
+                        'customer_code' => request('customer_code'),
+                        'village_id' => $villageId,
+                    ]);
+                    return back()->withErrors(['customer_code' => 'Kode pelanggan tidak ditemukan.']);
+                }
+
+                Log::info('Customer found, redirecting', [
+                    'customer_code' => $customer->customer_code,
+                    'customer_id' => $customer->id,
+                ]);
+
+                return redirect()->route('portal.bills', $customer->customer_code);
+            } catch (\Exception $e) {
+                Log::error('Error in lookup', [
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+
+                return back()->withErrors(['customer_code' => 'Terjadi kesalahan. Silakan coba lagi.']);
             }
-
-            $customer = Customer::where('customer_code', request('customer_code'))
-                ->where('village_id', $villageId)
-                ->first();
-
-            if (!$customer) {
-                return back()->withErrors(['customer_code' => 'Kode pelanggan tidak ditemukan.']);
-            }
-
-            return redirect()->route('portal.bills', $customer->customer_code);
         })->name('lookup');
 
         Route::get('/bills/{customer_code}', function ($customerCode) {
@@ -72,8 +107,6 @@ Route::middleware(['village.context'])->group(function () {
 
 // Admin routes (protected by auth)
 Route::middleware(['auth'])->prefix('admin')->group(function () {
-
-    // Receipt printing routes
     Route::get('payments/{payment}/receipt', function (\App\Models\Payment $payment) {
         return view('receipts.payment', compact('payment'));
     })->name('payment.receipt');
@@ -83,23 +116,12 @@ Route::middleware(['auth'])->prefix('admin')->group(function () {
     })->name('bill.invoice');
 });
 
-// Health check (no middleware needed)
+// Health check and debug routes
 Route::get('/health', function () {
     return response()->json([
         'status' => 'ok',
         'timestamp' => now()->toISOString(),
         'village' => config('pamdes.current_village.name', 'Unknown'),
         'host' => request()->getHost(),
-    ]);
-});
-
-Route::get('/debug-auth-flow', function () {
-    return response()->json([
-        'host' => request()->getHost(),
-        'session_id' => session()->getId(),
-        'session_domain' => config('session.domain'),
-        'auth_check' => Auth::check(),
-        'auth_user' => User::find(Auth::id())?->only(['id', 'email', 'role']),
-        'can_access_panel' => Auth::user() ? User::find(Auth::id())->canAccessPanel(new \Filament\Panel()) : false,
     ]);
 });

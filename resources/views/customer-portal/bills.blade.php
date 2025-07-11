@@ -18,7 +18,7 @@
             <h1 class="text-xl font-bold">Tagihan Air</h1>
             <p class="text-blue-100">{{ $customer->name }} ({{ $customer->customer_code }})</p>
           </div>
-          <a href="{{ route('customer.portal') }}" class="bg-blue-500 hover:bg-blue-400 px-4 py-2 rounded">
+          <a href="{{ route('portal.index') }}" class="bg-blue-500 hover:bg-blue-400 px-4 py-2 rounded">
             Kembali
           </a>
         </div>
@@ -143,54 +143,6 @@
       </div>
     </main>
   </div>
-</body>
-
-</html>
-<span>Rp {{ number_format($payment->bill->total_amount) }}</span>
-</div>
-<div class="row">
-  <span class="label">Jumlah Dibayar:</span>
-  <span>Rp {{ number_format($payment->amount_paid) }}</span>
-</div>
-@if ($payment->change_given > 0)
-  <div class="row">
-    <span class="label">Kembalian:</span>
-    <span>Rp {{ number_format($payment->change_given) }}</span>
-  </div>
-@endif
-<div class="row">
-  <span class="label">Metode Pembayaran:</span>
-  <span>{{ $payment->payment_method_label }}</span>
-</div>
-<div class="row">
-  <span class="label">Tanggal Pembayaran:</span>
-  <span>{{ $payment->payment_date->format('d/m/Y H:i') }}</span>
-</div>
-@if ($payment->collector_name)
-  <div class="row">
-    <span class="label">Petugas:</span>
-    <span>{{ $payment->collector_name }}</span>
-  </div>
-@endif
-</div>
-
-<div class="footer">
-  <p>{{ config('pamdes.current_village.name', 'Desa') }}, {{ now()->format('d F Y') }}</p>
-  <div class="signature">
-    <p>Petugas Kasir</p>
-    <br><br><br>
-    <p>(_________________________)</p>
-  </div>
-</div>
-
-<script>
-  // Auto print when opened
-  window.onload = function() {
-    setTimeout(function() {
-      window.print();
-    }, 500);
-  }
-</script>
 </body>
 
 </html>

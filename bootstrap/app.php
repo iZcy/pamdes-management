@@ -1,5 +1,5 @@
 <?php
-// bootstrap/app.php - Updated to include auto-logout middleware
+// bootstrap/app.php - Fixed middleware order for session handling
 
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -17,13 +17,16 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'village.context' => \App\Http\Middleware\SetVillageContext::class,
             'super.admin' => \App\Http\Middleware\RequireSuperAdmin::class,
-            'pamdes.session' => \App\Http\Middleware\SharePamdesSession::class,
             'auto.logout' => \App\Http\Middleware\AutoLogoutOnAccessDenied::class,
         ]);
 
-        // Apply middleware to web routes in correct order
+        // IMPORTANT: Add session domain middleware BEFORE web middleware group
+        $middleware->web(prepend: [
+            \App\Http\Middleware\SetSessionDomain::class,  // FIRST: Set session domain before session starts
+        ]);
+
+        // Apply middleware to web routes in correct order AFTER session starts
         $middleware->web(append: [
-            \App\Http\Middleware\SharePamdesSession::class, // FIRST: Handle session sharing
             \App\Http\Middleware\SetVillageContext::class,  // THEN: Set village context
             \App\Http\Middleware\AutoLogoutOnAccessDenied::class, // FINALLY: Check access and auto-logout
         ]);
@@ -43,6 +46,21 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withExceptions(function (Exceptions $exceptions) {
         // Handle auto-logout exceptions gracefully
         $exceptions->render(function (\Throwable $e, $request) {
+            // Handle CSRF token mismatch specifically
+            if ($e instanceof \Illuminate\Session\TokenMismatchException) {
+                if ($request->expectsJson()) {
+                    return response()->json([
+                        'error' => 'Token mismatch',
+                        'message' => 'Your session has expired. Please refresh the page and try again.',
+                        'redirect' => $request->url()
+                    ], 419);
+                }
+
+                return redirect()->back()
+                    ->withInput($request->except('_token'))
+                    ->withErrors(['error' => 'Your session has expired. Please try again.']);
+            }
+
             // Handle model not found
             if ($e instanceof \Illuminate\Database\Eloquent\ModelNotFoundException) {
                 if ($request->expectsJson()) {
