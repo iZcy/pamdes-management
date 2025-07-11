@@ -1,5 +1,5 @@
 <?php
-// Alternative: Update config/session.php to conditionally set domain
+// Update config/session.php back to a simple configuration
 
 return [
     'driver' => env('SESSION_DRIVER', 'database'),
@@ -13,19 +13,7 @@ return [
     'lottery' => [2, 100],
     'cookie' => env('SESSION_COOKIE', 'pamdes_session'),
     'path' => env('SESSION_PATH', '/'),
-
-    // Conditional domain setting
-    'domain' => env('SESSION_DOMAIN', function () {
-        // Only use shared domain for village subdomains
-        $host = request()?->getHost() ?? '';
-
-        if (preg_match('/^pamdes-[^.]+\.dev-pamdes\.id$/', $host)) {
-            return '.dev-pamdes.id'; // Shared for village subdomains
-        }
-
-        return null; // Default for main domain
-    }),
-
+    'domain' => env('SESSION_DOMAIN', null),
     'secure' => env('SESSION_SECURE_COOKIE'),
     'http_only' => env('SESSION_HTTP_ONLY', true),
     'same_site' => env('SESSION_SAME_SITE', 'lax'),

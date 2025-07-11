@@ -1,5 +1,5 @@
 <?php
-// app/Models/User.php - Fixed ambiguous column issue
+// app/Models/User.php - Fixed canAccessPanel method
 
 namespace App\Models;
 
@@ -37,22 +37,28 @@ class User extends Authenticatable implements FilamentUser
         ];
     }
 
-    // Filament User Interface - Village-aware
+    // Filament User Interface - Fixed for super admin access
     public function canAccessPanel(Panel $panel): bool
     {
-        // Simple check: active users can access
+        Log::info("Checking panel access for user", [
+            'user_id' => $this->id,
+            'role' => $this->role,
+            'is_active' => $this->is_active,
+        ]);
+
+        // First check if user is active
         if (!$this->is_active) {
             Log::info("Access denied: User not active", ['user_id' => $this->id]);
             return false;
         }
 
-        // Super admin can always access
+        // Super admin check - should work on any domain
         if ($this->isSuperAdmin()) {
             Log::info("Access granted: Super admin", ['user_id' => $this->id]);
             return true;
         }
 
-        // Village admin check
+        // For village admins, check domain context
         if ($this->isVillageAdmin()) {
             $currentVillageId = config('pamdes.current_village_id');
             $isSuperAdminDomain = config('pamdes.is_super_admin_domain', false);
@@ -63,13 +69,13 @@ class User extends Authenticatable implements FilamentUser
                 'is_super_admin_domain' => $isSuperAdminDomain,
             ]);
 
-            // Don't allow village admin on super admin domain
+            // Village admin cannot access super admin domain
             if ($isSuperAdminDomain) {
                 Log::info("Access denied: Village admin on super admin domain", ['user_id' => $this->id]);
                 return false;
             }
 
-            // If we have a village context, check access
+            // If we have a village context, check if user has access to it
             if ($currentVillageId) {
                 $hasAccess = $this->hasAccessToVillage($currentVillageId);
                 Log::info("Village access check result", [
