@@ -1,5 +1,5 @@
 <?php
-// app/Models/User.php - Fixed canAccessPanel method
+// app/Models/User.php - Enhanced with access validation methods
 
 namespace App\Models;
 
@@ -8,6 +8,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 
 class User extends Authenticatable implements FilamentUser
 {
@@ -37,13 +38,32 @@ class User extends Authenticatable implements FilamentUser
         ];
     }
 
-    // Filament User Interface - Fixed for super admin access
+    // Filament User Interface - Enhanced with comprehensive access checking
     public function canAccessPanel(Panel $panel): bool
     {
-        Log::info("Checking panel access for user", [
+        // Cache key for access check to avoid repeated database queries
+        $cacheKey = "user_panel_access_{$this->id}_" . md5(serialize([
+            config('pamdes.current_village_id'),
+            config('pamdes.is_super_admin_domain'),
+            $this->updated_at?->timestamp
+        ]));
+
+        return Cache::remember($cacheKey, 300, function () {
+            return $this->performAccessCheck();
+        });
+    }
+
+    /**
+     * Perform the actual access check logic
+     */
+    protected function performAccessCheck(): bool
+    {
+        Log::info("Comprehensive panel access check for user", [
             'user_id' => $this->id,
             'role' => $this->role,
             'is_active' => $this->is_active,
+            'current_village_id' => config('pamdes.current_village_id'),
+            'is_super_admin_domain' => config('pamdes.is_super_admin_domain'),
         ]);
 
         // First check if user is active
@@ -60,35 +80,7 @@ class User extends Authenticatable implements FilamentUser
 
         // For village admins, check domain context
         if ($this->isVillageAdmin()) {
-            $currentVillageId = config('pamdes.current_village_id');
-            $isSuperAdminDomain = config('pamdes.is_super_admin_domain', false);
-
-            Log::info("Village admin access check", [
-                'user_id' => $this->id,
-                'current_village_id' => $currentVillageId,
-                'is_super_admin_domain' => $isSuperAdminDomain,
-            ]);
-
-            // Village admin cannot access super admin domain
-            if ($isSuperAdminDomain) {
-                Log::info("Access denied: Village admin on super admin domain", ['user_id' => $this->id]);
-                return false;
-            }
-
-            // If we have a village context, check if user has access to it
-            if ($currentVillageId) {
-                $hasAccess = $this->hasAccessToVillage($currentVillageId);
-                Log::info("Village access check result", [
-                    'user_id' => $this->id,
-                    'village_id' => $currentVillageId,
-                    'has_access' => $hasAccess,
-                ]);
-                return $hasAccess;
-            }
-
-            // If no village context, allow access (shouldn't happen but be permissive)
-            Log::info("Access granted: No village context, allowing village admin", ['user_id' => $this->id]);
-            return true;
+            return $this->checkVillageAdminAccess();
         }
 
         Log::info("Access denied: Unknown role or condition", [
@@ -96,6 +88,97 @@ class User extends Authenticatable implements FilamentUser
             'role' => $this->role,
         ]);
         return false;
+    }
+
+    /**
+     * Check village admin specific access requirements
+     */
+    protected function checkVillageAdminAccess(): bool
+    {
+        $currentVillageId = config('pamdes.current_village_id');
+        $isSuperAdminDomain = config('pamdes.is_super_admin_domain', false);
+
+        Log::info("Village admin access check", [
+            'user_id' => $this->id,
+            'current_village_id' => $currentVillageId,
+            'is_super_admin_domain' => $isSuperAdminDomain,
+        ]);
+
+        // Village admin cannot access super admin domain
+        if ($isSuperAdminDomain) {
+            Log::info("Access denied: Village admin on super admin domain", ['user_id' => $this->id]);
+            return false;
+        }
+
+        // Check if user has any accessible villages
+        $accessibleVillages = $this->getAccessibleVillages();
+        if ($accessibleVillages->isEmpty()) {
+            Log::info("Access denied: No accessible villages", ['user_id' => $this->id]);
+            return false;
+        }
+
+        // If we have a village context, check if user has access to it
+        if ($currentVillageId) {
+            $hasAccess = $this->hasAccessToVillage($currentVillageId);
+            Log::info("Village access check result", [
+                'user_id' => $this->id,
+                'village_id' => $currentVillageId,
+                'has_access' => $hasAccess,
+            ]);
+            return $hasAccess;
+        }
+
+        // If no village context, allow access (user has villages available)
+        Log::info("Access granted: No village context, user has accessible villages", [
+            'user_id' => $this->id,
+            'village_count' => $accessibleVillages->count()
+        ]);
+        return true;
+    }
+
+    /**
+     * Check if user's access requirements are still valid
+     */
+    public function validateCurrentAccess(): bool
+    {
+        // Clear any cached access data
+        $this->clearAccessCache();
+
+        // Perform fresh access check
+        return $this->performAccessCheck();
+    }
+
+    /**
+     * Clear access-related cache for this user
+     */
+    public function clearAccessCache(): void
+    {
+        $pattern = "user_panel_access_{$this->id}_*";
+
+        // Note: This is a simplified cache clear - in production you might want
+        // to use a more sophisticated cache tagging system
+        Cache::forget("user_panel_access_{$this->id}");
+
+        // If using Redis, you could use pattern matching
+        // Cache::tags(['user_access', "user_{$this->id}"])->flush();
+    }
+
+    /**
+     * Event handler for when user data changes
+     */
+    protected static function boot()
+    {
+        parent::boot();
+
+        // Clear cache when user is updated
+        static::updated(function ($user) {
+            $user->clearAccessCache();
+        });
+
+        // Clear cache when user villages change
+        static::saved(function ($user) {
+            $user->clearAccessCache();
+        });
     }
 
     // Relationships
@@ -186,11 +269,15 @@ class User extends Authenticatable implements FilamentUser
         $this->villages()->syncWithoutDetaching([
             $villageId => ['is_primary' => $isPrimary]
         ]);
+
+        // Clear cache after village assignment changes
+        $this->clearAccessCache();
     }
 
     public function removeFromVillage(string $villageId): void
     {
         $this->villages()->detach($villageId);
+        $this->clearAccessCache();
     }
 
     public function getCurrentVillageContext(): ?string
@@ -207,5 +294,13 @@ class User extends Authenticatable implements FilamentUser
         }
 
         return $this->getPrimaryVillageId();
+    }
+
+    /**
+     * Check if user should be automatically logged out
+     */
+    public function shouldBeLoggedOut(): bool
+    {
+        return !$this->validateCurrentAccess();
     }
 }

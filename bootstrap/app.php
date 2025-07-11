@@ -1,5 +1,5 @@
 <?php
-// Update bootstrap/app.php to include the session sharing middleware
+// bootstrap/app.php - Updated to include auto-logout middleware
 
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -18,12 +18,19 @@ return Application::configure(basePath: dirname(__DIR__))
             'village.context' => \App\Http\Middleware\SetVillageContext::class,
             'super.admin' => \App\Http\Middleware\RequireSuperAdmin::class,
             'pamdes.session' => \App\Http\Middleware\SharePamdesSession::class,
+            'auto.logout' => \App\Http\Middleware\AutoLogoutOnAccessDenied::class,
         ]);
 
         // Apply middleware to web routes in correct order
         $middleware->web(append: [
             \App\Http\Middleware\SharePamdesSession::class, // FIRST: Handle session sharing
             \App\Http\Middleware\SetVillageContext::class,  // THEN: Set village context
+            \App\Http\Middleware\AutoLogoutOnAccessDenied::class, // FINALLY: Check access and auto-logout
+        ]);
+
+        // Apply auto-logout to authenticated API routes
+        $middleware->api(append: [
+            \App\Http\Middleware\AutoLogoutOnAccessDenied::class,
         ]);
 
         // Throttling
@@ -34,7 +41,7 @@ return Application::configure(basePath: dirname(__DIR__))
         App\Providers\VillageServiceProvider::class,
     ])
     ->withExceptions(function (Exceptions $exceptions) {
-        // Simple exception handling
+        // Handle auto-logout exceptions gracefully
         $exceptions->render(function (\Throwable $e, $request) {
             // Handle model not found
             if ($e instanceof \Illuminate\Database\Eloquent\ModelNotFoundException) {
@@ -42,6 +49,34 @@ return Application::configure(basePath: dirname(__DIR__))
                     return response()->json(['error' => 'Resource not found'], 404);
                 }
                 return back()->withErrors(['error' => 'Resource not found']);
+            }
+
+            // Handle authentication exceptions
+            if ($e instanceof \Illuminate\Auth\AuthenticationException) {
+                if ($request->expectsJson()) {
+                    return response()->json([
+                        'error' => 'Unauthenticated',
+                        'message' => 'Your session has expired. Please log in again.',
+                        'redirect' => route('home')
+                    ], 401);
+                }
+
+                return redirect()->route('home')
+                    ->with('error', 'Your session has expired. Please log in again.');
+            }
+
+            // Handle authorization exceptions (access denied)
+            if ($e instanceof \Illuminate\Auth\Access\AuthorizationException) {
+                if ($request->expectsJson()) {
+                    return response()->json([
+                        'error' => 'Access denied',
+                        'message' => 'You do not have permission to access this resource.',
+                        'redirect' => route('home')
+                    ], 403);
+                }
+
+                return redirect()->route('home')
+                    ->with('error', 'Access denied. Please log in with appropriate permissions.');
             }
 
             // Return JSON for API requests

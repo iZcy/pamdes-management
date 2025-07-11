@@ -15,18 +15,8 @@ use Illuminate\Support\Facades\DB;
 
 // Apply village context middleware to all routes
 Route::middleware(['village.context'])->group(function () {
-
-    // Homepage
     Route::get('/', function () {
-        $village = config('pamdes.current_village');
-
-        if ($village) {
-            // Show village-specific welcome page
-            return view('welcome', compact('village'));
-        }
-
-        // Default welcome page
-        return view('welcome');
+        return redirect(filament()->getLoginUrl());
     })->name('home');
 
     // Customer Portal - Village-specific bill checking
@@ -73,6 +63,10 @@ Route::middleware(['village.context'])->group(function () {
 
             return view('customer-portal.bills', compact('customer', 'bills'));
         })->name('bills');
+    });
+
+    Route::fallback(function () {
+        return redirect(filament()->getLoginUrl());
     });
 });
 
