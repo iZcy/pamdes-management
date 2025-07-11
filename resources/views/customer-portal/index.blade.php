@@ -51,19 +51,6 @@
           </button>
         </form>
 
-        {{-- Debug info (remove in production) --}}
-        @if (app()->environment('local'))
-          <div class="mt-4 p-3 bg-gray-100 border rounded text-xs">
-            <strong>Debug Info:</strong><br>
-            Host: {{ request()->getHost() }}<br>
-            Session ID: {{ session()->getId() }}<br>
-            CSRF Token: {{ csrf_token() }}<br>
-            Village: {{ $village['name'] ?? 'None' }}<br>
-            Domain: {{ config('session.domain') }}<br>
-            Cookie: {{ config('session.cookie') }}
-          </div>
-        @endif
-
         <div class="mt-6 text-center text-sm text-gray-600">
           <p>Hubungi petugas PAMDes jika Anda tidak mengetahui kode pelanggan.</p>
         </div>
