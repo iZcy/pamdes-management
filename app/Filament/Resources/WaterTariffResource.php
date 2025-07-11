@@ -79,95 +79,241 @@ class WaterTariffResource extends Resource
                             ->default($currentVillageId)
                             ->visible(fn() => !$user?->isSuperAdmin()),
 
-                        // For creating new tariff - only need minimum value
-                        Forms\Components\TextInput::make('usage_min')
-                            ->label('Pemakaian Minimum (m³)')
-                            ->required(fn(string $context) => $context === 'create')
-                            ->numeric()
-                            ->minValue(0)
-                            ->disabled(
-                                fn(string $context, ?WaterTariff $record) =>
-                                $context === 'edit' && $record && !app(TariffRangeService::class)->getEditableFields($record)['can_edit_min']
-                            )
-                            ->helperText(
-                                fn(string $context, ?WaterTariff $record) =>
-                                $context === 'create'
-                                    ? 'Sistem akan otomatis mengatur rentang yang tidak bertumpuk'
-                                    : ($record && app(TariffRangeService::class)->getEditableFields($record)['can_edit_min']
-                                        ? 'Mengubah nilai ini akan menyesuaikan rentang sebelumnya'
-                                        : 'Hanya rentang terakhir yang dapat mengedit minimum')
-                            ),
-
-                        // For editing - show current range and allow editing max (except for last range)
-                        Forms\Components\TextInput::make('usage_max')
-                            ->label('Pemakaian Maksimum (m³)')
-                            ->numeric()
-                            ->minValue(0)
-                            ->disabled(
-                                fn(string $context, ?WaterTariff $record) =>
-                                $context === 'create' ||
-                                    ($record && !app(TariffRangeService::class)->getEditableFields($record)['can_edit_max'])
-                            )
-                            ->visible(fn(string $context) => $context === 'edit')
-                            ->helperText(
-                                fn(?WaterTariff $record) =>
-                                $record && app(TariffRangeService::class)->getEditableFields($record)['is_last_range']
-                                    ? 'Rentang terakhir (unlimited) - tidak dapat diubah'
-                                    : 'Mengubah nilai ini akan menyesuaikan rentang berikutnya'
-                            ),
-
-                        Forms\Components\Placeholder::make('current_range')
-                            ->label('Rentang Saat Ini')
-                            ->content(fn(?WaterTariff $record) => $record ? $record->usage_range : 'Akan dibuat otomatis')
-                            ->visible(fn(string $context, ?WaterTariff $record) => $context === 'edit' && $record),
-
-                        Forms\Components\TextInput::make('price_per_m3')
-                            ->label('Harga per m³')
-                            ->required()
-                            ->numeric()
-                            ->prefix('Rp')
-                            ->minValue(0),
-
                         Forms\Components\Toggle::make('is_active')
                             ->label('Aktif')
                             ->default(true),
-                    ])
-                    ->columns(2),
+
+                        // Smart field management based on context
+                        Forms\Components\Group::make([
+                            // For creating new tariff - only need minimum value
+                            Forms\Components\TextInput::make('usage_min')
+                                ->label('Pemakaian Minimum (m³)')
+                                ->required(fn(string $context) => $context === 'create')
+                                ->numeric()
+                                ->minValue(0)
+                                ->live(onBlur: true) // Add live validation
+                                ->disabled(function (string $context, ?WaterTariff $record) {
+                                    if ($context === 'create') return false;
+                                    if (!$record) return true;
+
+                                    $service = app(TariffRangeService::class);
+                                    $editableFields = $service->getEditableFields($record);
+                                    return !$editableFields['can_edit_min'];
+                                })
+                                ->afterStateUpdated(function (Forms\Set $set, $state, Forms\Get $get) {
+                                    // Live preview of what will happen
+                                    if ($state !== null && $state >= 0) {
+                                        $villageId = $get('village_id') ?? config('pamdes.current_village_id');
+                                        if ($villageId) {
+                                            try {
+                                                $service = app(TariffRangeService::class);
+                                                $existingTariffs = $service->getVillageTariffs($villageId);
+
+                                                // Check if this will split an existing range
+                                                foreach ($existingTariffs as $tariff) {
+                                                    if (
+                                                        $state > $tariff['usage_min'] &&
+                                                        ($tariff['usage_max'] === null || $state <= $tariff['usage_max'])
+                                                    ) {
+
+                                                        $originalRange = $tariff['range_display'];
+                                                        $newRange1 = $tariff['usage_min'] . '-' . ($state - 1) . ' m³';
+                                                        $newRange2 = $state . ($tariff['usage_max'] ? '-' . $tariff['usage_max'] : '+') . ' m³';
+
+                                                        // Store preview message for helper text
+                                                        $set('_preview_message', "Akan membagi rentang {$originalRange} menjadi [{$newRange1}] dan [{$newRange2}]");
+                                                        return;
+                                                    }
+                                                }
+
+                                                // Check if exact value exists
+                                                foreach ($existingTariffs as $tariff) {
+                                                    if ($tariff['usage_min'] == $state) {
+                                                        $set('_preview_message', "⚠️ Rentang {$state} m³ sudah ada!");
+                                                        return;
+                                                    }
+                                                }
+
+                                                $set('_preview_message', "✅ Nilai {$state} m³ dapat ditambahkan");
+                                            } catch (\Exception $e) {
+                                                $set('_preview_message', "❌ Error: " . $e->getMessage());
+                                            }
+                                        }
+                                    } else {
+                                        $set('_preview_message', '');
+                                    }
+                                })
+                                ->helperText(function (string $context, ?WaterTariff $record, Forms\Get $get) {
+                                    // Show live preview message if available
+                                    $previewMessage = $get('_preview_message');
+                                    if ($previewMessage) {
+                                        return $previewMessage;
+                                    }
+
+                                    if ($context === 'create') {
+                                        $villageId = $get('village_id') ?? config('pamdes.current_village_id');
+                                        if ($villageId) {
+                                            $service = app(TariffRangeService::class);
+                                            $suggestions = $service->getSuggestedRanges($villageId);
+
+                                            if (!empty($suggestions)) {
+                                                $suggestionText = "Saran: " . collect($suggestions)->take(2)->pluck('min')->map(fn($min) => $min . ' m³')->join(', ');
+                                                return "Sistem akan otomatis membagi rentang yang ada bila diperlukan. {$suggestionText}";
+                                            }
+                                        }
+                                        return 'Sistem akan otomatis membagi rentang yang ada bila diperlukan';
+                                    }
+
+                                    if (!$record) return '';
+
+                                    $service = app(TariffRangeService::class);
+                                    $editableFields = $service->getEditableFields($record);
+
+                                    if ($editableFields['can_edit_min']) {
+                                        return 'Mengubah nilai ini akan menyesuaikan rentang sebelumnya';
+                                    }
+
+                                    return 'Hanya rentang terakhir yang dapat mengedit minimum';
+                                }),
+
+                            // Hidden field to store preview message
+                            Forms\Components\Hidden::make('_preview_message'),
+
+                            Forms\Components\TextInput::make('usage_max')
+                                ->label('Pemakaian Maksimum (m³)')
+                                ->numeric()
+                                ->minValue(0)
+                                ->disabled(function (string $context, ?WaterTariff $record) {
+                                    if ($context === 'create') return true;
+                                    if (!$record) return true;
+
+                                    $service = app(TariffRangeService::class);
+                                    $editableFields = $service->getEditableFields($record);
+                                    return !$editableFields['can_edit_max'];
+                                })
+                                ->visible(fn(string $context) => $context === 'edit')
+                                ->helperText(function (?WaterTariff $record) {
+                                    if (!$record) return '';
+
+                                    $service = app(TariffRangeService::class);
+                                    $editableFields = $service->getEditableFields($record);
+
+                                    if ($editableFields['is_last_range']) {
+                                        return 'Rentang terakhir (unlimited) - tidak dapat diubah';
+                                    }
+
+                                    return 'Mengubah nilai ini akan menyesuaikan rentang berikutnya';
+                                }),
+                        ])
+                            ->columns(2)
+                            ->columnSpan(2),
+
+                        Forms\Components\Group::make([
+                            Forms\Components\Placeholder::make('current_range')
+                                ->label('Rentang Saat Ini')
+                                ->content(fn(?WaterTariff $record) => $record ? $record->usage_range : 'Akan dibuat otomatis')
+                                ->visible(fn(string $context, ?WaterTariff $record) => $context === 'edit' && $record),
+
+                            Forms\Components\TextInput::make('price_per_m3')
+                                ->label('Harga per m³')
+                                ->required()
+                                ->numeric()
+                                ->prefix('Rp')
+                                ->minValue(0)
+                                ->helperText('Harga dapat selalu diubah'),
+                        ])->columnSpan(2),
+                    ])->columns(2),
 
                 // Show existing tariffs for context
                 Forms\Components\Section::make('Tarif Saat Ini')
                     ->schema([
                         Forms\Components\Placeholder::make('existing_tariffs')
                             ->label('')
-                            ->content(function () use ($currentVillageId) {
-                                if (!$currentVillageId) return 'Pilih desa terlebih dahulu';
+                            ->content(function (?WaterTariff $record, Forms\Get $get) {
+                                $villageId = $record?->village_id ?? $get('village_id') ?? config('pamdes.current_village_id');
 
-                                $tariffs = app(TariffRangeService::class)->getVillageTariffs($currentVillageId);
+                                if (!$villageId) return 'Pilih desa terlebih dahulu';
 
-                                if (empty($tariffs)) {
-                                    return 'Belum ada tarif untuk desa ini';
-                                }
+                                try {
+                                    $service = app(TariffRangeService::class);
+                                    $tariffs = $service->getVillageTariffs($villageId);
 
-                                $content = '<div class="space-y-2">';
-                                foreach ($tariffs as $tariff) {
-                                    $editableInfo = [];
-                                    if ($tariff['editable_fields']['can_edit_min']) $editableInfo[] = 'min';
-                                    if ($tariff['editable_fields']['can_edit_max']) $editableInfo[] = 'max';
-                                    $editableText = !empty($editableInfo) ? ' (dapat edit: ' . implode(', ', $editableInfo) . ')' : '';
+                                    if (empty($tariffs)) {
+                                        return '<div class="text-transparent italic">Belum ada tarif untuk desa ini</div>';
+                                    }
 
-                                    $content .= '<div class="flex justify-between items-center p-2 bg-gray-50 rounded">';
-                                    $content .= '<span class="font-medium">' . $tariff['range_display'] . '</span>';
-                                    $content .= '<span class="text-green-600">Rp ' . number_format($tariff['price_per_m3']) . $editableText . '</span>';
+                                    $content = '<div class="space-y-2">';
+                                    foreach ($tariffs as $tariff) {
+                                        $editableInfo = [];
+                                        if ($tariff['editable_fields']['can_edit_min']) $editableInfo[] = 'min';
+                                        if ($tariff['editable_fields']['can_edit_max']) $editableInfo[] = 'max';
+                                        $editableText = !empty($editableInfo) ? ' <span class="text-xs text-blue-600">(dapat edit: ' . implode(', ', $editableInfo) . ')</span>' : '';
+
+                                        $content .= '<div class="flex justify-between items-center p-3 bg-transparent rounded-lg border">';
+                                        $content .= '<span class="font-medium text-transparent">' . $tariff['range_display'] . '</span>';
+                                        $content .= '<span class="text-green-600 font-semibold">Rp ' . number_format($tariff['price_per_m3']) . '/m³' . $editableText . '</span>';
+                                        $content .= '</div>';
+                                    }
                                     $content .= '</div>';
-                                }
-                                $content .= '</div>';
 
-                                return new \Illuminate\Support\HtmlString($content);
+                                    return new \Illuminate\Support\HtmlString($content);
+                                } catch (\Exception $e) {
+                                    return '<div class="text-red-500">Error: ' . $e->getMessage() . '</div>';
+                                }
                             })
                             ->columnSpanFull(),
                     ])
                     ->visible(fn(string $context) => $context === 'create')
                     ->collapsible(),
+
+                // Show example calculations
+                Forms\Components\Section::make('Contoh Perhitungan')
+                    ->schema([
+                        Forms\Components\Placeholder::make('calculations')
+                            ->label('')
+                            ->content(function (?WaterTariff $record, Forms\Get $get) {
+                                $villageId = $record?->village_id ?? $get('village_id') ?? config('pamdes.current_village_id');
+
+                                if (!$villageId) return 'Pilih desa untuk melihat contoh perhitungan';
+
+                                try {
+                                    $content = '<div class="space-y-3">';
+                                    $content .= '<div class="text-sm text-transparent mb-3">Contoh perhitungan biaya air:</div>';
+
+                                    $usageExamples = [10, 15, 25, 35, 50];
+
+                                    foreach ($usageExamples as $usage) {
+                                        try {
+                                            $calculation = \App\Models\WaterTariff::calculateBill($usage, $villageId);
+
+                                            $breakdown = [];
+                                            foreach ($calculation['breakdown'] as $tier) {
+                                                $breakdown[] = "{$tier['usage']} m³ × Rp" . number_format($tier['rate']);
+                                            }
+
+                                            $content .= '<div class="flex justify-between items-center p-2 bg-transparent rounded">';
+                                            $content .= '<span class="font-medium">' . $usage . ' m³:</span>';
+                                            $content .= '<span class="text-sm text-transparent">' . implode(' + ', $breakdown) . '</span>';
+                                            $content .= '<span class="font-semibold text-green-600">Rp ' . number_format($calculation['total_charge']) . '</span>';
+                                            $content .= '</div>';
+                                        } catch (\Exception $e) {
+                                            $content .= '<div class="flex justify-between items-center p-2 bg-red-50 rounded">';
+                                            $content .= '<span class="font-medium">' . $usage . ' m³:</span>';
+                                            $content .= '<span class="text-red-600 text-sm">Error: ' . $e->getMessage() . '</span>';
+                                            $content .= '</div>';
+                                        }
+                                    }
+                                    $content .= '</div>';
+
+                                    return new \Illuminate\Support\HtmlString($content);
+                                } catch (\Exception $e) {
+                                    return '<div class="text-red-500">Error: ' . $e->getMessage() . '</div>';
+                                }
+                            })
+                            ->columnSpanFull(),
+                    ])
+                    ->collapsible()
+                    ->collapsed(),
             ]);
     }
 
