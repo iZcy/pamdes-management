@@ -1,5 +1,5 @@
 <?php
-// app/Filament/Resources/WaterUsageResource.php - Updated for village context
+// app/Filament/Resources/WaterUsageResource.php - Updated with village display
 
 namespace App\Filament\Resources;
 
@@ -28,7 +28,7 @@ class WaterUsageResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery();
+        $query = parent::getEloquentQuery()->with(['customer.village', 'billingPeriod']);
 
         $user = Auth::user();
         $user = User::find($user->id);
@@ -54,6 +54,22 @@ class WaterUsageResource extends Resource
             ->schema([
                 Forms\Components\Section::make('Pembacaan Meter Air')
                     ->schema([
+                        Forms\Components\Placeholder::make('village_info')
+                            ->label('Desa')
+                            ->content(function (?WaterUsage $record) {
+                                if ($record && $record->customer?->village) {
+                                    return $record->customer->village->name;
+                                }
+                                $user = User::find(Auth::user()->id);
+                                $currentVillage = $user?->getCurrentVillageContext();
+                                if ($currentVillage) {
+                                    $village = \App\Models\Village::find($currentVillage);
+                                    return $village?->name ?? 'Unknown Village';
+                                }
+                                return 'No Village Context';
+                            })
+                            ->columnSpanFull(),
+
                         Forms\Components\Select::make('customer_id')
                             ->label('Pelanggan')
                             ->options(function () {
@@ -134,8 +150,20 @@ class WaterUsageResource extends Resource
 
     public static function table(Table $table): Table
     {
+        $user = Auth::user();
+        $user = User::find($user->id);
+        $isSuperAdmin = $user?->isSuperAdmin();
+
         return $table
             ->columns([
+                Tables\Columns\TextColumn::make('customer.village.name')
+                    ->label('Desa')
+                    ->searchable()
+                    ->sortable()
+                    ->visible($isSuperAdmin)
+                    ->badge()
+                    ->color('primary'),
+
                 Tables\Columns\TextColumn::make('customer.customer_code')
                     ->label('Kode Pelanggan')
                     ->searchable()
@@ -176,6 +204,11 @@ class WaterUsageResource extends Resource
                     ->falseIcon('heroicon-o-x-circle'),
             ])
             ->filters([
+                Tables\Filters\SelectFilter::make('village')
+                    ->label('Desa')
+                    ->relationship('customer.village', 'name')
+                    ->visible($isSuperAdmin),
+
                 Tables\Filters\Filter::make('has_bill')
                     ->label('Sudah Dibill')
                     ->query(fn($query) => $query->whereHas('bill')),

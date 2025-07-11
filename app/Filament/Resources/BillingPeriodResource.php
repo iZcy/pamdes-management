@@ -1,15 +1,18 @@
 <?php
-// app/Filament/Resources/BillingPeriodResource.php
+// app/Filament/Resources/BillingPeriodResource.php - Updated with village display
 
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\BillingPeriodResource\Pages;
 use App\Models\BillingPeriod;
+use App\Models\User;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Auth;
 
 class BillingPeriodResource extends Resource
 {
@@ -21,12 +24,60 @@ class BillingPeriodResource extends Resource
     protected static ?int $navigationSort = 2;
     protected static ?string $navigationGroup = 'Manajemen Data';
 
+    public static function getEloquentQuery(): Builder
+    {
+        $query = parent::getEloquentQuery()->with('village');
+
+        $user = User::find(Auth::user()->id);
+        $currentVillage = $user?->getCurrentVillageContext();
+
+        if ($user?->isSuperAdmin() && $currentVillage) {
+            $query->where('village_id', $currentVillage);
+        } elseif ($user?->isVillageAdmin()) {
+            $accessibleVillages = $user->getAccessibleVillages()->pluck('id');
+            $query->whereIn('village_id', $accessibleVillages);
+        }
+
+        return $query;
+    }
+
     public static function form(Form $form): Form
     {
+        $user = Auth::user();
+        $user = User::find($user->id);
+        $currentVillageId = $user?->getCurrentVillageContext();
+
         return $form
             ->schema([
                 Forms\Components\Section::make('Periode Tagihan')
                     ->schema([
+                        Forms\Components\Select::make('village_id')
+                            ->label('Desa')
+                            ->relationship('village', 'name')
+                            ->default($currentVillageId)
+                            ->disabled() // Read-only to prevent moving periods between villages
+                            ->dehydrated()
+                            ->required()
+                            ->visible(fn() => $user?->isSuperAdmin()),
+
+                        Forms\Components\Placeholder::make('village_display')
+                            ->label('Desa')
+                            ->content(function (?BillingPeriod $record) use ($currentVillageId) {
+                                if ($record && $record->village) {
+                                    return $record->village->name;
+                                }
+                                if ($currentVillageId) {
+                                    $village = \App\Models\Village::find($currentVillageId);
+                                    return $village?->name ?? 'Unknown Village';
+                                }
+                                return 'No Village Selected';
+                            })
+                            ->visible(fn() => !$user?->isSuperAdmin()),
+
+                        Forms\Components\Hidden::make('village_id')
+                            ->default($currentVillageId)
+                            ->visible(fn() => !$user?->isSuperAdmin()),
+
                         Forms\Components\Select::make('month')
                             ->label('Bulan')
                             ->options([
@@ -76,9 +127,6 @@ class BillingPeriodResource extends Resource
 
                         Forms\Components\DatePicker::make('billing_due_date')
                             ->label('Tanggal Jatuh Tempo'),
-
-                        Forms\Components\Hidden::make('village_id')
-                            ->default(fn() => request()->get('village_id')),
                     ])
                     ->columns(3),
             ]);
@@ -86,13 +134,25 @@ class BillingPeriodResource extends Resource
 
     public static function table(Table $table): Table
     {
+        $user = Auth::user();
+        $user = User::find($user->id);
+        $isSuperAdmin = $user?->isSuperAdmin();
+
         return $table
             ->columns([
+                Tables\Columns\TextColumn::make('village.name')
+                    ->label('Desa')
+                    ->searchable()
+                    ->sortable()
+                    ->visible($isSuperAdmin)
+                    ->badge()
+                    ->color('primary'),
+
                 Tables\Columns\TextColumn::make('period_name')
                     ->label('Periode')
                     ->sortable(['year', 'month']),
 
-                Tables\Columns\BadgeColumn::make('status')
+                Tables\Columns\TextColumn::make('status')
                     ->label('Status')
                     ->colors([
                         'gray' => 'inactive',
@@ -123,6 +183,11 @@ class BillingPeriodResource extends Resource
                     ->sortable(),
             ])
             ->filters([
+                Tables\Filters\SelectFilter::make('village_id')
+                    ->label('Desa')
+                    ->relationship('village', 'name')
+                    ->visible($isSuperAdmin),
+
                 Tables\Filters\SelectFilter::make('status')
                     ->options([
                         'inactive' => 'Tidak Aktif',

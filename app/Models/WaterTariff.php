@@ -1,5 +1,5 @@
 <?php
-// app/Models/WaterTariff.php
+// app/Models/WaterTariff.php - Updated with proper village relationship
 
 namespace App\Models;
 
@@ -28,6 +28,11 @@ class WaterTariff extends Model
     ];
 
     // Relationships
+    public function village(): BelongsTo
+    {
+        return $this->belongsTo(Village::class, 'village_id', 'id');
+    }
+
     public function bills(): HasMany
     {
         return $this->hasMany(Bill::class, 'tariff_id', 'tariff_id');
@@ -51,6 +56,27 @@ class WaterTariff extends Model
     {
         return $query->where('usage_min', '<=', $usage)
             ->where('usage_max', '>=', $usage);
+    }
+
+    public function scopeGlobal($query)
+    {
+        return $query->whereNull('village_id');
+    }
+
+    // Accessors
+    public function getUsageRangeAttribute(): string
+    {
+        return "{$this->usage_min} - {$this->usage_max} m³";
+    }
+
+    public function getVillageNameAttribute(): string
+    {
+        return $this->village?->name ?? 'Global';
+    }
+
+    public function getIsGlobalAttribute(): bool
+    {
+        return $this->village_id === null;
     }
 
     // Helper methods
@@ -92,15 +118,5 @@ class WaterTariff extends Model
             'total_charge' => $totalCharge,
             'breakdown' => $breakdown,
         ];
-    }
-
-    public function getUsageRangeAttribute(): string
-    {
-        return "{$this->usage_min} - {$this->usage_max} m³";
-    }
-
-    public function village(): BelongsTo
-    {
-        return $this->belongsTo(Village::class, 'village_id', 'id');
     }
 }

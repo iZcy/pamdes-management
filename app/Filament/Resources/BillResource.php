@@ -1,5 +1,5 @@
 <?php
-// app/Filament/Resources/BillResource.php - Updated for village context
+// app/Filament/Resources/BillResource.php - Updated with village display
 
 namespace App\Filament\Resources;
 
@@ -29,7 +29,7 @@ class BillResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery();
+        $query = parent::getEloquentQuery()->with(['waterUsage.customer.village']);
 
         $user = User::find(Auth::user()->id);
         $currentVillage = $user?->getCurrentVillageContext();
@@ -56,6 +56,22 @@ class BillResource extends Resource
             ->schema([
                 Forms\Components\Section::make('Informasi Tagihan')
                     ->schema([
+                        Forms\Components\Placeholder::make('village_info')
+                            ->label('Desa')
+                            ->content(function (?Bill $record) {
+                                if ($record && $record->waterUsage?->customer?->village) {
+                                    return $record->waterUsage->customer->village->name;
+                                }
+                                $user = User::find(Auth::user()->id);
+                                $currentVillage = $user?->getCurrentVillageContext();
+                                if ($currentVillage) {
+                                    $village = \App\Models\Village::find($currentVillage);
+                                    return $village?->name ?? 'Unknown Village';
+                                }
+                                return 'No Village Context';
+                            })
+                            ->columnSpanFull(),
+
                         Forms\Components\Select::make('usage_id')
                             ->label('Pembacaan Meter')
                             ->options(function () {
@@ -91,7 +107,8 @@ class BillResource extends Resource
                             ->numeric()
                             ->prefix('Rp')
                             ->default(function () {
-                                $village = \App\Models\Village::find(User::find(Auth::user()->id)?->getCurrentVillageContext());
+                                $user = User::find(Auth::user()->id);
+                                $village = \App\Models\Village::find($user?->getCurrentVillageContext());
                                 return $village?->getDefaultAdminFee() ?? 5000;
                             }),
 
@@ -101,7 +118,8 @@ class BillResource extends Resource
                             ->numeric()
                             ->prefix('Rp')
                             ->default(function () {
-                                $village = \App\Models\Village::find(User::find(Auth::user()->id)?->getCurrentVillageContext());
+                                $user = User::find(Auth::user()->id);
+                                $village = \App\Models\Village::find($user?->getCurrentVillageContext());
                                 return $village?->getDefaultMaintenanceFee() ?? 2000;
                             }),
 
@@ -142,8 +160,20 @@ class BillResource extends Resource
 
     public static function table(Table $table): Table
     {
+        $user = Auth::user();
+        $user = User::find($user->id);
+        $isSuperAdmin = $user?->isSuperAdmin();
+
         return $table
             ->columns([
+                Tables\Columns\TextColumn::make('waterUsage.customer.village.name')
+                    ->label('Desa')
+                    ->searchable()
+                    ->sortable()
+                    ->visible($isSuperAdmin)
+                    ->badge()
+                    ->color('primary'),
+
                 Tables\Columns\TextColumn::make('waterUsage.customer.customer_code')
                     ->label('Kode Pelanggan')
                     ->searchable()
@@ -187,6 +217,11 @@ class BillResource extends Resource
                     ->sortable(),
             ])
             ->filters([
+                Tables\Filters\SelectFilter::make('village')
+                    ->label('Desa')
+                    ->relationship('waterUsage.customer.village', 'name')
+                    ->visible($isSuperAdmin),
+
                 Tables\Filters\SelectFilter::make('status')
                     ->label('Status')
                     ->options([

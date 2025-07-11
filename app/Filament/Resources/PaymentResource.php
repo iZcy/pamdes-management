@@ -1,16 +1,18 @@
 <?php
-
-// app/Filament/Resources/PaymentResource.php
+// app/Filament/Resources/PaymentResource.php - Updated with village display
 
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\PaymentResource\Pages;
 use App\Models\Payment;
+use App\Models\User;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Auth;
 
 class PaymentResource extends Resource
 {
@@ -22,17 +24,57 @@ class PaymentResource extends Resource
     protected static ?int $navigationSort = 6;
     protected static ?string $navigationGroup = 'Tagihan & Pembayaran';
 
+    public static function getEloquentQuery(): Builder
+    {
+        $query = parent::getEloquentQuery()->with(['bill.waterUsage.customer.village']);
+
+        $user = User::find(Auth::user()->id);
+        $currentVillage = $user?->getCurrentVillageContext();
+
+        if ($user?->isSuperAdmin() && $currentVillage) {
+            $query->whereHas('bill.waterUsage.customer', function ($q) use ($currentVillage) {
+                $q->where('village_id', $currentVillage);
+            });
+        } elseif ($user?->isVillageAdmin()) {
+            $accessibleVillages = $user->getAccessibleVillages()->pluck('id');
+            $query->whereHas('bill.waterUsage.customer', function ($q) use ($accessibleVillages) {
+                $q->whereIn('village_id', $accessibleVillages);
+            });
+        }
+
+        return $query;
+    }
+
     public static function form(Form $form): Form
     {
         return $form
             ->schema([
                 Forms\Components\Section::make('Informasi Pembayaran')
                     ->schema([
+                        Forms\Components\Placeholder::make('village_info')
+                            ->label('Desa')
+                            ->content(function (?Payment $record) {
+                                if ($record && $record->bill?->waterUsage?->customer?->village) {
+                                    return $record->bill->waterUsage->customer->village->name;
+                                }
+                                $user = User::find(Auth::user()->id);
+                                $currentVillage = $user?->getCurrentVillageContext();
+                                if ($currentVillage) {
+                                    $village = \App\Models\Village::find($currentVillage);
+                                    return $village?->name ?? 'Unknown Village';
+                                }
+                                return 'No Village Context';
+                            })
+                            ->columnSpanFull(),
+
                         Forms\Components\Select::make('bill_id')
                             ->label('Tagihan')
                             ->relationship('bill')
-                            ->getOptionLabelFromRecordUsing(fn($record) =>
-                            "{$record->customer->customer_code} - {$record->customer->name} (Rp " . number_format($record->total_amount) . ")")
+                            ->getOptionLabelFromRecordUsing(function ($record) {
+                                $customer = $record->waterUsage->customer;
+                                $period = $record->waterUsage->billingPeriod->period_name;
+                                return "{$customer->customer_code} - {$customer->name} - {$period} (Rp " . number_format($record->total_amount) . ")";
+                            })
                             ->searchable()
                             ->preload()
                             ->required(),
@@ -85,8 +127,20 @@ class PaymentResource extends Resource
 
     public static function table(Table $table): Table
     {
+        $user = Auth::user();
+        $user = User::find($user->id);
+        $isSuperAdmin = $user?->isSuperAdmin();
+
         return $table
             ->columns([
+                Tables\Columns\TextColumn::make('bill.waterUsage.customer.village.name')
+                    ->label('Desa')
+                    ->searchable()
+                    ->sortable()
+                    ->visible($isSuperAdmin)
+                    ->badge()
+                    ->color('primary'),
+
                 Tables\Columns\TextColumn::make('bill.waterUsage.customer.customer_code')
                     ->label('Kode Pelanggan')
                     ->searchable(),
@@ -95,6 +149,10 @@ class PaymentResource extends Resource
                     ->label('Nama Pelanggan')
                     ->searchable()
                     ->limit(25),
+
+                Tables\Columns\TextColumn::make('bill.waterUsage.billingPeriod.period_name')
+                    ->label('Periode')
+                    ->searchable(),
 
                 Tables\Columns\TextColumn::make('payment_date')
                     ->label('Tanggal Bayar')
@@ -106,7 +164,7 @@ class PaymentResource extends Resource
                     ->money('IDR')
                     ->sortable(),
 
-                Tables\Columns\BadgeColumn::make('payment_method')
+                Tables\Columns\TextColumn::make('payment_method')
                     ->label('Metode')
                     ->colors([
                         'success' => 'cash',
@@ -137,6 +195,11 @@ class PaymentResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                Tables\Filters\SelectFilter::make('village')
+                    ->label('Desa')
+                    ->relationship('bill.waterUsage.customer.village', 'name')
+                    ->visible($isSuperAdmin),
+
                 Tables\Filters\SelectFilter::make('payment_method')
                     ->label('Metode Pembayaran')
                     ->options([

@@ -1,11 +1,12 @@
 <?php
-// app/Filament/Resources/CustomerResource.php - Updated for village context
+// app/Filament/Resources/CustomerResource.php - Updated with village display
 
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\CustomerResource\Pages;
 use App\Models\Customer;
 use App\Models\User;
+use App\Models\Village;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -26,7 +27,7 @@ class CustomerResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery();
+        $query = parent::getEloquentQuery()->with('village');
 
         // For super admin, show all customers or filter by current village context
         $user = User::find(Auth::user()->id);
@@ -46,22 +47,46 @@ class CustomerResource extends Resource
 
     public static function form(Form $form): Form
     {
+        $user = Auth::user();
+        $user = User::find($user->id);
+        $currentVillageId = $user?->getCurrentVillageContext();
+
         return $form
             ->schema([
                 Forms\Components\Section::make('Informasi Pelanggan')
                     ->schema([
+                        Forms\Components\Select::make('village_id')
+                            ->label('Desa')
+                            ->relationship('village', 'name')
+                            ->default($currentVillageId)
+                            ->disabled() // Read-only to prevent moving customers between villages
+                            ->dehydrated()
+                            ->required()
+                            ->visible(fn() => $user?->isSuperAdmin()),
+
+                        Forms\Components\Placeholder::make('village_display')
+                            ->label('Desa')
+                            ->content(function (?Customer $record) use ($currentVillageId) {
+                                if ($record && $record->village) {
+                                    return $record->village->name;
+                                }
+                                if ($currentVillageId) {
+                                    $village = Village::find($currentVillageId);
+                                    return $village?->name ?? 'Unknown Village';
+                                }
+                                return 'No Village Selected';
+                            })
+                            ->visible(fn() => !$user?->isSuperAdmin()),
+
                         Forms\Components\Hidden::make('village_id')
-                            ->default(function () {
-                                $user = Auth::user();
-                                $user = User::find($user->id);
-                                return $user && $user?->getCurrentVillageContext();
-                            }),
+                            ->default($currentVillageId)
+                            ->visible(fn() => !$user?->isSuperAdmin()),
 
                         Forms\Components\TextInput::make('customer_code')
                             ->label('Kode Pelanggan')
                             ->required()
                             ->unique(ignoreRecord: true)
-                            ->default(fn() => Customer::generateCustomerCode(User::find(Auth::user()->id)?->getCurrentVillageContext()))
+                            ->default(fn() => Customer::generateCustomerCode($currentVillageId))
                             ->maxLength(20),
 
                         Forms\Components\TextInput::make('name')
@@ -110,8 +135,20 @@ class CustomerResource extends Resource
 
     public static function table(Table $table): Table
     {
+        $user = Auth::user();
+        $user = User::find($user->id);
+        $isSuperAdmin = $user?->isSuperAdmin();
+
         return $table
             ->columns([
+                Tables\Columns\TextColumn::make('village.name')
+                    ->label('Desa')
+                    ->searchable()
+                    ->sortable()
+                    ->visible($isSuperAdmin)
+                    ->badge()
+                    ->color('primary'),
+
                 Tables\Columns\TextColumn::make('customer_code')
                     ->label('Kode')
                     ->searchable()
@@ -132,10 +169,11 @@ class CustomerResource extends Resource
 
                 Tables\Columns\TextColumn::make('status')
                     ->label('Status')
-                    ->colors([
-                        'success' => 'active',
-                        'danger' => 'inactive',
-                    ])
+                    ->badge()
+                    ->color(fn(string $state): string => match ($state) {
+                        'active' => 'success',
+                        'inactive' => 'danger',
+                    })
                     ->formatStateUsing(fn(string $state): string => match ($state) {
                         'active' => 'Aktif',
                         'inactive' => 'Tidak Aktif',
@@ -148,6 +186,11 @@ class CustomerResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                Tables\Filters\SelectFilter::make('village_id')
+                    ->label('Desa')
+                    ->relationship('village', 'name')
+                    ->visible($isSuperAdmin),
+
                 Tables\Filters\SelectFilter::make('status')
                     ->label('Status')
                     ->options([

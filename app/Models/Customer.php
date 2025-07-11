@@ -1,5 +1,5 @@
 <?php
-// app/Models/Customer.php
+// app/Models/Customer.php - Updated with proper village relationship
 
 namespace App\Models;
 
@@ -32,6 +32,11 @@ class Customer extends Model
     ];
 
     // Relationships
+    public function village(): BelongsTo
+    {
+        return $this->belongsTo(Village::class, 'village_id', 'id');
+    }
+
     public function waterUsages(): HasMany
     {
         return $this->hasMany(WaterUsage::class, 'customer_id', 'customer_id');
@@ -85,6 +90,11 @@ class Customer extends Model
         return implode(', ', $parts);
     }
 
+    public function getVillageNameAttribute(): string
+    {
+        return $this->village?->name ?? 'Unknown Village';
+    }
+
     // Helper methods
     public function getCurrentBalance(): float
     {
@@ -102,7 +112,13 @@ class Customer extends Model
 
     public static function generateCustomerCode($villageId = null): string
     {
-        $prefix = $villageId ? strtoupper(substr($villageId, 0, 3)) : 'PAM';
+        if ($villageId) {
+            $village = Village::find($villageId);
+            $prefix = $village ? strtoupper(substr($village->slug, 0, 3)) : 'PAM';
+        } else {
+            $prefix = 'PAM';
+        }
+
         $latest = static::where('customer_code', 'like', "{$prefix}%")
             ->latest('customer_id')
             ->first();
@@ -114,10 +130,5 @@ class Customer extends Model
         }
 
         return $prefix . str_pad($number, 4, '0', STR_PAD_LEFT);
-    }
-
-    public function village(): BelongsTo
-    {
-        return $this->belongsTo(Village::class, 'village_id', 'id');
     }
 }

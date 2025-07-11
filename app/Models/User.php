@@ -1,5 +1,5 @@
 <?php
-// app/Models/User.php - Updated with village relationships
+// app/Models/User.php - Fixed ambiguous column issue
 
 namespace App\Models;
 
@@ -66,14 +66,14 @@ class User extends Authenticatable implements FilamentUser
     // Relationships
     public function villages()
     {
-        return $this->belongsToMany(Village::class, 'user_villages')
+        return $this->belongsToMany(Village::class, 'user_villages', 'user_id', 'village_id')
             ->withPivot('is_primary')
             ->withTimestamps();
     }
 
     public function primaryVillage()
     {
-        return $this->belongsToMany(Village::class, 'user_villages')
+        return $this->belongsToMany(Village::class, 'user_villages', 'user_id', 'village_id')
             ->wherePivot('is_primary', true)
             ->withTimestamps()
             ->first();
@@ -88,7 +88,7 @@ class User extends Authenticatable implements FilamentUser
     public function scopeForVillage($query, $villageId)
     {
         return $query->whereHas('villages', function ($q) use ($villageId) {
-            $q->where('village_id', $villageId);
+            $q->where('villages.id', $villageId);
         });
     }
 
@@ -121,16 +121,16 @@ class User extends Authenticatable implements FilamentUser
         }
 
         // Check if user is assigned to this village
-        return $this->villages()->where('village_id', $villageId)->exists();
+        return $this->villages()->where('villages.id', $villageId)->exists();
     }
 
     public function getAccessibleVillages()
     {
         if ($this->isSuperAdmin()) {
-            return Village::active()->get();
+            return Village::where('is_active', true)->get();
         }
 
-        return $this->villages()->where('is_active', true)->get();
+        return $this->villages()->where('villages.is_active', true)->get();
     }
 
     public function getPrimaryVillageId(): ?string
@@ -143,7 +143,7 @@ class User extends Authenticatable implements FilamentUser
         // If setting as primary, remove primary flag from other villages
         if ($isPrimary) {
             $this->villages()->updateExistingPivot(
-                $this->villages()->pluck('id'),
+                $this->villages->pluck('villages.id'),
                 ['is_primary' => false]
             );
         }
