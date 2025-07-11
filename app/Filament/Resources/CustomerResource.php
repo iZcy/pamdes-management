@@ -68,7 +68,7 @@ class CustomerResource extends Resource
                             ->label('Desa')
                             ->content(function (?Customer $record) use ($currentVillageId) {
                                 if ($record && $record->village) {
-                                    return $record->village->name;
+                                    return $record->village;
                                 }
                                 if ($currentVillageId) {
                                     $village = Village::find($currentVillageId);

@@ -58,7 +58,7 @@ class WaterUsageResource extends Resource
                             ->label('Desa')
                             ->content(function (?WaterUsage $record) {
                                 if ($record && $record->customer?->village) {
-                                    return $record->customer->village->name;
+                                    return $record->customer->village;
                                 }
                                 $user = User::find(Auth::user()->id);
                                 $currentVillage = $user?->getCurrentVillageContext();
