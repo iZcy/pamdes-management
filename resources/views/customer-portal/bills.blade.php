@@ -156,7 +156,7 @@
 
         <!-- Payment History -->
         @if ($paidBills->count() > 0)
-          <div class="bg-white rounded-lg shadow-md overflow-hidden">
+          <div class="bg-white rounded-lg shadow-md overflow-hidden mb-6">
             <div class="px-6 py-4 border-b bg-gray-50">
               <h3 class="text-lg font-semibold">Riwayat Pembayaran</h3>
               <p class="text-sm text-gray-600">{{ $paidBills->count() }} pembayaran terakhir</p>
@@ -227,11 +227,11 @@
                       </td>
                       <td class="px-6 py-4 whitespace-nowrap">
                         <div class="text-sm text-gray-900">{{ $bill->payment_date->format('d/m/Y') }}</div>
-                        {{-- @if ($bill->latestPayment)
+                        @if ($bill->latestPayment)
                           <div class="text-xs text-gray-500">
                             {{ $bill->latestPayment->collector_name ?? 'Sistem' }}
                           </div>
-                        @endif --}}
+                        @endif
                       </td>
                       <td class="px-6 py-4 whitespace-nowrap">
                         @if ($bill->latestPayment)
@@ -244,7 +244,7 @@
                                               : ($bill->latestPayment->payment_method === 'qris'
                                                   ? 'bg-yellow-100 text-yellow-800'
                                                   : 'bg-gray-100 text-gray-800')) }}">
-                            {{ $bill->latestPayment->payment_method_label }}
+                            {{ ucfirst($bill->latestPayment->payment_method) }}
                           </span>
                         @else
                           <span class="text-xs text-gray-500">-</span>
@@ -283,6 +283,151 @@
             <p class="text-gray-600">Riwayat pembayaran akan muncul setelah Anda melakukan pembayaran pertama.</p>
           </div>
         @endif
+
+        <!-- Village Water Tariffs -->
+        <div class="bg-white rounded-lg shadow-md overflow-hidden">
+          <div class="px-6 py-4 border-b bg-gray-50">
+            <h3 class="text-lg font-semibold">Tarif Air {{ $customer->village?->name ?? 'Desa' }}</h3>
+            <p class="text-sm text-gray-600">Struktur tarif air berdasarkan pemakaian per bulan</p>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Rentang Pemakaian
+                  </th>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Tarif per m³
+                  </th>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Contoh Biaya
+                  </th>
+                </tr>
+              </thead>
+              <tbody class="bg-white divide-y divide-gray-200">
+                @php
+                  $villageTariffs = \App\Models\WaterTariff::where('village_id', $customer->village_id)
+                      ->where('is_active', true)
+                      ->orderBy('usage_min')
+                      ->get();
+
+                  // Get village model for fees
+                  $villageModel = \App\Models\Village::find($customer->village_id);
+                  $adminFee = $villageModel?->getDefaultAdminFee() ?? 5000;
+                  $maintenanceFee = $villageModel?->getDefaultMaintenanceFee() ?? 2000;
+
+                  // Find the highest range for example calculation
+                  $maxRange = $villageTariffs->max('usage_max');
+                  $exampleUsage = $maxRange ? min($maxRange + 5, 40) : 30; // Use max + 5 or 40, whichever is smaller
+
+                  // Calculate progressive example
+                  $exampleCalculation = [];
+                  $remainingUsage = $exampleUsage;
+
+                  foreach ($villageTariffs as $tariff) {
+                      if ($remainingUsage <= 0) {
+                          break;
+                      }
+
+                      $tierMin = $tariff->usage_min;
+                      $tierMax = $tariff->usage_max;
+
+                      // Calculate usage that falls in this tier
+                      $tierUsage = 0;
+                      if ($exampleUsage >= $tierMin) {
+                          if ($tierMax === null) {
+                              // Last tier - takes all remaining usage
+                              $tierUsage = $remainingUsage;
+                          } else {
+                              // Calculate how much usage falls in this tier
+                              $usageStart = max($tierMin, $exampleUsage - $remainingUsage + 1);
+                              $usageEnd = min($tierMax, $exampleUsage);
+                              $tierUsage = max(0, $usageEnd - $usageStart + 1);
+                          }
+                      }
+
+                      if ($tierUsage > 0) {
+                          $exampleCalculation[$tariff->tariff_id] = [
+                              'usage' => $tierUsage,
+                              'cost' => $tierUsage * $tariff->price_per_m3,
+                          ];
+                          $remainingUsage -= $tierUsage;
+                      }
+                  }
+                @endphp
+
+                @forelse($villageTariffs as $tariff)
+                  <tr>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                      <div class="text-sm font-medium text-gray-900">
+                        {{ $tariff->usage_range }}
+                      </div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                      <div class="text-sm text-gray-900">
+                        Rp {{ number_format($tariff->price_per_m3) }}
+                      </div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                      <div class="text-sm text-gray-500">
+                        @if (isset($exampleCalculation[$tariff->tariff_id]))
+                          <span class="text-blue-600 font-medium">
+                            {{ $exampleCalculation[$tariff->tariff_id]['usage'] }}m³ ×
+                            Rp{{ number_format($tariff->price_per_m3) }} =
+                            Rp{{ number_format($exampleCalculation[$tariff->tariff_id]['cost']) }}
+                          </span>
+                        @else
+                          <span class="text-gray-400">Tidak terpakai</span>
+                        @endif
+                      </div>
+                    </td>
+                  </tr>
+                @empty
+                  <tr>
+                    <td colspan="3" class="px-6 py-4 text-center text-gray-500">
+                      Tarif belum tersedia
+                    </td>
+                  </tr>
+                @endforelse
+              </tbody>
+            </table>
+          </div>
+
+          <div class="px-6 py-4 bg-gray-50 border-t">
+            <div class="text-sm text-gray-600">
+              <p><strong>Contoh Perhitungan untuk {{ $exampleUsage }}m³:</strong></p>
+              <div class="mt-2 p-3 bg-blue-50 rounded-lg">
+                <div class="space-y-1">
+                  @foreach ($exampleCalculation as $calc)
+                    <div class="text-sm">• {{ $calc['usage'] }}m³ = Rp {{ number_format($calc['cost']) }}</div>
+                  @endforeach
+                  @php $totalWaterCost = collect($exampleCalculation)->sum('cost'); @endphp
+                  <div class="border-t pt-1 mt-2 font-semibold">
+                    Biaya Air: Rp {{ number_format($totalWaterCost) }}
+                  </div>
+                  <div class="text-sm">
+                    + Biaya Admin: Rp {{ number_format($adminFee) }}<br>
+                    + Biaya Pemeliharaan: Rp {{ number_format($maintenanceFee) }}
+                  </div>
+                  <div class="border-t pt-1 mt-1 font-bold text-blue-700">
+                    Total Tagihan: Rp {{ number_format($totalWaterCost + $adminFee + $maintenanceFee) }}
+                  </div>
+                </div>
+              </div>
+
+              <div class="mt-3 text-xs text-gray-500">
+                <p><strong>Catatan:</strong></p>
+                <ul class="list-disc list-inside mt-1 space-y-1">
+                  <li>Tarif berlaku progresif - pemakaian lebih tinggi dikenakan tarif yang lebih tinggi</li>
+                  <li>Biaya admin dan pemeliharaan ditambahkan ke biaya air untuk mendapatkan total tagihan</li>
+                  <li>Contoh di atas menggunakan pemakaian {{ $exampleUsage }}m³ yang mencakup semua rentang tarif</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
   </div>
