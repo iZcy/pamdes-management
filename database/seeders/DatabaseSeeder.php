@@ -4,6 +4,7 @@
 namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 
 class DatabaseSeeder extends Seeder
 {
@@ -65,7 +66,7 @@ class DatabaseSeeder extends Seeder
 
     private function validateStep(string $table, int $minimumExpected): void
     {
-        $count = \DB::table($table)->count();
+        $count = DB::table($table)->count();
         if ($count >= $minimumExpected) {
             $this->command->info("✓ {$table}: {$count} records created (minimum {$minimumExpected})");
         } else {

@@ -262,8 +262,6 @@ class BillResource extends Resource
                             ])
                             ->default('cash')
                             ->required(),
-                        Forms\Components\TextInput::make('collector_name')
-                            ->label('Nama Penagih'),
                     ])
                     ->action(function (Bill $record, array $data) {
                         $record->markAsPaid($data);

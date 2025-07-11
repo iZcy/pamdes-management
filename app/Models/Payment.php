@@ -1,11 +1,12 @@
 <?php
-// app/Models/Payment.php
+// app/Models/Payment.php - Updated with collector relationship
 
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Builder;
 
 class Payment extends Model
 {
@@ -20,7 +21,7 @@ class Payment extends Model
         'change_given',
         'payment_method',
         'payment_reference',
-        'collector_name',
+        'collector_id',
         'notes',
     ];
 
@@ -30,67 +31,91 @@ class Payment extends Model
         'change_given' => 'decimal:2',
     ];
 
+    protected $appends = [
+        'net_amount',
+        'collector_name',
+    ];
+
     // Relationships
     public function bill(): BelongsTo
     {
         return $this->belongsTo(Bill::class, 'bill_id', 'bill_id');
     }
 
+    public function collector(): BelongsTo
+    {
+        return $this->belongsTo(Collector::class, 'collector_id', 'collector_id');
+    }
+
     // Accessors
-    public function getCustomerAttribute()
+    public function getNetAmountAttribute(): float
     {
-        return $this->bill->customer;
+        return $this->amount_paid - $this->change_given;
     }
 
-    public function getFormattedAmountAttribute(): string
+    public function getCollectorNameAttribute(): ?string
     {
-        return 'Rp ' . number_format($this->amount_paid, 0, ',', '.');
+        return $this->collector?->name;
     }
 
-    public function getPaymentMethodBadgeColorAttribute(): string
+    // Scopes
+    public function scopeToday(Builder $query): Builder
     {
-        return match ($this->payment_method) {
-            'cash' => 'success',
-            'transfer' => 'primary',
-            'qris' => 'warning',
-            'other' => 'gray',
-        };
+        return $query->whereDate('payment_date', today());
     }
 
-    public function getPaymentMethodLabelAttribute(): string
+    public function scopeThisMonth(Builder $query): Builder
+    {
+        return $query->whereMonth('payment_date', now()->month)
+            ->whereYear('payment_date', now()->year);
+    }
+
+    public function scopeByMethod(Builder $query, string $method): Builder
+    {
+        return $query->where('payment_method', $method);
+    }
+
+    public function scopeByCollector(Builder $query, int $collectorId): Builder
+    {
+        return $query->where('collector_id', $collectorId);
+    }
+
+    public function scopeForVillage(Builder $query, string $villageId): Builder
+    {
+        return $query->whereHas('bill.waterUsage.customer', function ($q) use ($villageId) {
+            $q->where('village_id', $villageId);
+        });
+    }
+
+    // Helper methods
+    public function getPaymentMethodLabel(): string
     {
         return match ($this->payment_method) {
             'cash' => 'Tunai',
             'transfer' => 'Transfer Bank',
             'qris' => 'QRIS',
             'other' => 'Lainnya',
+            default => 'Unknown'
         };
     }
 
-    // Scopes
-    public function scopeByMethod($query, $method)
+    public function hasChange(): bool
     {
-        return $query->where('payment_method', $method);
+        return $this->change_given > 0;
     }
 
-    public function scopeByCollector($query, $collector)
+    public function isExactPayment(): bool
     {
-        return $query->where('collector_name', $collector);
+        return $this->amount_paid == $this->bill->total_amount;
     }
 
-    public function scopeForDateRange($query, $startDate, $endDate)
+    public function getCustomerInfo(): ?object
     {
-        return $query->whereBetween('payment_date', [$startDate, $endDate]);
+        return $this->bill?->waterUsage?->customer;
     }
 
-    public function scopeToday($query)
+    public function getVillageInfo(): ?object
     {
-        return $query->whereDate('payment_date', today());
-    }
-
-    public function scopeThisMonth($query)
-    {
-        return $query->whereMonth('payment_date', now()->month)
-            ->whereYear('payment_date', now()->year);
+        return $this->bill?->waterUsage?->customer?->village;
     }
 }

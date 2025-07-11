@@ -17,12 +17,14 @@ return new class extends Migration
             $table->decimal('change_given', 10, 2)->default(0);
             $table->enum('payment_method', ['cash', 'transfer', 'qris', 'other'])->default('cash');
             $table->string('payment_reference')->nullable();
-            $table->string('collector_name')->nullable();
+            $table->foreignId('collector_id')->nullable();
             $table->text('notes')->nullable();
             $table->timestamps();
 
             $table->index('payment_date');
             $table->index('payment_method');
+
+            $table->foreign('collector_id')->references('collector_id')->on('collectors')->onDelete('set null');
         });
     }
 

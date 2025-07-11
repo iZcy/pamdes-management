@@ -227,11 +227,11 @@
                       </td>
                       <td class="px-6 py-4 whitespace-nowrap">
                         <div class="text-sm text-gray-900">{{ $bill->payment_date->format('d/m/Y') }}</div>
-                        @if ($bill->latestPayment)
+                        {{-- @if ($bill->latestPayment)
                           <div class="text-xs text-gray-500">
                             {{ $bill->latestPayment->collector_name ?? 'Sistem' }}
                           </div>
-                        @endif
+                        @endif --}}
                       </td>
                       <td class="px-6 py-4 whitespace-nowrap">
                         @if ($bill->latestPayment)

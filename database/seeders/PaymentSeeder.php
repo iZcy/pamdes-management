@@ -1,5 +1,5 @@
 <?php
-// database/seeders/PaymentSeeder.php - Generate payments from existing paid bills
+// database/seeders/PaymentSeeder.php - Generate payments from existing paid bills with collector references
 
 namespace Database\Seeders;
 
@@ -7,6 +7,7 @@ use Illuminate\Database\Seeder;
 use App\Models\Payment;
 use App\Models\Bill;
 use App\Models\Village;
+use App\Models\Collector;
 
 class PaymentSeeder extends Seeder
 {
@@ -23,6 +24,16 @@ class PaymentSeeder extends Seeder
 
         foreach ($villages as $village) {
             $this->command->info("Creating payments for village: {$village->name}");
+
+            // Get active collectors for this village
+            $collectors = Collector::where('village_id', $village->id)
+                ->where('is_active', true)
+                ->get();
+
+            if ($collectors->isEmpty()) {
+                $this->command->warn("No active collectors found for {$village->name}. Skipping...");
+                continue;
+            }
 
             // Get paid bills that don't have payment records yet for this village
             $paidBills = Bill::whereHas('waterUsage.customer', function ($q) use ($village) {
@@ -85,20 +96,27 @@ class PaymentSeeder extends Seeder
                     $paymentReference = 'QR' . date('Ymd', strtotime($bill->payment_date)) . rand(100000, 999999);
                 }
 
-                // Generate collector name (staff who collected payment)
-                $collectors = [
-                    'Budi Santoso',
-                    'Siti Nurhaliza',
-                    'Ahmad Wijaya',
-                    'Dewi Sartika',
-                    'Rudi Hartono',
-                    'Maya Sari'
-                ];
-
-                $collectorName = fake()->randomElement($collectors);
+                // Select random collector from this village
+                $collector = $collectors->random();
 
                 // Use payment date from bill, or generate realistic date
                 $paymentDate = $bill->payment_date ?: $bill->due_date->subDays(rand(0, 10));
+
+                // Generate realistic notes (20% chance)
+                $notes = null;
+                if (rand(1, 5) === 1) {
+                    $noteOptions = [
+                        'Pembayaran tepat waktu',
+                        'Dibayar di kantor desa',
+                        'Pelanggan datang sendiri',
+                        'Pembayaran melalui petugas',
+                        'Bayar sekaligus 2 bulan',
+                        'Cicilan pembayaran',
+                        'Pembayaran via transfer mobile banking',
+                        'Dibayar oleh keluarga',
+                    ];
+                    $notes = fake()->randomElement($noteOptions);
+                }
 
                 Payment::create([
                     'bill_id' => $bill->bill_id,
@@ -107,8 +125,8 @@ class PaymentSeeder extends Seeder
                     'change_given' => $changeGiven,
                     'payment_method' => $paymentMethod,
                     'payment_reference' => $paymentReference,
-                    'collector_name' => $collectorName,
-                    'notes' => fake()->optional(0.2)->sentence(), // 20% chance of notes
+                    'collector_id' => $collector->collector_id,
+                    'notes' => $notes,
                 ]);
 
                 $villagePayments++;
@@ -146,6 +164,24 @@ class PaymentSeeder extends Seeder
             $this->command->info("- {$village->name}: {$villagePaymentCount} payments - Total Collected: Rp " . number_format($totalPaid) . " (Change Given: Rp " . number_format($totalChange) . ")");
         }
 
+        // Show collector performance summary
+        $this->command->info('');
+        $this->command->info('Collector Performance Summary:');
+        foreach ($villages as $village) {
+            $this->command->info("Village: {$village->name}");
+
+            $collectors = Collector::where('village_id', $village->id)
+                ->withCount('payments')
+                ->get();
+
+            foreach ($collectors as $collector) {
+                $totalCollected = Payment::where('collector_id', $collector->collector_id)
+                    ->sum('amount_paid');
+
+                $this->command->info("  - {$collector->name}: {$collector->payments_count} payments, Rp " . number_format($totalCollected) . " collected");
+            }
+        }
+
         $this->command->info('');
         $this->command->info('Recent Payments (Last 7 days):');
         $recentPayments = Payment::where('payment_date', '>=', now()->subDays(7))->count();
@@ -153,5 +189,9 @@ class PaymentSeeder extends Seeder
 
         $todayPayments = Payment::whereDate('payment_date', today())->count();
         $this->command->info("- {$todayPayments} payments today");
+
+        // Show payments with notes
+        $paymentsWithNotes = Payment::whereNotNull('notes')->count();
+        $this->command->info("- {$paymentsWithNotes} payments have notes");
     }
 }

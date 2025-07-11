@@ -1,11 +1,12 @@
 <?php
-// app/Filament/Resources/PaymentResource.php - Updated with village display
+// app/Filament/Resources/PaymentResource.php - Updated with collector integration
 
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\PaymentResource\Pages;
 use App\Models\Payment;
 use App\Models\User;
+use App\Models\Collector;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -26,7 +27,7 @@ class PaymentResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery()->with(['bill.waterUsage.customer.village']);
+        $query = parent::getEloquentQuery()->with(['bill.waterUsage.customer.village', 'collector']);
 
         $user = User::find(Auth::user()->id);
         $currentVillage = $user?->getCurrentVillageContext();
@@ -55,7 +56,7 @@ class PaymentResource extends Resource
                             ->label('Desa')
                             ->content(function (?Payment $record) {
                                 if ($record && $record->bill?->waterUsage?->customer?->village) {
-                                    return $record->bill->waterUsage->customer->village;
+                                    return $record->bill->waterUsage->customer->village->name;
                                 }
                                 $user = User::find(Auth::user()->id);
                                 $currentVillage = $user?->getCurrentVillageContext();
@@ -77,7 +78,70 @@ class PaymentResource extends Resource
                             })
                             ->searchable()
                             ->preload()
-                            ->required(),
+                            ->required()
+                            ->columnSpan(2),
+
+                        Forms\Components\Select::make('collector_id')
+                            ->label('Penagih/Kasir')
+                            ->options(function () {
+                                $user = Auth::user();
+                                $user = User::find($user->id);
+                                $currentVillage = $user?->getCurrentVillageContext();
+
+                                if (!$currentVillage) {
+                                    return [];
+                                }
+
+                                return Collector::where('village_id', $currentVillage)
+                                    ->where('is_active', true)
+                                    ->orderBy('name')
+                                    ->get()
+                                    ->pluck('name', 'collector_id')
+                                    ->toArray();
+                            })
+                            ->searchable()
+                            ->allowHtml()
+                            ->createOptionForm([
+                                Forms\Components\TextInput::make('name')
+                                    ->label('Nama Lengkap')
+                                    ->required()
+                                    ->maxLength(255),
+
+                                Forms\Components\TextInput::make('phone_number')
+                                    ->label('Nomor Telepon')
+                                    ->tel()
+                                    ->maxLength(20),
+
+                                Forms\Components\Select::make('role')
+                                    ->label('Peran')
+                                    ->options([
+                                        'collector' => 'Penagih',
+                                        'kasir' => 'Kasir',
+                                        'admin' => 'Admin',
+                                    ])
+                                    ->default('collector')
+                                    ->required(),
+                            ])
+                            ->createOptionUsing(function (array $data) {
+                                $user = Auth::user();
+                                $user = User::find($user->id);
+                                $currentVillage = $user?->getCurrentVillageContext();
+
+                                if (!$currentVillage) {
+                                    throw new \Exception('Village context not found');
+                                }
+
+                                $collector = Collector::findOrCreateCollector(
+                                    $currentVillage,
+                                    $data['name'],
+                                    [
+                                        'phone_number' => $data['phone_number'] ?? null,
+                                        'role' => $data['role'] ?? 'collector',
+                                    ]
+                                );
+
+                                return $collector->collector_id;
+                            }),
 
                         Forms\Components\DatePicker::make('payment_date')
                             ->label('Tanggal Pembayaran')
@@ -88,13 +152,15 @@ class PaymentResource extends Resource
                             ->label('Jumlah Dibayar')
                             ->required()
                             ->numeric()
-                            ->prefix('Rp'),
+                            ->prefix('Rp')
+                            ->step(100),
 
                         Forms\Components\TextInput::make('change_given')
                             ->label('Kembalian')
                             ->numeric()
                             ->prefix('Rp')
-                            ->default(0),
+                            ->default(0)
+                            ->step(100),
 
                         Forms\Components\Select::make('payment_method')
                             ->label('Metode Pembayaran')
@@ -111,10 +177,6 @@ class PaymentResource extends Resource
                             ->label('Referensi Pembayaran')
                             ->maxLength(255)
                             ->helperText('Nomor referensi untuk transfer/QRIS'),
-
-                        Forms\Components\TextInput::make('collector_name')
-                            ->label('Nama Penagih/Kasir')
-                            ->maxLength(255),
 
                         Forms\Components\Textarea::make('notes')
                             ->label('Catatan')
@@ -143,16 +205,19 @@ class PaymentResource extends Resource
 
                 Tables\Columns\TextColumn::make('bill.waterUsage.customer.customer_code')
                     ->label('Kode Pelanggan')
-                    ->searchable(),
+                    ->searchable()
+                    ->sortable(),
 
                 Tables\Columns\TextColumn::make('bill.waterUsage.customer.name')
                     ->label('Nama Pelanggan')
                     ->searchable()
-                    ->limit(25),
+                    ->limit(25)
+                    ->sortable(),
 
                 Tables\Columns\TextColumn::make('bill.waterUsage.billingPeriod.period_name')
                     ->label('Periode')
-                    ->searchable(),
+                    ->searchable()
+                    ->sortable(),
 
                 Tables\Columns\TextColumn::make('payment_date')
                     ->label('Tanggal Bayar')
@@ -166,6 +231,7 @@ class PaymentResource extends Resource
 
                 Tables\Columns\TextColumn::make('payment_method')
                     ->label('Metode')
+                    ->badge()
                     ->colors([
                         'success' => 'cash',
                         'primary' => 'transfer',
@@ -179,14 +245,23 @@ class PaymentResource extends Resource
                         'other' => 'Lainnya',
                     }),
 
-                Tables\Columns\TextColumn::make('collector_name')
+                Tables\Columns\TextColumn::make('collector.name')
                     ->label('Penagih')
+                    ->searchable()
+                    ->sortable()
                     ->toggleable(),
 
                 Tables\Columns\TextColumn::make('payment_reference')
                     ->label('Referensi')
                     ->limit(20)
+                    ->searchable()
                     ->toggleable(),
+
+                Tables\Columns\TextColumn::make('change_given')
+                    ->label('Kembalian')
+                    ->money('IDR')
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Dicatat')
@@ -209,13 +284,31 @@ class PaymentResource extends Resource
                         'other' => 'Lainnya',
                     ]),
 
+                Tables\Filters\SelectFilter::make('collector_id')
+                    ->label('Penagih/Kasir')
+                    ->relationship('collector', 'name')
+                    ->searchable()
+                    ->preload(),
+
                 Tables\Filters\Filter::make('today')
                     ->label('Hari Ini')
-                    ->query(fn($query) => $query->today()),
+                    ->query(fn(Builder $query) => $query->whereDate('payment_date', today())),
+
+                Tables\Filters\Filter::make('this_week')
+                    ->label('Minggu Ini')
+                    ->query(fn(Builder $query) => $query->whereBetween('payment_date', [
+                        now()->startOfWeek(),
+                        now()->endOfWeek()
+                    ])),
 
                 Tables\Filters\Filter::make('this_month')
                     ->label('Bulan Ini')
-                    ->query(fn($query) => $query->thisMonth()),
+                    ->query(fn(Builder $query) => $query->whereMonth('payment_date', now()->month)
+                        ->whereYear('payment_date', now()->year)),
+
+                Tables\Filters\Filter::make('has_change')
+                    ->label('Ada Kembalian')
+                    ->query(fn(Builder $query) => $query->where('change_given', '>', 0)),
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),
@@ -230,9 +323,21 @@ class PaymentResource extends Resource
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
+                    Tables\Actions\BulkAction::make('export_daily_report')
+                        ->label('Ekspor Laporan Harian')
+                        ->icon('heroicon-o-document-arrow-down')
+                        ->color('success')
+                        ->action(function ($records) {
+                            // Implementation for daily report export
+                            // This would generate a PDF or Excel file
+                        }),
                 ]),
             ])
-            ->defaultSort('payment_date', 'desc');
+            ->defaultSort('payment_date', 'desc')
+            ->poll('30s') // Auto-refresh every 30 seconds for real-time updates
+            ->persistSortInSession()
+            ->persistSearchInSession()
+            ->persistFiltersInSession();
     }
 
     public static function getPages(): array
@@ -243,5 +348,27 @@ class PaymentResource extends Resource
             'view' => Pages\ViewPayment::route('/{record}'),
             'edit' => Pages\EditPayment::route('/{record}/edit'),
         ];
+    }
+
+    public static function getNavigationBadge(): ?string
+    {
+        $user = User::find(Auth::user()->id);
+        $currentVillage = $user?->getCurrentVillageContext();
+
+        if (!$currentVillage) {
+            return null;
+        }
+
+        // Show today's payment count
+        $todayPayments = static::getEloquentQuery()
+            ->whereDate('payment_date', today())
+            ->count();
+
+        return $todayPayments > 0 ? (string) $todayPayments : null;
+    }
+
+    public static function getNavigationBadgeColor(): ?string
+    {
+        return 'success';
     }
 }
