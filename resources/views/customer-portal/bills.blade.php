@@ -271,7 +271,7 @@
             @endif
           </div>
         @else
-          <div class="bg-white rounded-lg shadow-md p-8 text-center">
+          <div class="bg-white rounded-lg shadow-md p-8 text-center mb-6">
             <div class="text-gray-400 mb-4">
               <svg class="mx-auto h-12 w-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
