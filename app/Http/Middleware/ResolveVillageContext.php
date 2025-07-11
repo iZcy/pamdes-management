@@ -1,5 +1,5 @@
 <?php
-// app/Http/Middleware/ResolveVillageContext.php - Correct multi-tenant version
+// app/Http/Middleware/ResolveVillageContext.php - Dynamic domain version
 
 namespace App\Http\Middleware;
 
@@ -61,11 +61,13 @@ class ResolveVillageContext
 
     private function resolveTenantContext(string $host): array
     {
-        // Get app URL for super admin detection
-        $appUrl = parse_url(config('app.url'), PHP_URL_HOST);
+        // Get domains from config
+        $superAdminDomain = config('pamdes.domains.super_admin');
+        $mainDomain = config('pamdes.domains.main');
+        $villagePattern = config('pamdes.domains.village_pattern');
 
-        // Super Admin: APP_URL host (localhost by default, but configurable)
-        if ($host === $appUrl) {
+        // Super Admin: Configured super admin domain
+        if ($host === $superAdminDomain) {
             return [
                 'type' => 'super_admin',
                 'village' => null,
@@ -74,8 +76,8 @@ class ResolveVillageContext
             ];
         }
 
-        // Main PAMDes website: pamdes.local
-        if ($host === 'pamdes.local') {
+        // Main PAMDes website: Configured main domain
+        if ($host === $mainDomain) {
             return [
                 'type' => 'public_website',
                 'village' => null,
@@ -84,10 +86,10 @@ class ResolveVillageContext
             ];
         }
 
-        // Village-specific websites: pamdes-{village}.local
-        if (preg_match('/^pamdes-(.+)\.local$/', $host, $matches)) {
-            $villageSlug = $matches[1];
+        // Village-specific websites: Extract pattern and village slug
+        $villageSlug = $this->extractVillageSlug($host, $villagePattern);
 
+        if ($villageSlug) {
             // Get village data by slug
             $village = $this->villageService->getVillageBySlug($villageSlug);
 
@@ -116,5 +118,23 @@ class ResolveVillageContext
             'village_id' => null,
             'is_super_admin' => false,
         ];
+    }
+
+    private function extractVillageSlug(string $host, string $pattern): ?string
+    {
+        // Convert pattern to regex
+        // Example: pamdes-{village}.example.com -> /^pamdes-(.+)\.example\.com$/
+        $regex = str_replace(
+            ['{village}', '.'],
+            ['(.+)', '\.'],
+            '/^' . preg_quote($pattern, '/') . '$/'
+        );
+        $regex = str_replace('\(\.\+\)', '(.+)', $regex);
+
+        if (preg_match($regex, $host, $matches)) {
+            return $matches[1];
+        }
+
+        return null;
     }
 }

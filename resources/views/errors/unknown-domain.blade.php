@@ -19,7 +19,7 @@
           Domain yang Anda akses tidak terdaftar dalam sistem PAMDes.
         </p>
         <div class="space-y-3">
-          <a href="http://pamdes.local" class="block bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700">
+          <a href="{{ main_pamdes_url() }}" class="block bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700">
             Kunjungi PAMDes Official
           </a>
           <p class="text-sm text-gray-500">

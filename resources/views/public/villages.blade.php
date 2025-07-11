@@ -32,7 +32,7 @@
             @if ($village->email)
               <p class="text-sm text-gray-500 mb-4">✉️ {{ $village->email }}</p>
             @endif
-            <a href="http://pamdes-{{ $village->slug }}.local"
+            <a href="{{ village_url($village->slug) }}"
               class="inline-block bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
               Kunjungi Website
             </a>

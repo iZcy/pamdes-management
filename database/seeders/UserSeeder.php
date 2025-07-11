@@ -1,5 +1,5 @@
 <?php
-// database/seeders/UserSeeder.php - Updated for multi-tenant
+// database/seeders/UserSeeder.php - Updated for dynamic domains
 
 namespace Database\Seeders;
 
@@ -12,10 +12,14 @@ class UserSeeder extends Seeder
 {
     public function run(): void
     {
-        // Create super admin (can access from localhost/APP_URL)
+        // Get domain configuration
+        $superAdminDomain = config('pamdes.domains.super_admin');
+        $mainDomain = config('pamdes.domains.main');
+
+        // Create super admin (can access from super admin domain)
         User::create([
             'name' => 'PAMDes Super Administrator',
-            'email' => 'admin@pamdes.system',
+            'email' => 'admin@' . $mainDomain,
             'password' => Hash::make('password'),
             'contact_info' => '+62 812-3456-7890',
             'village_id' => null, // Super admin - no village restriction
@@ -26,7 +30,7 @@ class UserSeeder extends Seeder
         // Create another super admin
         User::create([
             'name' => 'System Administrator',
-            'email' => 'system@pamdes.local',
+            'email' => 'system@' . $superAdminDomain,
             'password' => Hash::make('password'),
             'contact_info' => '+62 813-1111-2222',
             'village_id' => null,
@@ -38,10 +42,13 @@ class UserSeeder extends Seeder
         $villages = Village::all();
 
         foreach ($villages as $village) {
+            // Get village domain
+            $villageDomain = str_replace('{village}', $village->slug, config('pamdes.domains.village_pattern'));
+
             // Create primary village admin
             User::create([
                 'name' => 'Admin PAMDes ' . $village->name,
-                'email' => 'admin@pamdes-' . $village->slug . '.local',
+                'email' => 'admin@' . $villageDomain,
                 'password' => Hash::make('password'),
                 'contact_info' => '+62 813-' . rand(1000, 9999) . '-' . rand(1000, 9999),
                 'village_id' => $village->id,
@@ -52,7 +59,7 @@ class UserSeeder extends Seeder
             // Create secondary village admin (kasir/operator)
             User::create([
                 'name' => 'Operator PAMDes ' . $village->name,
-                'email' => 'operator@pamdes-' . $village->slug . '.local',
+                'email' => 'operator@' . $villageDomain,
                 'password' => Hash::make('password'),
                 'contact_info' => '+62 814-' . rand(1000, 9999) . '-' . rand(1000, 9999),
                 'village_id' => $village->id,
@@ -62,15 +69,18 @@ class UserSeeder extends Seeder
         }
 
         $this->command->info('Created users:');
-        $this->command->info('- Super Admins: Can access from localhost (APP_URL)');
-        $this->command->info('- Village Admins: Can access from pamdes-{village}.local');
+        $this->command->info('- Super Admins: Can access from ' . $superAdminDomain);
+        $this->command->info('- Village Admins: Can access from their respective village domains');
         $this->command->info('- All passwords: password');
         $this->command->info('');
         $this->command->info('Access URLs:');
-        $this->command->info('- Super Admin: http://localhost/admin');
+        $this->command->info('- Super Admin: ' . (request()->isSecure() ? 'https' : 'http') . '://' . $superAdminDomain . '/admin');
+        $this->command->info('- Main Website: ' . (request()->isSecure() ? 'https' : 'http') . '://' . $mainDomain);
 
         foreach ($villages as $village) {
-            $this->command->info("- {$village->name}: http://pamdes-{$village->slug}.local/admin");
+            $villageDomain = str_replace('{village}', $village->slug, config('pamdes.domains.village_pattern'));
+            $protocol = request()->isSecure() ? 'https' : 'http';
+            $this->command->info("- {$village->name}: {$protocol}://{$villageDomain}/admin");
         }
     }
 }

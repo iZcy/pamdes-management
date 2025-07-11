@@ -31,11 +31,11 @@
               <p>Status: {{ $village->is_active ? 'Aktif' : 'Tidak Aktif' }}</p>
             </div>
             <div class="mt-4 space-x-2">
-              <a href="http://pamdes-{{ $village->slug }}.local"
+              <a href="{{ village_url($village->slug) }}"
                 class="inline-block bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700">
                 Visit Site
               </a>
-              <a href="http://pamdes-{{ $village->slug }}.local/admin"
+              <a href="{{ village_url($village->slug, 'admin') }}"
                 class="inline-block bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700">
                 Admin Panel
               </a>
