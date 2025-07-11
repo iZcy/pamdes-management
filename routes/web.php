@@ -94,9 +94,21 @@ Route::middleware(['village.context'])->group(function () {
                 ->where('village_id', $villageId)
                 ->firstOrFail();
 
-            $bills = $customer->bills()->unpaid()->with(['waterUsage.billingPeriod'])->get();
+            // Get unpaid bills
+            $bills = $customer->bills()
+                ->unpaid()
+                ->with(['waterUsage.billingPeriod'])
+                ->get();
 
-            return view('customer-portal.bills', compact('customer', 'bills'));
+            // Get paid bills (last 10 for history)
+            $paidBills = $customer->bills()
+                ->paid()
+                ->with(['waterUsage.billingPeriod', 'latestPayment'])
+                ->orderBy('payment_date', 'desc')
+                ->limit(10)
+                ->get();
+
+            return view('customer-portal.bills', compact('customer', 'bills', 'paidBills'));
         })->name('bills');
     });
 
