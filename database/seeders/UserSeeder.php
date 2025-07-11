@@ -71,6 +71,25 @@ class UserSeeder extends Seeder
             $villageOperator->assignToVillage($village->id, false);
         }
 
+        foreach ($villages as $village) {
+            // Create collectors/cashiers for each village
+            $collectorRoles = ['collector', 'cashier', 'operator'];
+
+            foreach ($collectorRoles as $index => $role) {
+                $collector = User::create([
+                    'name' => ucfirst($role) . ' ' . $village->name,
+                    'email' => $role . '@' . str_replace('pamdes-', '', $village->slug) . '.' . $domain,
+                    'password' => Hash::make('password'),
+                    'contact_info' => '+62 816-' . rand(1000, 9999) . '-' . rand(1000, 9999),
+                    'role' => $role,
+                    'is_active' => true,
+                ]);
+
+                // Assign village to collector (not primary)
+                $collector->assignToVillage($village->id, false);
+            }
+        }
+
         // Create a multi-village admin (example)
         if ($villages->count() > 1) {
             $multiVillageAdmin = User::create([

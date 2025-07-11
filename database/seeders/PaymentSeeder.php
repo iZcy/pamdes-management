@@ -8,6 +8,7 @@ use App\Models\Payment;
 use App\Models\Bill;
 use App\Models\Village;
 use App\Models\Collector;
+use App\Models\User;
 
 class PaymentSeeder extends Seeder
 {
@@ -26,7 +27,10 @@ class PaymentSeeder extends Seeder
             $this->command->info("Creating payments for village: {$village->name}");
 
             // Get active collectors for this village
-            $collectors = Collector::where('village_id', $village->id)
+            $collectors = User::whereHas('villages', function ($q) use ($village) {
+                $q->where('villages.id', $village->id);
+            })
+                ->whereIn('role', ['collector', 'cashier', 'operator'])
                 ->where('is_active', true)
                 ->get();
 
@@ -125,7 +129,7 @@ class PaymentSeeder extends Seeder
                     'change_given' => $changeGiven,
                     'payment_method' => $paymentMethod,
                     'payment_reference' => $paymentReference,
-                    'collector_id' => $collector->collector_id,
+                    'collector_id' => $collector->id,
                     'notes' => $notes,
                 ]);
 
@@ -170,8 +174,14 @@ class PaymentSeeder extends Seeder
         foreach ($villages as $village) {
             $this->command->info("Village: {$village->name}");
 
-            $collectors = Collector::where('village_id', $village->id)
-                ->withCount('payments')
+            $collectors = User::whereHas('villages', function ($q) use ($village) {
+                $q->where('villages.id', $village->id);
+            })
+                ->whereIn('role', ['collector', 'cashier', 'operator'])
+                ->where('is_active', true)
+                ->withCount(['payments as payments_count' => function ($q) {
+                    $q->whereDate('payment_date', '>=', now()->subDays(30)); // Last 30 days
+                }])
                 ->get();
 
             foreach ($collectors as $collector) {

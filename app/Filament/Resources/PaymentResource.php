@@ -14,6 +14,7 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
 
 class PaymentResource extends Resource
 {
@@ -92,11 +93,16 @@ class PaymentResource extends Resource
                                     return [];
                                 }
 
-                                return Collector::where('village_id', $currentVillage)
+                                return User::whereHas('villages', function ($q) use ($currentVillage) {
+                                    $q->where('villages.id', $currentVillage);
+                                })
+                                    ->whereIn('role', ['collector', 'cashier', 'operator'])
                                     ->where('is_active', true)
                                     ->orderBy('name')
                                     ->get()
-                                    ->pluck('name', 'collector_id')
+                                    ->mapWithKeys(function ($user) {
+                                        return [$user->id => $user->name . ' (' . $user->display_role . ')'];
+                                    })
                                     ->toArray();
                             })
                             ->searchable()
@@ -107,7 +113,19 @@ class PaymentResource extends Resource
                                     ->required()
                                     ->maxLength(255),
 
-                                Forms\Components\TextInput::make('phone_number')
+                                Forms\Components\TextInput::make('email')
+                                    ->label('Email')
+                                    ->email()
+                                    ->required()
+                                    ->unique('users', 'email'),
+
+                                Forms\Components\TextInput::make('password')
+                                    ->label('Password')
+                                    ->password()
+                                    ->required()
+                                    ->minLength(8),
+
+                                Forms\Components\TextInput::make('contact_info')
                                     ->label('Nomor Telepon')
                                     ->tel()
                                     ->maxLength(20),
@@ -116,8 +134,8 @@ class PaymentResource extends Resource
                                     ->label('Peran')
                                     ->options([
                                         'collector' => 'Penagih',
-                                        'kasir' => 'Kasir',
-                                        'admin' => 'Admin',
+                                        'cashier' => 'Kasir',
+                                        'operator' => 'Operator',
                                     ])
                                     ->default('collector')
                                     ->required(),
@@ -131,23 +149,20 @@ class PaymentResource extends Resource
                                     throw new \Exception('Village context not found');
                                 }
 
-                                $collector = Collector::findOrCreateCollector(
-                                    $currentVillage,
-                                    $data['name'],
-                                    [
-                                        'phone_number' => $data['phone_number'] ?? null,
-                                        'role' => $data['role'] ?? 'collector',
-                                    ]
-                                );
+                                $newUser = User::create([
+                                    'name' => $data['name'],
+                                    'email' => $data['email'],
+                                    'password' => Hash::make($data['password']),
+                                    'contact_info' => $data['contact_info'] ?? null,
+                                    'role' => $data['role'],
+                                    'is_active' => true,
+                                ]);
 
-                                return $collector->collector_id;
+                                // Assign to current village
+                                $newUser->assignToVillage($currentVillage, false);
+
+                                return $newUser->id;
                             }),
-
-                        Forms\Components\DatePicker::make('payment_date')
-                            ->label('Tanggal Pembayaran')
-                            ->required()
-                            ->default(now()),
-
                         Forms\Components\TextInput::make('amount_paid')
                             ->label('Jumlah Dibayar')
                             ->required()

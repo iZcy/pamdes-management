@@ -75,6 +75,9 @@ class UserResource extends Resource
                             ->options([
                                 'super_admin' => 'Super Administrator',
                                 'village_admin' => 'Village Administrator',
+                                'collector' => 'Penagih',
+                                'cashier' => 'Kasir',
+                                'operator' => 'Operator',
                             ])
                             ->required()
                             ->live(),

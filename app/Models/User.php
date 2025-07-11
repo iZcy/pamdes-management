@@ -98,41 +98,22 @@ class User extends Authenticatable implements FilamentUser
         $currentVillageId = config('pamdes.current_village_id');
         $isSuperAdminDomain = config('pamdes.is_super_admin_domain', false);
 
-        Log::info("Village admin access check", [
-            'user_id' => $this->id,
-            'current_village_id' => $currentVillageId,
-            'is_super_admin_domain' => $isSuperAdminDomain,
-        ]);
-
-        // Village admin cannot access super admin domain
+        // Village admins, collectors, cashiers, operators cannot access super admin domain
         if ($isSuperAdminDomain) {
-            Log::info("Access denied: Village admin on super admin domain", ['user_id' => $this->id]);
             return false;
         }
 
         // Check if user has any accessible villages
         $accessibleVillages = $this->getAccessibleVillages();
         if ($accessibleVillages->isEmpty()) {
-            Log::info("Access denied: No accessible villages", ['user_id' => $this->id]);
             return false;
         }
 
         // If we have a village context, check if user has access to it
         if ($currentVillageId) {
-            $hasAccess = $this->hasAccessToVillage($currentVillageId);
-            Log::info("Village access check result", [
-                'user_id' => $this->id,
-                'village_id' => $currentVillageId,
-                'has_access' => $hasAccess,
-            ]);
-            return $hasAccess;
+            return $this->hasAccessToVillage($currentVillageId);
         }
 
-        // If no village context, allow access (user has villages available)
-        Log::info("Access granted: No village context, user has accessible villages", [
-            'user_id' => $this->id,
-            'village_count' => $accessibleVillages->count()
-        ]);
         return true;
     }
 
@@ -228,7 +209,34 @@ class User extends Authenticatable implements FilamentUser
 
     public function isVillageAdmin(): bool
     {
-        return $this->role === 'village_admin';
+        return in_array($this->role, ['village_admin', 'collector', 'cashier', 'operator']);
+    }
+
+    public function isCollector(): bool
+    {
+        return $this->role === 'collector';
+    }
+
+    public function isCashier(): bool
+    {
+        return $this->role === 'cashier';
+    }
+
+    public function isOperator(): bool
+    {
+        return in_array($this->role, ['collector', 'cashier', 'operator']);
+    }
+
+    public function getDisplayRoleAttribute(): string
+    {
+        return match ($this->role) {
+            'super_admin' => 'Super Administrator',
+            'village_admin' => 'Admin Desa',
+            'collector' => 'Penagih',
+            'cashier' => 'Kasir',
+            'operator' => 'Operator',
+            default => 'Unknown'
+        };
     }
 
     public function hasAccessToVillage($villageId): bool

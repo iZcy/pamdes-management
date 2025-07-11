@@ -24,7 +24,7 @@ return new class extends Migration
             $table->index('payment_date');
             $table->index('payment_method');
 
-            $table->foreign('collector_id')->references('collector_id')->on('collectors')->onDelete('set null');
+            $table->foreign('collector_id')->references('id')->on('users')->onDelete('set null');
         });
     }
 

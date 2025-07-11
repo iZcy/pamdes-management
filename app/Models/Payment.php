@@ -44,7 +44,7 @@ class Payment extends Model
 
     public function collector(): BelongsTo
     {
-        return $this->belongsTo(Collector::class, 'collector_id', 'collector_id');
+        return $this->belongsTo(User::class, 'collector_id', 'id');
     }
 
     // Accessors
