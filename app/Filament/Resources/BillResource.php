@@ -198,17 +198,21 @@ class BillResource extends Resource
                     ->money('IDR')
                     ->sortable(),
 
-                Tables\Columns\BadgeColumn::make('status')
+                Tables\Columns\TextColumn::make('status')
                     ->label('Status')
+                    ->badge()
                     ->colors([
                         'warning' => 'unpaid',
                         'success' => 'paid',
                         'danger' => 'overdue',
+                        'primary' => 'pending',
                     ])
                     ->formatStateUsing(fn(string $state): string => match ($state) {
                         'unpaid' => 'Belum Bayar',
                         'paid' => 'Sudah Bayar',
                         'overdue' => 'Terlambat',
+                        'pending' => 'Dalam Proses',
+                        default => $state,
                     }),
 
                 Tables\Columns\TextColumn::make('due_date')
