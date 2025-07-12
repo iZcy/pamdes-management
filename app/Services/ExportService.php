@@ -1,5 +1,5 @@
 <?php
-// app/Services/ExportService.php - Enhanced with all models
+// app/Services/ExportService.php - Complete implementation with all missing methods
 
 namespace App\Services;
 
@@ -431,4 +431,91 @@ class ExportService
             'updated_at' => 'Terakhir Diupdate',
         ];
 
-        $
+        $exportData = $variables->map(function ($variable) {
+            return [
+                'village_name' => $variable->village->name ?? '',
+                'tripay_use_main' => $variable->tripay_use_main ? 'Ya' : 'Tidak',
+                'tripay_is_production' => $variable->tripay_is_production ? 'Produksi' : 'Sandbox',
+                'tripay_timeout_minutes' => $variable->tripay_timeout_minutes ?? '-',
+                'configuration_status' => $variable->isConfigured() ? 'Terkonfigurasi' : 'Belum Lengkap',
+                'updated_at' => $variable->updated_at->format('d/m/Y H:i'),
+            ];
+        });
+
+        if ($format === 'pdf') {
+            return $this->exportToPdf($exportData, 'Laporan Pengaturan', $columns, $filters);
+        } else {
+            return $this->exportToCsv($exportData, 'Laporan Pengaturan', $columns, $filters);
+        }
+    }
+
+    /**
+     * Generate unique filename for exports
+     */
+    protected function generateFileName(string $title, string $format): string
+    {
+        $slug = str_replace(' ', '_', strtolower($title));
+        $timestamp = now()->format('Y-m-d_H-i-s');
+        $village = $this->getCurrentVillageInfo();
+        $villageSlug = $village['slug'] ?? 'all';
+
+        return "{$slug}_{$villageSlug}_{$timestamp}.{$format}";
+    }
+
+    /**
+     * Get current village information
+     */
+    protected function getCurrentVillageInfo(): array
+    {
+        $village = config('pamdes.current_village');
+
+        if ($village) {
+            return [
+                'name' => $village['name'] ?? 'Unknown Village',
+                'slug' => $village['slug'] ?? 'unknown',
+            ];
+        }
+
+        return [
+            'name' => 'All Villages',
+            'slug' => 'all',
+        ];
+    }
+
+    /**
+     * Format cell value for export
+     */
+    protected function formatCellValue($row, string $key)
+    {
+        if (is_array($row)) {
+            $value = $row[$key] ?? '';
+        } else {
+            $value = data_get($row, $key, '');
+        }
+
+        // Handle special formatting
+        if (is_bool($value)) {
+            return $value ? 'Ya' : 'Tidak';
+        }
+
+        if ($value instanceof Carbon) {
+            return $value->format('d/m/Y');
+        }
+
+        return (string) $value;
+    }
+
+    /**
+     * Format bill status
+     */
+    protected function formatBillStatus(string $status): string
+    {
+        return match ($status) {
+            'paid' => 'Sudah Bayar',
+            'unpaid' => 'Belum Bayar',
+            'overdue' => 'Terlambat',
+            'pending' => 'Menunggu Pembayaran',
+            default => $status,
+        };
+    }
+}

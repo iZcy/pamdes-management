@@ -5,6 +5,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\VillageResource\Pages;
 use App\Models\Village;
+use App\Traits\ExportableResource;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -14,6 +15,8 @@ use Illuminate\Support\Str;
 
 class VillageResource extends Resource
 {
+    use ExportableResource; // Add this trait
+
     protected static ?string $model = Village::class;
     protected static ?string $navigationIcon = 'heroicon-o-map-pin';
     protected static ?string $navigationLabel = 'Desa';
@@ -119,6 +122,13 @@ class VillageResource extends Resource
                     ->boolean()
                     ->trueLabel('Aktif')
                     ->falseLabel('Tidak Aktif'),
+
+                static::getStatusFilter([
+                    true => 'Aktif',
+                    false => 'Tidak Aktif',
+                ]),
+
+                static::getDateRangeFilter('Tanggal Didirikan', 'established_at'),
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),
@@ -128,7 +138,10 @@ class VillageResource extends Resource
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
+                    ...static::getExportBulkActions(),
                 ]),
+            ])->headerActions([
+                ...static::getExportHeaderActions(),
             ]);
     }
 

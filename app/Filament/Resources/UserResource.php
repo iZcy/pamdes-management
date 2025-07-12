@@ -6,6 +6,7 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\UserResource\Pages;
 use App\Models\User;
 use App\Models\Village;
+use App\Traits\ExportableResource;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -17,6 +18,8 @@ use Illuminate\Support\Facades\Auth;
 
 class UserResource extends Resource
 {
+    use ExportableResource; // Add this trait
+
     protected static ?string $model = User::class;
     protected static ?string $navigationIcon = 'heroicon-o-user-group';
     protected static ?string $navigationLabel = 'Kelola Admin';
@@ -124,7 +127,7 @@ class UserResource extends Resource
                     ->searchable()
                     ->sortable(),
 
-                Tables\Columns\BadgeColumn::make('role')
+                Tables\Columns\TextColumn::make('role')
                     ->label('Role')
                     ->colors([
                         'danger' => 'super_admin',
@@ -172,21 +175,34 @@ class UserResource extends Resource
                     ->boolean()
                     ->trueLabel('Aktif')
                     ->falseLabel('Tidak Aktif'),
+
+                static::getStatusFilter([
+                    'super_admin' => 'Super Admin',
+                    'village_admin' => 'Village Admin',
+                    'collector' => 'Penagih',
+                    'cashier' => 'Kasir',
+                    'operator' => 'Operator',
+                ]),
+
+                static::getDateRangeFilter('Tanggal Registrasi', 'created_at'),
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),
                 Tables\Actions\EditAction::make(),
                 Tables\Actions\DeleteAction::make()
                     ->before(function (User $record) {
-                        // Prevent deleting the last super admin
                         if ($record->isSuperAdmin() && User::superAdmins()->count() <= 1) {
                             throw new \Exception('Cannot delete the last super administrator.');
                         }
                     }),
             ])
+            ->headerActions([
+                ...static::getExportHeaderActions(),
+            ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
+                    ...static::getExportBulkActions(),
                 ]),
             ]);
     }

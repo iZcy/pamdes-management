@@ -1,4 +1,4 @@
-{{-- resources/views/exports/pdf-template.blade.php --}}
+{{-- resources/views/exports/pdf-template.blade.php - Complete implementation --}}
 <!DOCTYPE html>
 <html lang="id">
 
@@ -208,7 +208,7 @@
       <span class="info-label">Desa:</span> {{ $village['name'] ?? 'Semua Desa' }}
     </div>
     <div class="info-row">
-      <span class="info-label">Total Data:</span> {{ $data->count() }} record
+      <span class="info-label">Total Data:</span> {{ is_countable($data) ? count($data) : $data->count() }} record
     </div>
     <div class="info-row">
       <span class="info-label">Periode Export:</span> {{ $exported_at->format('F Y') }}
@@ -234,7 +234,7 @@
     <thead>
       <tr>
         @foreach ($columns as $key => $label)
-          <th class="{{ $this->getColumnClass($key) }}">{{ $label }}</th>
+          <th class="{{ getColumnClass($key) }}">{{ $label }}</th>
         @endforeach
       </tr>
     </thead>
@@ -242,8 +242,8 @@
       @forelse($data as $row)
         <tr>
           @foreach (array_keys($columns) as $key)
-            <td class="{{ $this->getColumnClass($key) }}">
-              {{ $this->formatCellValue($row, $key) }}
+            <td class="{{ getColumnClass($key) }}">
+              {{ formatCellValue($row, $key) }}
             </td>
           @endforeach
         </tr>
@@ -258,7 +258,7 @@
   </table>
 
   <!-- Summary Section for Financial Data -->
-  @if ($this->shouldShowSummary($columns))
+  @if (shouldShowSummary($columns))
     <div class="summary">
       <h4>Ringkasan:</h4>
       @if (isset($columns['total_amount']) || isset($columns['amount_paid']))
@@ -266,11 +266,13 @@
           $totalAmount = 0;
           $totalPaid = 0;
           foreach ($data as $row) {
-              if (isset($row['total_amount'])) {
-                  $totalAmount += $this->extractNumericValue($row['total_amount']);
+              if (isset($columns['total_amount'])) {
+                  $value = formatCellValue($row, 'total_amount');
+                  $totalAmount += extractNumericValue($value);
               }
-              if (isset($row['amount_paid'])) {
-                  $totalPaid += $this->extractNumericValue($row['amount_paid']);
+              if (isset($columns['amount_paid'])) {
+                  $value = formatCellValue($row, 'amount_paid');
+                  $totalPaid += extractNumericValue($value);
               }
           }
         @endphp
@@ -296,7 +298,7 @@
       @endif
 
       <div class="summary-item">
-        <strong>Total Record:</strong> {{ $data->count() }}
+        <strong>Total Record:</strong> {{ is_countable($data) ? count($data) : $data->count() }}
       </div>
     </div>
   @endif
@@ -313,50 +315,50 @@
       Dokumen ini digenerate otomatis oleh sistem PAMDes
     </div>
   </div>
-
-  @php
-    // PHP Helper Functions for Template
-    function getColumnClass($key)
-    {
-        $narrowColumns = ['status', 'is_active', 'usage_m3'];
-        $mediumColumns = ['customer_code', 'payment_method', 'due_date', 'payment_date'];
-        $wideColumns = ['customer_name', 'period_name', 'village_name'];
-
-        if (in_array($key, $narrowColumns)) {
-            return 'col-narrow';
-        }
-        if (in_array($key, $mediumColumns)) {
-            return 'col-medium';
-        }
-        if (in_array($key, $wideColumns)) {
-            return 'col-wide';
-        }
-        if (str_contains($key, 'amount') || str_contains($key, 'fee')) {
-            return 'col-medium text-right';
-        }
-
-        return '';
-    }
-
-    function formatCellValue($row, $key)
-    {
-        if (is_array($row)) {
-            return $row[$key] ?? '';
-        }
-        return data_get($row, $key, '');
-    }
-
-    function shouldShowSummary($columns)
-    {
-        return isset($columns['total_amount']) || isset($columns['amount_paid']) || isset($columns['water_charge']);
-    }
-
-    function extractNumericValue($value)
-    {
-        // Extract numeric value from formatted currency string
-        return (float) preg_replace('/[^\d.]/', '', $value);
-    }
-  @endphp
 </body>
 
 </html>
+
+@php
+  // PHP Helper Functions for Template
+  function getColumnClass($key)
+  {
+      $narrowColumns = ['status', 'is_active', 'usage_m3'];
+      $mediumColumns = ['customer_code', 'payment_method', 'due_date', 'payment_date'];
+      $wideColumns = ['customer_name', 'period_name', 'village_name'];
+
+      if (in_array($key, $narrowColumns)) {
+          return 'col-narrow';
+      }
+      if (in_array($key, $mediumColumns)) {
+          return 'col-medium';
+      }
+      if (in_array($key, $wideColumns)) {
+          return 'col-wide';
+      }
+      if (str_contains($key, 'amount') || str_contains($key, 'fee')) {
+          return 'col-medium text-right';
+      }
+
+      return '';
+  }
+
+  function formatCellValue($row, $key)
+  {
+      if (is_array($row)) {
+          return $row[$key] ?? '';
+      }
+      return data_get($row, $key, '');
+  }
+
+  function shouldShowSummary($columns)
+  {
+      return isset($columns['total_amount']) || isset($columns['amount_paid']) || isset($columns['water_charge']);
+  }
+
+  function extractNumericValue($value)
+  {
+      // Extract numeric value from formatted currency string
+      return (float) preg_replace('/[^\d.]/', '', (string) $value);
+  }
+@endphp

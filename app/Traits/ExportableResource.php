@@ -1,6 +1,5 @@
 <?php
-// First, let's fix the ExportableResource trait - it was cut off
-// app/Traits/ExportableResource.php
+// app/Traits/ExportableResource.php - Complete implementation
 
 namespace App\Traits;
 
@@ -118,7 +117,7 @@ trait ExportableResource
     }
 
     /**
-     * Apply table filters to query - Override this in each resource
+     * Apply table filters to query - Resource-specific implementations
      */
     protected static function applyTableFiltersToQuery($query, $livewire)
     {
@@ -140,20 +139,187 @@ trait ExportableResource
     }
 
     /**
-     * Apply search to query - Override in each resource
+     * Apply search to query - Resource-specific implementations
      */
     protected static function applySearchToQuery($query, string $search)
     {
-        // Default implementation - should be overridden in specific resources
-        return $query;
+        $modelClass = static::$model;
+        $modelName = class_basename($modelClass);
+
+        return match ($modelName) {
+            'Bill' => $query->where(function ($q) use ($search) {
+                $q->whereHas('waterUsage.customer', function ($customerQuery) use ($search) {
+                    $customerQuery->where('name', 'like', "%{$search}%")
+                        ->orWhere('customer_code', 'like', "%{$search}%");
+                })
+                    ->orWhereHas('waterUsage.billingPeriod', function ($periodQuery) use ($search) {
+                        $periodQuery->where('period_name', 'like', "%{$search}%");
+                    });
+            }),
+
+            'Customer' => $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                    ->orWhere('customer_code', 'like', "%{$search}%")
+                    ->orWhere('phone_number', 'like', "%{$search}%")
+                    ->orWhere('address', 'like', "%{$search}%");
+            }),
+
+            'Payment' => $query->where(function ($q) use ($search) {
+                $q->whereHas('bill.waterUsage.customer', function ($customerQuery) use ($search) {
+                    $customerQuery->where('name', 'like', "%{$search}%")
+                        ->orWhere('customer_code', 'like', "%{$search}%");
+                })
+                    ->orWhere('payment_reference', 'like', "%{$search}%")
+                    ->orWhereHas('collector', function ($collectorQuery) use ($search) {
+                        $collectorQuery->where('name', 'like', "%{$search}%");
+                    });
+            }),
+
+            'WaterUsage' => $query->where(function ($q) use ($search) {
+                $q->whereHas('customer', function ($customerQuery) use ($search) {
+                    $customerQuery->where('name', 'like', "%{$search}%")
+                        ->orWhere('customer_code', 'like', "%{$search}%");
+                })
+                    ->orWhereHas('billingPeriod', function ($periodQuery) use ($search) {
+                        $periodQuery->where('period_name', 'like', "%{$search}%");
+                    })
+                    ->orWhere('reader_name', 'like', "%{$search}%");
+            }),
+
+            'WaterTariff' => $query->where(function ($q) use ($search) {
+                $q->whereHas('village', function ($villageQuery) use ($search) {
+                    $villageQuery->where('name', 'like', "%{$search}%");
+                })
+                    ->orWhere('price_per_m3', 'like', "%{$search}%");
+            }),
+
+            'BillingPeriod' => $query->where(function ($q) use ($search) {
+                $q->whereHas('village', function ($villageQuery) use ($search) {
+                    $villageQuery->where('name', 'like', "%{$search}%");
+                })
+                    ->orWhereRaw("CONCAT(CASE month
+                    WHEN 1 THEN 'Januari'
+                    WHEN 2 THEN 'Februari'
+                    WHEN 3 THEN 'Maret'
+                    WHEN 4 THEN 'April'
+                    WHEN 5 THEN 'Mei'
+                    WHEN 6 THEN 'Juni'
+                    WHEN 7 THEN 'Juli'
+                    WHEN 8 THEN 'Agustus'
+                    WHEN 9 THEN 'September'
+                    WHEN 10 THEN 'Oktober'
+                    WHEN 11 THEN 'November'
+                    WHEN 12 THEN 'Desember'
+                END, ' ', year) LIKE ?", ["%{$search}%"]);
+            }),
+
+            'Village' => $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                    ->orWhere('slug', 'like', "%{$search}%")
+                    ->orWhere('phone_number', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('address', 'like', "%{$search}%");
+            }),
+
+            'User' => $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('contact_info', 'like', "%{$search}%")
+                    ->orWhereHas('villages', function ($villageQuery) use ($search) {
+                        $villageQuery->where('name', 'like', "%{$search}%");
+                    });
+            }),
+
+            'Variable' => $query->where(function ($q) use ($search) {
+                $q->whereHas('village', function ($villageQuery) use ($search) {
+                    $villageQuery->where('name', 'like', "%{$search}%");
+                });
+            }),
+
+            default => $query
+        };
     }
 
     /**
-     * Apply individual filter to query - Override in each resource
+     * Apply individual filter to query - Resource-specific implementations
      */
     protected static function applyFilterToQuery($query, string $filterName, $filterValue)
     {
-        // Default implementation - should be overridden in specific resources
+        $modelClass = static::$model;
+        $modelName = class_basename($modelClass);
+
+        return match ([$modelName, $filterName]) {
+            // Bill filters
+            ['Bill', 'village'] => $query->whereHas('waterUsage.customer', function ($q) use ($filterValue) {
+                $q->where('village_id', $filterValue);
+            }),
+            ['Bill', 'status'] => $query->where('status', $filterValue),
+            ['Bill', 'overdue'] => $filterValue ? $query->overdue() : $query,
+            ['Bill', 'date_range'] => static::applyDateRangeFilter($query, $filterValue, 'created_at'),
+
+            // Customer filters
+            ['Customer', 'village_id'] => $query->where('village_id', $filterValue),
+            ['Customer', 'status'] => $query->where('status', $filterValue),
+            ['Customer', 'date_range'] => static::applyDateRangeFilter($query, $filterValue, 'created_at'),
+
+            // Payment filters
+            ['Payment', 'village'] => $query->whereHas('bill.waterUsage.customer.village', function ($q) use ($filterValue) {
+                $q->where('name', $filterValue);
+            }),
+            ['Payment', 'payment_method'] => $query->where('payment_method', $filterValue),
+            ['Payment', 'collector_id'] => $query->where('collector_id', $filterValue),
+            ['Payment', 'today'] => $filterValue ? $query->whereDate('payment_date', today()) : $query,
+            ['Payment', 'this_week'] => $filterValue ? $query->whereBetween('payment_date', [
+                now()->startOfWeek(),
+                now()->endOfWeek()
+            ]) : $query,
+            ['Payment', 'this_month'] => $filterValue ? $query->whereMonth('payment_date', now()->month)
+                ->whereYear('payment_date', now()->year) : $query,
+            ['Payment', 'has_change'] => $filterValue ? $query->where('change_given', '>', 0) : $query,
+            ['Payment', 'date_range'] => static::applyDateRangeFilter($query, $filterValue, 'payment_date'),
+
+            // Water Usage filters
+            ['WaterUsage', 'village'] => $query->whereHas('customer.village', function ($q) use ($filterValue) {
+                $q->where('name', $filterValue);
+            }),
+            ['WaterUsage', 'has_bill'] => $filterValue ? $query->whereHas('bill') : $query,
+            ['WaterUsage', 'no_bill'] => $filterValue ? $query->whereDoesntHave('bill') : $query,
+            ['WaterUsage', 'date_range'] => static::applyDateRangeFilter($query, $filterValue, 'usage_date'),
+
+            // Water Tariff filters
+            ['WaterTariff', 'village_id'] => $query->where('village_id', $filterValue),
+            ['WaterTariff', 'is_active'] => $query->where('is_active', $filterValue),
+
+            // Billing Period filters
+            ['BillingPeriod', 'village_id'] => $query->where('village_id', $filterValue),
+            ['BillingPeriod', 'status'] => $query->where('status', $filterValue),
+
+            // Village filters
+            ['Village', 'is_active'] => $query->where('is_active', $filterValue),
+
+            // User filters
+            ['User', 'role'] => $query->where('role', $filterValue),
+            ['User', 'is_active'] => $query->where('is_active', $filterValue),
+
+            // Variable filters
+            ['Variable', 'tripay_use_main'] => $query->where('tripay_use_main', $filterValue),
+            ['Variable', 'tripay_is_production'] => $query->where('tripay_is_production', $filterValue),
+
+            default => $query
+        };
+    }
+
+    /**
+     * Apply date range filter
+     */
+    protected static function applyDateRangeFilter($query, array $filterValue, string $field)
+    {
+        if (!empty($filterValue['from'])) {
+            $query->whereDate($field, '>=', $filterValue['from']);
+        }
+        if (!empty($filterValue['until'])) {
+            $query->whereDate($field, '<=', $filterValue['until']);
+        }
         return $query;
     }
 
@@ -174,14 +340,65 @@ trait ExportableResource
         foreach ($tableFilters as $filterName => $filterValue) {
             if (!empty($filterValue)) {
                 if (is_array($filterValue)) {
-                    $appliedFilters[$filterName] = implode(' - ', array_filter($filterValue));
+                    // Handle date range filters
+                    if (isset($filterValue['from']) || isset($filterValue['until'])) {
+                        $dateRange = [];
+                        if (!empty($filterValue['from'])) {
+                            $dateRange[] = 'From: ' . \Carbon\Carbon::parse($filterValue['from'])->format('d/m/Y');
+                        }
+                        if (!empty($filterValue['until'])) {
+                            $dateRange[] = 'Until: ' . \Carbon\Carbon::parse($filterValue['until'])->format('d/m/Y');
+                        }
+                        $appliedFilters[$filterName] = implode(' - ', $dateRange);
+                    } else {
+                        $appliedFilters[$filterName] = implode(', ', array_filter($filterValue));
+                    }
                 } else {
-                    $appliedFilters[$filterName] = $filterValue;
+                    // Convert filter values to readable format
+                    $appliedFilters[$filterName] = static::formatFilterValue($filterName, $filterValue);
                 }
             }
         }
 
         return $appliedFilters;
+    }
+
+    /**
+     * Format filter value for display
+     */
+    protected static function formatFilterValue(string $filterName, $filterValue): string
+    {
+        return match ($filterName) {
+            'status' => match ($filterValue) {
+                'active' => 'Aktif',
+                'inactive' => 'Tidak Aktif',
+                'paid' => 'Sudah Bayar',
+                'unpaid' => 'Belum Bayar',
+                'overdue' => 'Terlambat',
+                'pending' => 'Menunggu Pembayaran',
+                'completed' => 'Selesai',
+                default => $filterValue
+            },
+            'payment_method' => match ($filterValue) {
+                'cash' => 'Tunai',
+                'transfer' => 'Transfer Bank',
+                'qris' => 'QRIS',
+                'other' => 'Lainnya',
+                default => $filterValue
+            },
+            'role' => match ($filterValue) {
+                'super_admin' => 'Super Admin',
+                'village_admin' => 'Admin Desa',
+                'collector' => 'Penagih',
+                'cashier' => 'Kasir',
+                'operator' => 'Operator',
+                default => $filterValue
+            },
+            'is_active' => $filterValue ? 'Aktif' : 'Tidak Aktif',
+            'tripay_use_main' => $filterValue ? 'Ya' : 'Tidak',
+            'tripay_is_production' => $filterValue ? 'Produksi' : 'Sandbox',
+            default => (string) $filterValue
+        };
     }
 
     /**

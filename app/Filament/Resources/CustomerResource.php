@@ -7,6 +7,7 @@ use App\Filament\Resources\CustomerResource\Pages;
 use App\Models\Customer;
 use App\Models\User;
 use App\Models\Village;
+use App\Traits\ExportableResource;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -17,6 +18,8 @@ use Illuminate\Support\Facades\Auth;
 
 class CustomerResource extends Resource
 {
+    use ExportableResource;
+
     protected static ?string $model = Customer::class;
     protected static ?string $navigationIcon = 'heroicon-o-users';
     protected static ?string $navigationLabel = 'Pelanggan';
@@ -197,10 +200,25 @@ class CustomerResource extends Resource
                         'active' => 'Aktif',
                         'inactive' => 'Tidak Aktif',
                     ]),
+
+                static::getDateRangeFilter('Tanggal Pendaftaran', 'created_at'),
+                static::getVillageFilter(),
+                static::getStatusFilter([
+                    'active' => 'Aktif',
+                    'inactive' => 'Tidak Aktif',
+                ]),
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),
                 Tables\Actions\EditAction::make(),
+            ])
+            ->headerActions([
+                ...static::getExportHeaderActions(),
+            ])
+            ->bulkActions([
+                Tables\Actions\BulkActionGroup::make([
+                    ...static::getExportBulkActions(),
+                ]),
             ]);
     }
 

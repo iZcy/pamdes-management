@@ -6,6 +6,7 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\BillingPeriodResource\Pages;
 use App\Models\BillingPeriod;
 use App\Models\User;
+use App\Traits\ExportableResource;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -16,6 +17,8 @@ use Illuminate\Support\Facades\Auth;
 
 class BillingPeriodResource extends Resource
 {
+    use ExportableResource; // Add this trait
+
     protected static ?string $model = BillingPeriod::class;
     protected static ?string $navigationIcon = 'heroicon-o-calendar-days';
     protected static ?string $navigationLabel = 'Periode Tagihan';
@@ -194,6 +197,13 @@ class BillingPeriodResource extends Resource
                         'active' => 'Aktif',
                         'completed' => 'Selesai',
                     ]),
+
+                static::getVillageFilter(),
+                static::getStatusFilter([
+                    'inactive' => 'Tidak Aktif',
+                    'active' => 'Aktif',
+                    'completed' => 'Selesai',
+                ]),
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),
@@ -208,9 +218,13 @@ class BillingPeriodResource extends Resource
                         // This will be implemented later
                     }),
             ])
+            ->headerActions([
+                ...static::getExportHeaderActions(),
+            ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
+                    ...static::getExportBulkActions(),
                 ]),
             ])
             ->defaultSort('year', 'desc')

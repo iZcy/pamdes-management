@@ -8,6 +8,7 @@ use App\Models\WaterUsage;
 use App\Models\Customer;
 use App\Models\BillingPeriod;
 use App\Models\User;
+use App\Traits\ExportableResource;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -18,6 +19,8 @@ use Illuminate\Support\Facades\Auth;
 
 class WaterUsageResource extends Resource
 {
+    use ExportableResource; // Add this trait
+
     protected static ?string $model = WaterUsage::class;
     protected static ?string $navigationIcon = 'heroicon-o-clipboard-document-list';
     protected static ?string $navigationLabel = 'Pembacaan Meter';
@@ -216,6 +219,10 @@ class WaterUsageResource extends Resource
                 Tables\Filters\Filter::make('no_bill')
                     ->label('Belum Dibill')
                     ->query(fn($query) => $query->whereDoesntHave('bill')),
+
+                static::getDateRangeFilter('Tanggal Pembacaan', 'usage_date'),
+
+                static::getVillageFilter('customer.village'),
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),
@@ -232,6 +239,18 @@ class WaterUsageResource extends Resource
                             'maintenance_fee' => $village?->getDefaultMaintenanceFee() ?? 2000,
                         ]);
                     }),
+            ])
+            ->headerActions([
+                // Add export actions to header
+                ...static::getExportHeaderActions(),
+            ])
+            ->bulkActions([
+                Tables\Actions\BulkActionGroup::make([
+                    // ... existing bulk actions ...
+
+                    // Add export bulk actions
+                    ...static::getExportBulkActions(),
+                ]),
             ])
             ->defaultSort('usage_date', 'desc');
     }

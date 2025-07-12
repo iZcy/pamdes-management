@@ -7,6 +7,7 @@ use App\Filament\Resources\WaterTariffResource\Pages;
 use App\Models\WaterTariff;
 use App\Models\User;
 use App\Services\TariffRangeService;
+use App\Traits\ExportableResource;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -18,6 +19,8 @@ use Illuminate\Support\Facades\Auth;
 
 class WaterTariffResource extends Resource
 {
+    use ExportableResource; // Add this trait
+
     protected static ?string $model = WaterTariff::class;
     protected static ?string $navigationIcon = 'heroicon-o-currency-dollar';
     protected static ?string $navigationLabel = 'Tarif Air';
@@ -680,6 +683,9 @@ class WaterTariffResource extends Resource
                     ->boolean()
                     ->trueLabel('Aktif')
                     ->falseLabel('Tidak Aktif'),
+
+                static::getVillageFilter(),
+                static::getDateRangeFilter('Tanggal Dibuat', 'created_at'),
             ])
             ->actions([
                 Tables\Actions\EditAction::make()
@@ -730,6 +736,9 @@ class WaterTariffResource extends Resource
                         }
                     }),
             ])
+            ->headerActions([
+                ...static::getExportHeaderActions(),
+            ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make()
@@ -739,6 +748,7 @@ class WaterTariffResource extends Resource
                                 $service->deleteTariffRange($record);
                             }
                         }),
+                    ...static::getExportBulkActions(),
                 ]),
             ])
             ->defaultSort('usage_min');

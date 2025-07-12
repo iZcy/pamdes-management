@@ -6,6 +6,7 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\VariableResource\Pages;
 use App\Models\Variable;
 use App\Models\User;
+use App\Traits\ExportableResource;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -16,6 +17,8 @@ use Illuminate\Support\Facades\Auth;
 
 class VariableResource extends Resource
 {
+    use ExportableResource; // Add this trait
+
     protected static ?string $model = Variable::class;
     protected static ?string $navigationIcon = 'heroicon-o-cog-6-tooth';
     protected static ?string $navigationLabel = 'Pengaturan Sistem';
@@ -272,6 +275,20 @@ class VariableResource extends Resource
                     ->boolean()
                     ->trueLabel('Produksi')
                     ->falseLabel('Sandbox'),
+
+                Tables\Filters\TernaryFilter::make('tripay_use_main')
+                    ->label('Gunakan Global')
+                    ->boolean()
+                    ->trueLabel('Ya')
+                    ->falseLabel('Tidak'),
+
+                Tables\Filters\TernaryFilter::make('tripay_is_production')
+                    ->label('Mode Produksi')
+                    ->boolean()
+                    ->trueLabel('Produksi')
+                    ->falseLabel('Sandbox'),
+
+                static::getDateRangeFilter('Tanggal Update', 'updated_at'),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
@@ -299,6 +316,19 @@ class VariableResource extends Resource
                         }
                     })
                     ->visible(fn(Variable $record) => $record->isConfigured()),
+            ])
+            ->emptyStateHeading('Belum Ada Pengaturan')
+            ->emptyStateDescription('Buat pengaturan Tripay untuk desa Anda')
+            ->emptyStateActions([
+                Tables\Actions\CreateAction::make()
+                    ->label('Buat Pengaturan'),
+            ])->headerActions([
+                ...static::getExportHeaderActions(),
+            ])
+            ->bulkActions([
+                Tables\Actions\BulkActionGroup::make([
+                    ...static::getExportBulkActions(),
+                ]),
             ])
             ->emptyStateHeading('Belum Ada Pengaturan')
             ->emptyStateDescription('Buat pengaturan Tripay untuk desa Anda')

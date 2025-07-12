@@ -7,6 +7,7 @@ use App\Filament\Resources\PaymentResource\Pages;
 use App\Models\Payment;
 use App\Models\User;
 use App\Models\Collector;
+use App\Traits\ExportableResource;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -18,6 +19,8 @@ use Illuminate\Support\Facades\Hash;
 
 class PaymentResource extends Resource
 {
+    use ExportableResource; // Add this trait
+
     protected static ?string $model = Payment::class;
     protected static ?string $navigationIcon = 'heroicon-o-banknotes';
     protected static ?string $navigationLabel = 'Pembayaran';
@@ -323,6 +326,24 @@ class PaymentResource extends Resource
                 Tables\Filters\Filter::make('has_change')
                     ->label('Ada Kembalian')
                     ->query(fn(Builder $query) => $query->where('change_given', '>', 0)),
+
+                static::getDateRangeFilter('Tanggal Pembayaran', 'payment_date'),
+
+                Tables\Filters\Filter::make('today')
+                    ->label('Hari Ini')
+                    ->query(fn(Builder $query) => $query->whereDate('payment_date', today())),
+
+                Tables\Filters\Filter::make('this_week')
+                    ->label('Minggu Ini')
+                    ->query(fn(Builder $query) => $query->whereBetween('payment_date', [
+                        now()->startOfWeek(),
+                        now()->endOfWeek()
+                    ])),
+
+                Tables\Filters\Filter::make('this_month')
+                    ->label('Bulan Ini')
+                    ->query(fn(Builder $query) => $query->whereMonth('payment_date', now()->month)
+                        ->whereYear('payment_date', now()->year)),
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),
@@ -333,6 +354,9 @@ class PaymentResource extends Resource
                     ->color('primary')
                     ->url(fn(Payment $record): string => "/admin/payments/{$record->payment_id}/receipt")
                     ->openUrlInNewTab(),
+            ])
+            ->headerActions([
+                ...static::getExportHeaderActions(),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
@@ -345,6 +369,7 @@ class PaymentResource extends Resource
                             // Implementation for daily report export
                             // This would generate a PDF or Excel file
                         }),
+                    ...static::getExportBulkActions(),
                 ]),
             ])
             ->defaultSort('payment_date', 'desc')
