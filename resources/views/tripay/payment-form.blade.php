@@ -313,7 +313,7 @@
 
               alert(
                 `Status pembayaran: ${statusText}. ${statusText === 'pending' ? 'Silakan selesaikan pembayaran atau coba lagi dalam beberapa menit.' : ''}`
-                );
+              );
             }
           })
           .catch(error => {

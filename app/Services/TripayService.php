@@ -5,7 +5,6 @@ namespace App\Services;
 
 use App\Models\Variable;
 use App\Models\Bill;
-use App\Models\Village;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -101,7 +100,7 @@ class TripayService
             ]];
 
             // Generate signature
-            $signature = hash_hmac('sha256', $this->merchantCode . $merchantRef . $bill->total_amount, $this->privateKey);
+            $signature = hash_hmac('sha256', $this->merchantCode . $merchantRef . (int) $bill->total_amount, $this->privateKey);
 
             // Prepare payload
             $payload = [

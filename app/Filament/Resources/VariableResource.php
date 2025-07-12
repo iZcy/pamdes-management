@@ -72,18 +72,21 @@ class VariableResource extends Resource
                                 return $user?->getCurrentVillageContext();
                             }),
 
-                        Forms\Components\Toggle::make('tripay_use_main')
-                            ->label('Gunakan Konfigurasi Global')
-                            ->helperText('Jika diaktifkan, akan menggunakan konfigurasi Tripay global dari sistem')
-                            ->default(true)
-                            ->live()
-                            ->columnSpanFull(),
+                        Forms\Components\Group::make([
+                            Forms\Components\Toggle::make('tripay_use_main')
+                                ->label('Gunakan Konfigurasi Global')
+                                ->helperText('Jika diaktifkan, akan menggunakan konfigurasi Tripay global dari sistem')
+                                ->default(true)
+                                ->live()
+                                ->columnSpan(1),
 
-                        Forms\Components\Toggle::make('tripay_is_production')
-                            ->label('Mode Produksi')
-                            ->helperText('Aktifkan untuk transaksi real, nonaktifkan untuk testing')
-                            ->default(false)
-                            ->visible(fn(Forms\Get $get) => !$get('tripay_use_main'))
+                            Forms\Components\Toggle::make('tripay_is_production')
+                                ->label('Mode Produksi')
+                                ->helperText('Aktifkan untuk transaksi real, nonaktifkan untuk testing')
+                                ->default(false)
+                                ->columnSpan(1),
+                        ])
+                            ->columns(2)
                             ->columnSpanFull(),
 
                         Forms\Components\Group::make([

@@ -227,6 +227,10 @@
                                 </svg>
                                 Bayar dengan QRIS
                               </a>
+                            @else
+                              <div class="text-red-600 text-sm font-medium">
+                                Pembayaran QRIS tidak tersedia untuk desa ini.
+                              </div>
                             @endif
                           </div>
                         @endif
