@@ -1,5 +1,5 @@
 <?php
-// app/Services/ExportService.php - Complete implementation with all missing methods
+// app/Services/ExportService.php - Fixed implementation
 
 namespace App\Services;
 
@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Storage;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
 
 class ExportService
 {
@@ -16,22 +17,51 @@ class ExportService
      */
     public function exportToPdf($data, string $title, array $columns, array $filters = []): string
     {
-        $fileName = $this->generateFileName($title, 'pdf');
+        try {
+            $fileName = $this->generateFileName($title, 'pdf');
 
-        $pdf = Pdf::loadView('exports.pdf-template', [
-            'title' => $title,
-            'data' => $data,
-            'columns' => $columns,
-            'filters' => $filters,
-            'exported_at' => now(),
-            'village' => $this->getCurrentVillageInfo(),
-        ]);
+            // Ensure data is in the right format
+            $processedData = $this->processDataForExport($data);
 
-        $pdf->setPaper('A4', 'landscape');
+            $pdf = Pdf::loadView('exports.pdf-template', [
+                'title' => $title,
+                'data' => $processedData,
+                'columns' => $columns,
+                'filters' => $this->sanitizeFilters($filters),
+                'exported_at' => now(),
+                'village' => $this->getCurrentVillageInfo(),
+            ]);
 
-        Storage::put("exports/{$fileName}", $pdf->output());
+            $pdf->setPaper('A4', 'landscape');
+            $pdf->setOptions([
+                'isHtml5ParserEnabled' => true,
+                'isPhpEnabled' => true,
+                'defaultFont' => 'Arial',
+            ]);
 
-        return $fileName;
+            // Create exports directory if it doesn't exist
+            $exportPath = 'exports';
+            if (!Storage::exists($exportPath)) {
+                Storage::makeDirectory($exportPath);
+            }
+
+            Storage::put("exports/{$fileName}", $pdf->output());
+
+            Log::info('PDF export created successfully', [
+                'filename' => $fileName,
+                'title' => $title,
+                'data_count' => is_countable($processedData) ? count($processedData) : 0,
+            ]);
+
+            return $fileName;
+        } catch (\Exception $e) {
+            Log::error('PDF export failed', [
+                'title' => $title,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            throw new \Exception("PDF export failed: " . $e->getMessage());
+        }
     }
 
     /**
@@ -39,52 +69,128 @@ class ExportService
      */
     public function exportToCsv($data, string $title, array $columns, array $filters = []): string
     {
-        $fileName = $this->generateFileName($title, 'csv');
+        try {
+            $fileName = $this->generateFileName($title, 'csv');
+            $processedData = $this->processDataForExport($data);
 
-        $csvData = [];
+            $csvData = [];
 
-        // Add header with filters info
-        if (!empty($filters)) {
-            $csvData[] = ['Export Information'];
-            $csvData[] = ['Title', $title];
-            $csvData[] = ['Exported At', now()->format('d/m/Y H:i:s')];
-            $csvData[] = ['Village', $this->getCurrentVillageInfo()['name'] ?? 'All Villages'];
-            $csvData[] = [];
+            // Add header with filters info
+            if (!empty($filters)) {
+                $csvData[] = ['Export Information'];
+                $csvData[] = ['Title', $title];
+                $csvData[] = ['Exported At', now()->format('d/m/Y H:i:s')];
+                $csvData[] = ['Village', $this->getCurrentVillageInfo()['name'] ?? 'All Villages'];
+                $csvData[] = [];
 
-            // Add filter information
-            $csvData[] = ['Applied Filters'];
-            foreach ($filters as $key => $value) {
-                if (!empty($value)) {
-                    $csvData[] = [ucfirst(str_replace('_', ' ', $key)), $value];
+                // Add filter information
+                $csvData[] = ['Applied Filters'];
+                foreach ($this->sanitizeFilters($filters) as $key => $value) {
+                    if (!empty($value)) {
+                        $csvData[] = [ucfirst(str_replace('_', ' ', $key)), $value];
+                    }
+                }
+                $csvData[] = [];
+            }
+
+            // Add column headers
+            $csvData[] = array_values($columns);
+
+            // Add data rows
+            foreach ($processedData as $row) {
+                $csvRow = [];
+                foreach (array_keys($columns) as $key) {
+                    $csvRow[] = $this->formatCellValue($row, $key);
+                }
+                $csvData[] = $csvRow;
+            }
+
+            // Create exports directory if it doesn't exist
+            $exportPath = 'exports';
+            if (!Storage::exists($exportPath)) {
+                Storage::makeDirectory($exportPath);
+            }
+
+            // Create CSV content
+            $handle = fopen('php://temp', 'w');
+            foreach ($csvData as $row) {
+                fputcsv($handle, $row);
+            }
+            rewind($handle);
+            $csvContent = stream_get_contents($handle);
+            fclose($handle);
+
+            Storage::put("exports/{$fileName}", $csvContent);
+
+            Log::info('CSV export created successfully', [
+                'filename' => $fileName,
+                'title' => $title,
+                'data_count' => count($processedData),
+            ]);
+
+            return $fileName;
+        } catch (\Exception $e) {
+            Log::error('CSV export failed', [
+                'title' => $title,
+                'error' => $e->getMessage(),
+            ]);
+            throw new \Exception("CSV export failed: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Process data for export - convert to array format
+     */
+    protected function processDataForExport($data): array
+    {
+        if (is_array($data)) {
+            return $data;
+        }
+
+        if ($data instanceof Collection) {
+            return $data->toArray();
+        }
+
+        if (is_object($data) && method_exists($data, 'toArray')) {
+            return $data->toArray();
+        }
+
+        if (is_iterable($data)) {
+            $result = [];
+            foreach ($data as $item) {
+                if (is_object($item) && method_exists($item, 'toArray')) {
+                    $result[] = $item->toArray();
+                } elseif (is_array($item)) {
+                    $result[] = $item;
+                } else {
+                    $result[] = ['value' => (string) $item];
                 }
             }
-            $csvData[] = [];
+            return $result;
         }
 
-        // Add column headers
-        $csvData[] = array_values($columns);
+        return [];
+    }
 
-        // Add data rows
-        foreach ($data as $row) {
-            $csvRow = [];
-            foreach (array_keys($columns) as $key) {
-                $csvRow[] = $this->formatCellValue($row, $key);
+    /**
+     * Sanitize filters to ensure they're safe for display
+     */
+    protected function sanitizeFilters(array $filters): array
+    {
+        $sanitized = [];
+        foreach ($filters as $key => $value) {
+            if (is_array($value)) {
+                // Convert arrays to comma-separated strings
+                $sanitized[$key] = implode(', ', array_filter($value, function ($item) {
+                    return !is_array($item) && !is_object($item);
+                }));
+            } elseif (is_object($value)) {
+                $sanitized[$key] = method_exists($value, '__toString') ? (string) $value : '[Object]';
+            } else {
+                $sanitized[$key] = (string) $value;
             }
-            $csvData[] = $csvRow;
         }
-
-        // Create CSV content
-        $handle = fopen('php://temp', 'w');
-        foreach ($csvData as $row) {
-            fputcsv($handle, $row);
-        }
-        rewind($handle);
-        $csvContent = stream_get_contents($handle);
-        fclose($handle);
-
-        Storage::put("exports/{$fileName}", $csvContent);
-
-        return $fileName;
+        return $sanitized;
     }
 
     /**
@@ -116,21 +222,21 @@ class ExportService
 
         $exportData = $bills->map(function ($bill) {
             return [
-                'customer_code' => $bill->waterUsage->customer->customer_code,
-                'customer_name' => $bill->waterUsage->customer->name,
+                'customer_code' => $bill->waterUsage->customer->customer_code ?? '',
+                'customer_name' => $bill->waterUsage->customer->name ?? '',
                 'village_name' => $bill->waterUsage->customer->village->name ?? '',
-                'period_name' => $bill->waterUsage->billingPeriod->period_name,
-                'usage_m3' => $bill->waterUsage->total_usage_m3,
-                'water_charge' => 'Rp ' . number_format($bill->water_charge),
-                'admin_fee' => 'Rp ' . number_format($bill->admin_fee),
-                'maintenance_fee' => 'Rp ' . number_format($bill->maintenance_fee),
-                'total_amount' => 'Rp ' . number_format($bill->total_amount),
-                'status' => $this->formatBillStatus($bill->status),
+                'period_name' => $bill->waterUsage->billingPeriod->period_name ?? '',
+                'usage_m3' => $bill->waterUsage->total_usage_m3 ?? 0,
+                'water_charge' => 'Rp ' . number_format($bill->water_charge ?? 0),
+                'admin_fee' => 'Rp ' . number_format($bill->admin_fee ?? 0),
+                'maintenance_fee' => 'Rp ' . number_format($bill->maintenance_fee ?? 0),
+                'total_amount' => 'Rp ' . number_format($bill->total_amount ?? 0),
+                'status' => $this->formatBillStatus($bill->status ?? 'unknown'),
                 'due_date' => $bill->due_date?->format('d/m/Y') ?? '',
                 'payment_date' => $bill->payment_date?->format('d/m/Y') ?? '',
                 'payment_method' => $bill->latestPayment?->getPaymentMethodLabel() ?? '',
             ];
-        });
+        })->toArray();
 
         if ($format === 'pdf') {
             return $this->exportToPdf($exportData, 'Laporan Tagihan', $columns, $filters);
@@ -158,15 +264,15 @@ class ExportService
 
         $exportData = $customers->map(function ($customer) {
             return [
-                'customer_code' => $customer->customer_code,
-                'name' => $customer->name,
+                'customer_code' => $customer->customer_code ?? '',
+                'name' => $customer->name ?? '',
                 'phone_number' => $customer->phone_number ?? '',
-                'address' => $customer->full_address,
+                'address' => $customer->full_address ?? '',
                 'village_name' => $customer->village->name ?? '',
                 'status' => $customer->status === 'active' ? 'Aktif' : 'Tidak Aktif',
                 'created_at' => $customer->created_at->format('d/m/Y'),
             ];
-        });
+        })->toArray();
 
         if ($format === 'pdf') {
             return $this->exportToPdf($exportData, 'Laporan Pelanggan', $columns, $filters);
@@ -202,17 +308,17 @@ class ExportService
         $exportData = $payments->map(function ($payment) {
             return [
                 'payment_date' => $payment->payment_date->format('d/m/Y H:i'),
-                'customer_code' => $payment->bill->waterUsage->customer->customer_code,
-                'customer_name' => $payment->bill->waterUsage->customer->name,
+                'customer_code' => $payment->bill->waterUsage->customer->customer_code ?? '',
+                'customer_name' => $payment->bill->waterUsage->customer->name ?? '',
                 'village_name' => $payment->bill->waterUsage->customer->village->name ?? '',
-                'period_name' => $payment->bill->waterUsage->billingPeriod->period_name,
-                'amount_paid' => 'Rp ' . number_format($payment->amount_paid),
-                'change_given' => 'Rp ' . number_format($payment->change_given),
+                'period_name' => $payment->bill->waterUsage->billingPeriod->period_name ?? '',
+                'amount_paid' => 'Rp ' . number_format($payment->amount_paid ?? 0),
+                'change_given' => 'Rp ' . number_format($payment->change_given ?? 0),
                 'payment_method' => $payment->getPaymentMethodLabel(),
                 'collector_name' => $payment->collector->name ?? '',
                 'payment_reference' => $payment->payment_reference ?? '',
             ];
-        });
+        })->toArray();
 
         if ($format === 'pdf') {
             return $this->exportToPdf($exportData, 'Laporan Pembayaran', $columns, $filters);
@@ -245,17 +351,17 @@ class ExportService
 
         $exportData = $usages->map(function ($usage) {
             return [
-                'customer_code' => $usage->customer->customer_code,
-                'customer_name' => $usage->customer->name,
+                'customer_code' => $usage->customer->customer_code ?? '',
+                'customer_name' => $usage->customer->name ?? '',
                 'village_name' => $usage->customer->village->name ?? '',
-                'period_name' => $usage->billingPeriod->period_name,
+                'period_name' => $usage->billingPeriod->period_name ?? '',
                 'usage_date' => $usage->usage_date->format('d/m/Y'),
-                'initial_meter' => number_format($usage->initial_meter),
-                'final_meter' => number_format($usage->final_meter),
-                'total_usage_m3' => $usage->total_usage_m3,
+                'initial_meter' => number_format($usage->initial_meter ?? 0),
+                'final_meter' => number_format($usage->final_meter ?? 0),
+                'total_usage_m3' => $usage->total_usage_m3 ?? 0,
                 'reader_name' => $usage->reader_name ?? '',
             ];
-        });
+        })->toArray();
 
         if ($format === 'pdf') {
             return $this->exportToPdf($exportData, 'Laporan Pemakaian Air', $columns, $filters);
@@ -282,12 +388,12 @@ class ExportService
         $exportData = $tariffs->map(function ($tariff) {
             return [
                 'village_name' => $tariff->village->name ?? '',
-                'usage_range' => $tariff->usage_range,
-                'price_per_m3' => 'Rp ' . number_format($tariff->price_per_m3),
+                'usage_range' => $tariff->usage_range ?? '',
+                'price_per_m3' => 'Rp ' . number_format($tariff->price_per_m3 ?? 0),
                 'is_active' => $tariff->is_active ? 'Aktif' : 'Tidak Aktif',
                 'created_at' => $tariff->created_at->format('d/m/Y'),
             ];
-        });
+        })->toArray();
 
         if ($format === 'pdf') {
             return $this->exportToPdf($exportData, 'Laporan Tarif Air', $columns, $filters);
@@ -318,7 +424,7 @@ class ExportService
         $exportData = $periods->map(function ($period) {
             return [
                 'village_name' => $period->village->name ?? '',
-                'period_name' => $period->period_name,
+                'period_name' => $period->period_name ?? '',
                 'status' => match ($period->status) {
                     'active' => 'Aktif',
                     'completed' => 'Selesai',
@@ -332,7 +438,7 @@ class ExportService
                 'total_billed' => 'Rp ' . number_format($period->getTotalBilled()),
                 'collection_rate' => number_format($period->getCollectionRate(), 1) . '%',
             ];
-        });
+        })->toArray();
 
         if ($format === 'pdf') {
             return $this->exportToPdf($exportData, 'Laporan Periode Tagihan', $columns, $filters);
@@ -361,16 +467,16 @@ class ExportService
 
         $exportData = $villages->map(function ($village) {
             return [
-                'name' => $village->name,
-                'slug' => $village->slug,
+                'name' => $village->name ?? '',
+                'slug' => $village->slug ?? '',
                 'phone_number' => $village->phone_number ?? '',
                 'email' => $village->email ?? '',
                 'address' => $village->address ?? '',
-                'customers_count' => $village->customers_count,
+                'customers_count' => $village->customers_count ?? 0,
                 'is_active' => $village->is_active ? 'Aktif' : 'Tidak Aktif',
                 'established_at' => $village->established_at?->format('d/m/Y') ?? '',
             ];
-        });
+        })->toArray();
 
         if ($format === 'pdf') {
             return $this->exportToPdf($exportData, 'Laporan Desa', $columns, $filters);
@@ -398,15 +504,15 @@ class ExportService
 
         $exportData = $users->map(function ($user) {
             return [
-                'name' => $user->name,
-                'email' => $user->email,
-                'role' => $user->display_role,
+                'name' => $user->name ?? '',
+                'email' => $user->email ?? '',
+                'role' => $user->display_role ?? '',
                 'villages' => $user->isSuperAdmin() ? 'Semua Desa' : $user->villages->pluck('name')->join(', '),
                 'contact_info' => $user->contact_info ?? '',
                 'is_active' => $user->is_active ? 'Aktif' : 'Tidak Aktif',
                 'created_at' => $user->created_at->format('d/m/Y'),
             ];
-        });
+        })->toArray();
 
         if ($format === 'pdf') {
             return $this->exportToPdf($exportData, 'Laporan Pengguna', $columns, $filters);
@@ -440,7 +546,7 @@ class ExportService
                 'configuration_status' => $variable->isConfigured() ? 'Terkonfigurasi' : 'Belum Lengkap',
                 'updated_at' => $variable->updated_at->format('d/m/Y H:i'),
             ];
-        });
+        })->toArray();
 
         if ($format === 'pdf') {
             return $this->exportToPdf($exportData, 'Laporan Pengaturan', $columns, $filters);
@@ -469,7 +575,7 @@ class ExportService
     {
         $village = config('pamdes.current_village');
 
-        if ($village) {
+        if ($village && is_array($village)) {
             return [
                 'name' => $village['name'] ?? 'Unknown Village',
                 'slug' => $village['slug'] ?? 'unknown',
@@ -487,22 +593,36 @@ class ExportService
      */
     protected function formatCellValue($row, string $key)
     {
-        if (is_array($row)) {
-            $value = $row[$key] ?? '';
-        } else {
-            $value = data_get($row, $key, '');
-        }
+        try {
+            if (is_array($row)) {
+                $value = $row[$key] ?? '';
+            } else {
+                $value = data_get($row, $key, '');
+            }
 
-        // Handle special formatting
-        if (is_bool($value)) {
-            return $value ? 'Ya' : 'Tidak';
-        }
+            // Handle special formatting
+            if (is_bool($value)) {
+                return $value ? 'Ya' : 'Tidak';
+            }
 
-        if ($value instanceof Carbon) {
-            return $value->format('d/m/Y');
-        }
+            if ($value instanceof Carbon) {
+                return $value->format('d/m/Y');
+            }
 
-        return (string) $value;
+            if (is_array($value)) {
+                return implode(', ', array_filter($value, function ($item) {
+                    return !is_array($item) && !is_object($item);
+                }));
+            }
+
+            if (is_object($value)) {
+                return method_exists($value, '__toString') ? (string) $value : '[Object]';
+            }
+
+            return (string) $value;
+        } catch (\Exception $e) {
+            return '[Error]';
+        }
     }
 
     /**

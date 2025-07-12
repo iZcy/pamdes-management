@@ -1,4 +1,4 @@
-{{-- resources/views/exports/pdf-template.blade.php - Complete implementation --}}
+{{-- resources/views/exports/pdf-template.blade.php - Fixed version --}}
 <!DOCTYPE html>
 <html lang="id">
 
@@ -99,6 +99,7 @@
       padding: 5px 4px;
       font-size: 8px;
       vertical-align: top;
+      word-wrap: break-word;
     }
 
     tr:nth-child(even) {
@@ -196,7 +197,7 @@
   <!-- Header -->
   <div class="header">
     <h1>{{ $title }}</h1>
-    <h2>PAMDes {{ $village['name'] ?? 'Sistem Pengelolaan Air Minum Desa' }}</h2>
+    <h2>PAMDes {{ isset($village['name']) ? $village['name'] : 'Sistem Pengelolaan Air Minum Desa' }}</h2>
     <div class="subtitle">
       Dicetak pada: {{ $exported_at->format('d/m/Y H:i:s') }}
     </div>
@@ -205,10 +206,12 @@
   <!-- Export Information -->
   <div class="info-section">
     <div class="info-row">
-      <span class="info-label">Desa:</span> {{ $village['name'] ?? 'Semua Desa' }}
+      <span class="info-label">Desa:</span> {{ isset($village['name']) ? $village['name'] : 'Semua Desa' }}
     </div>
     <div class="info-row">
-      <span class="info-label">Total Data:</span> {{ is_countable($data) ? count($data) : $data->count() }} record
+      <span class="info-label">Total Data:</span>
+      {{ is_countable($data) ? count($data) : (is_object($data) && method_exists($data, 'count') ? $data->count() : 0) }}
+      record
     </div>
     <div class="info-row">
       <span class="info-label">Periode Export:</span> {{ $exported_at->format('F Y') }}
@@ -216,11 +219,11 @@
   </div>
 
   <!-- Applied Filters -->
-  @if (!empty($filters) && array_filter($filters))
+  @if (!empty($filters) && is_array($filters) && array_filter($filters))
     <div class="filters">
       <h4>Filter yang Diterapkan:</h4>
       @foreach ($filters as $key => $value)
-        @if (!empty($value))
+        @if (!empty($value) && !is_array($value))
           <div class="filter-item">
             <strong>{{ ucfirst(str_replace('_', ' ', $key)) }}:</strong> {{ $value }}
           </div>
@@ -243,7 +246,7 @@
         <tr>
           @foreach (array_keys($columns) as $key)
             <td class="{{ getColumnClass($key) }}">
-              {{ formatCellValue($row, $key) }}
+              {{ formatCellValueSafe($row, $key) }}
             </td>
           @endforeach
         </tr>
@@ -267,11 +270,11 @@
           $totalPaid = 0;
           foreach ($data as $row) {
               if (isset($columns['total_amount'])) {
-                  $value = formatCellValue($row, 'total_amount');
+                  $value = formatCellValueSafe($row, 'total_amount');
                   $totalAmount += extractNumericValue($value);
               }
               if (isset($columns['amount_paid'])) {
-                  $value = formatCellValue($row, 'amount_paid');
+                  $value = formatCellValueSafe($row, 'amount_paid');
                   $totalPaid += extractNumericValue($value);
               }
           }
@@ -298,7 +301,8 @@
       @endif
 
       <div class="summary-item">
-        <strong>Total Record:</strong> {{ is_countable($data) ? count($data) : $data->count() }}
+        <strong>Total Record:</strong>
+        {{ is_countable($data) ? count($data) : (is_object($data) && method_exists($data, 'count') ? $data->count() : 0) }}
       </div>
     </div>
   @endif
@@ -306,7 +310,7 @@
   <!-- Footer -->
   <div class="footer">
     <div style="float: left;">
-      {{ $title }} - PAMDes {{ $village['name'] ?? 'Management System' }}
+      {{ $title }} - PAMDes {{ isset($village['name']) ? $village['name'] : 'Management System' }}
     </div>
     <div class="page-number">
       Halaman <span class="pagenum"></span>
@@ -320,7 +324,7 @@
 </html>
 
 @php
-  // PHP Helper Functions for Template
+  // PHP Helper Functions for Template - Fixed to handle arrays safely
   function getColumnClass($key)
   {
       $narrowColumns = ['status', 'is_active', 'usage_m3'];
@@ -343,12 +347,36 @@
       return '';
   }
 
-  function formatCellValue($row, $key)
+  function formatCellValueSafe($row, $key)
   {
-      if (is_array($row)) {
-          return $row[$key] ?? '';
+      try {
+          if (is_array($row)) {
+              $value = $row[$key] ?? '';
+          } else {
+              $value = data_get($row, $key, '');
+          }
+
+          // Handle arrays and objects safely
+          if (is_array($value)) {
+              return implode(
+                  ', ',
+                  array_filter($value, function ($item) {
+                      return !is_array($item) && !is_object($item);
+                  }),
+              );
+          }
+
+          if (is_object($value)) {
+              if (method_exists($value, '__toString')) {
+                  return (string) $value;
+              }
+              return '[Object]';
+          }
+
+          return (string) $value;
+      } catch (\Exception $e) {
+          return '[Error]';
       }
-      return data_get($row, $key, '');
   }
 
   function shouldShowSummary($columns)
