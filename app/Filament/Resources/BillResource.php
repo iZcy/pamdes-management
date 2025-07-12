@@ -1,5 +1,5 @@
 <?php
-// app/Filament/Resources/BillResource.php - Updated with village display
+// app/Filament/Resources/BillResource.php - Updated with print receipt action
 
 namespace App\Filament\Resources;
 
@@ -241,6 +241,16 @@ class BillResource extends Resource
             ->actions([
                 Tables\Actions\ViewAction::make(),
                 Tables\Actions\EditAction::make(),
+
+                // Print Receipt Action
+                Tables\Actions\Action::make('print_receipt')
+                    ->label('Cetak Kwitansi')
+                    ->icon('heroicon-o-printer')
+                    ->color('primary')
+                    ->url(fn(Bill $record): string => route('bill.receipt', $record))
+                    ->openUrlInNewTab()
+                    ->tooltip('Cetak/Lihat kwitansi tagihan'),
+
                 Tables\Actions\Action::make('mark_paid')
                     ->label('Tandai Lunas')
                     ->icon('heroicon-o-check-circle')
@@ -270,6 +280,25 @@ class BillResource extends Resource
                     ->action(function (Bill $record, array $data) {
                         $record->markAsPaid($data);
                     }),
+            ])
+            ->bulkActions([
+                Tables\Actions\BulkActionGroup::make([
+                    Tables\Actions\DeleteBulkAction::make(),
+
+                    // Bulk Print Action
+                    Tables\Actions\BulkAction::make('bulk_print')
+                        ->label('Cetak Kwitansi Terpilih')
+                        ->icon('heroicon-o-printer')
+                        ->color('primary')
+                        ->action(function ($records) {
+                            // Open multiple receipts in new tabs
+                            $urls = $records->map(fn(Bill $bill) => route('bill.receipt', $bill))->toArray();
+
+                            // Return JavaScript to open multiple tabs
+                            return redirect()->back()->with('openUrls', $urls);
+                        })
+                        ->deselectRecordsAfterCompletion(),
+                ]),
             ])
             ->defaultSort('created_at', 'desc');
     }

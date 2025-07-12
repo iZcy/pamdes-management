@@ -1,9 +1,10 @@
 <?php
-// routes/web.php - Cleaned with Tripay integration
+// routes/web.php - Added bill receipt routes
 
 use Illuminate\Support\Facades\Route;
 use App\Models\Customer;
 use App\Models\User;
+use App\Models\Bill;
 use App\Http\Controllers\TripayController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -114,6 +115,32 @@ Route::middleware(['village.context'])->group(function () {
         })->name('bills');
     });
 
+    // Public Bill Receipt Routes (no authentication required)
+    Route::prefix('receipt')->name('receipt.')->group(function () {
+        // Bill receipt - accessible by anyone with the right bill ID and customer code
+        Route::get('/bill/{bill}/{customer_code}', function (Bill $bill, $customerCode) {
+            // Verify the bill belongs to the customer
+            if ($bill->waterUsage->customer->customer_code !== $customerCode) {
+                abort(404, 'Bill not found');
+            }
+
+            // Verify the bill is for the current village context
+            $villageId = config('pamdes.current_village_id');
+            if ($villageId && $bill->waterUsage->customer->village_id !== $villageId) {
+                abort(404, 'Bill not found');
+            }
+
+            // Load relationships needed for the receipt
+            $bill->load([
+                'waterUsage.customer.village',
+                'waterUsage.billingPeriod',
+                'latestPayment.collector'
+            ]);
+
+            return view('receipts.bill', compact('bill'));
+        })->name('bill');
+    });
+
     // Tripay Payment Routes - Village-specific
     Route::prefix('{village}')->group(function () {
         Route::prefix('bill/{bill}')->group(function () {
@@ -153,12 +180,26 @@ Route::prefix('tripay')->group(function () {
 
 // Admin routes (protected by auth)
 Route::middleware(['auth'])->prefix('admin')->group(function () {
+    // Payment receipt (existing)
     Route::get('payments/{payment}/receipt', function (\App\Models\Payment $payment) {
         return view('receipts.payment', compact('payment'));
     })->name('payment.receipt');
 
-    Route::get('bills/{bill}/invoice', function (\App\Models\Bill $bill) {
-        return view('receipts.payment', compact('bill'));
+    // Bill receipt/invoice (admin access)
+    Route::get('bills/{bill}/receipt', function (Bill $bill) {
+        // Load relationships
+        $bill->load([
+            'waterUsage.customer.village',
+            'waterUsage.billingPeriod',
+            'latestPayment.collector'
+        ]);
+
+        return view('receipts.bill', compact('bill'));
+    })->name('bill.receipt');
+
+    // Legacy route for backward compatibility
+    Route::get('bills/{bill}/invoice', function (Bill $bill) {
+        return redirect()->route('bill.receipt', $bill);
     })->name('bill.invoice');
 });
 

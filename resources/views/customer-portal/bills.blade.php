@@ -1,4 +1,4 @@
-{{-- resources/views/customer-portal/bills.blade.php - Fixed with Global Village Values --}}
+{{-- resources/views/customer-portal/bills.blade.php - Updated with print receipt buttons --}}
 @php
   // Parse village data from Village model at the beginning
   $villageModel = \App\Models\Village::find($customer->village_id);
@@ -94,188 +94,6 @@
                 <thead class="bg-gray-50">
                   <tr>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Periode
-                    </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Pemakaian
-                    </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Total Tagihan
-                    </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Jatuh Tempo
-                    </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Aksi
-                    </th>
-                  </tr>
-                </thead>
-                <tbody class="bg-white divide-y divide-gray-200">
-                  @foreach ($bills as $bill)
-                    <tr
-                      class="{{ $bill->status === 'overdue' ? 'bg-red-50' : ($bill->status === 'pending' ? 'bg-yellow-50' : '') }}">
-                      <!-- Periode -->
-                      <td class="px-6 py-4 whitespace-nowrap">
-                        <div class="text-sm font-medium text-gray-900">
-                          {{ $bill->waterUsage->billingPeriod->period_name }}
-                        </div>
-                      </td>
-
-                      <!-- Pemakaian -->
-                      <td class="px-6 py-4 whitespace-nowrap">
-                        <div class="text-sm text-gray-900">{{ $bill->waterUsage->total_usage_m3 }} m³</div>
-                        <div class="text-sm text-gray-500">
-                          {{ number_format($bill->waterUsage->initial_meter) }} →
-                          {{ number_format($bill->waterUsage->final_meter) }}
-                        </div>
-                      </td>
-
-                      <!-- Total Tagihan -->
-                      <td class="px-6 py-4 whitespace-nowrap">
-                        <div class="text-sm font-medium text-gray-900">
-                          Rp {{ number_format($bill->total_amount) }}
-                        </div>
-                        <div class="text-xs text-gray-500">
-                          @php
-                            $breakdown = \App\Models\WaterTariff::calculateBill(
-                                $bill->waterUsage->total_usage_m3,
-                                $bill->waterUsage->customer->village_id,
-                            );
-                          @endphp
-                          @if (count($breakdown['breakdown']) > 1)
-                            <div class="mb-1">
-                              @foreach ($breakdown['breakdown'] as $index => $tier)
-                                {{ $tier['usage'] }}m³ ×
-                                Rp{{ number_format($tier['rate']) }}{{ $index < count($breakdown['breakdown']) - 1 ? ' + ' : '' }}
-                              @endforeach
-                            </div>
-                          @endif
-                          Air: Rp {{ number_format($bill->water_charge) }} + Admin: Rp
-                          {{ number_format($bill->admin_fee) }} + Pemeliharaan: Rp
-                          {{ number_format($bill->maintenance_fee) }}
-                        </div>
-                      </td>
-
-                      <!-- Jatuh Tempo -->
-                      <td class="px-6 py-4 whitespace-nowrap">
-                        <div
-                          class="text-sm {{ $bill->due_date->isPast() ? 'text-red-600 font-medium' : 'text-gray-900' }}">
-                          {{ $bill->due_date->format('d/m/Y') }}
-                        </div>
-                        @if ($bill->is_overdue)
-                          <div class="text-xs text-red-600">⚠️ Terlambat {{ $bill->days_overdue }} hari</div>
-                        @endif
-                      </td>
-
-                      <!-- Status -->
-                      <td class="px-6 py-4 whitespace-nowrap">
-                        <span
-                          class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                {{ $bill->status === 'overdue' ? 'bg-red-100 text-red-800' : ($bill->status === 'pending' ? 'bg-yellow-100 text-yellow-800' : ($bill->status === 'paid' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800')) }}">
-                          {{ match ($bill->status) {
-                              'overdue' => 'Terlambat',
-                              'pending' => 'Menunggu Pembayaran',
-                              'paid' => 'Sudah Dibayar',
-                              default => 'Belum Bayar',
-                          } }}
-                        </span>
-                      </td>
-
-                      <!-- Aksi -->
-                      <td class="px-6 py-4 whitespace-nowrap">
-                        @if ($bill->status === 'paid')
-                          <!-- Already Paid -->
-                          <div class="text-center p-3 bg-green-100 text-green-800 rounded-lg">
-                            <svg class="w-6 h-6 mx-auto mb-1" fill="currentColor" viewBox="0 0 20 20">
-                              <path fill-rule="evenodd"
-                                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                                clip-rule="evenodd"></path>
-                            </svg>
-                            <div class="text-xs font-medium">Lunas</div>
-                            @if ($bill->payment_date)
-                              <div class="text-xs">{{ $bill->payment_date->format('d/m/Y') }}</div>
-                            @endif
-                          </div>
-                        @elseif($bill->status === 'pending')
-                          <!-- Pending Payment -->
-                          <div class="flex flex-col gap-2">
-                            <a href="{{ route('tripay.form', ['village' => $villageSlug, 'bill' => $bill->bill_id]) }}"
-                              class="bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-200 text-center text-sm">
-                              Lanjutkan Pembayaran
-                            </a>
-                          </div>
-                        @else
-                          <!-- Unpaid - Show Payment Options -->
-                          @php
-                            // Check if Tripay is configured for this village
-                            $variable = \App\Models\Variable::where('village_id', $customer->village_id)->first();
-                            $tripayConfigured = $variable && ($variable->tripay_use_main || $variable->isConfigured());
-                          @endphp
-
-                          <div class="flex flex-col gap-2">
-                            @if ($tripayConfigured)
-                              <a href="{{ route('tripay.form', ['village' => $villageSlug, 'bill' => $bill->bill_id]) }}"
-                                class="bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-200 flex items-center justify-center text-sm font-medium">
-                                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M12 4v1m6 11h2m-6 0h-2v4m-2 0h-2m2-4v-3m2 3V9l-6 6 2-2z"></path>
-                                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M4 4h4v4H4V4zm8 0h4v4h-4V4zm-8 8h4v4H4v-4zm8 8h4v4h-4v-4z"></path>
-                                </svg>
-                                Bayar dengan QRIS
-                              </a>
-                            @else
-                              <div class="text-red-600 text-sm font-medium">
-                                Pembayaran QRIS tidak tersedia untuk desa ini.
-                              </div>
-                            @endif
-                          </div>
-                        @endif
-                      </td>
-                    </tr>
-                  @endforeach
-                </tbody>
-              </table>
-            </div>
-          </div>
-        @else
-          <div class="bg-white rounded-lg shadow-md p-8 text-center mb-6">
-            <div class="text-green-600 mb-4">
-              <svg class="mx-auto h-12 w-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-              </svg>
-            </div>
-            <h3 class="text-lg font-semibold text-gray-900 mb-2">Tidak Ada Tagihan</h3>
-            <p class="text-gray-600">Semua tagihan Anda sudah lunas. Terima kasih!</p>
-          </div>
-        @endif
-
-        <!-- Payment History -->
-        @if ($paidBills->count() > 0)
-          <div class="bg-white rounded-lg shadow-md overflow-hidden mb-6">
-            <div class="px-6 py-4 border-b bg-gray-50">
-              <h3 class="text-lg font-semibold">Riwayat Pembayaran</h3>
-              <p class="text-sm text-gray-600">{{ $paidBills->count() }} pembayaran terakhir</p>
-            </div>
-
-            <div class="overflow-x-auto">
-              <table class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-gray-50">
-                  <tr>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Periode
-                    </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Pemakaian
-                    </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Total Tagihan
-                    </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Tgl Bayar
                     </th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -283,6 +101,9 @@
                     </th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
+                    </th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Aksi
                     </th>
                   </tr>
                 </thead>
@@ -360,6 +181,19 @@
                           class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                           Lunas
                         </span>
+                      </td>
+                      <td class="px-6 py-4 whitespace-nowrap">
+                        <!-- Print Receipt Button for Paid Bills -->
+                        <a href="{{ route('receipt.bill', ['bill' => $bill->bill_id, 'customer_code' => $customer->customer_code]) }}"
+                          target="_blank"
+                          class="bg-gray-600 text-white py-1 px-3 rounded hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 transition duration-200 text-xs font-medium flex items-center justify-center">
+                          <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z">
+                            </path>
+                          </svg>
+                          Cetak
+                        </a>
                       </td>
                     </tr>
                   @endforeach
@@ -583,3 +417,217 @@
 </body>
 
 </html>
+Periode
+</th>
+<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+  Pemakaian
+</th>
+<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+  Total Tagihan
+</th>
+<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+  Jatuh Tempo
+</th>
+<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+  Status
+</th>
+<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+  Aksi
+</th>
+</tr>
+</thead>
+<tbody class="bg-white divide-y divide-gray-200">
+  @foreach ($bills as $bill)
+    <tr class="{{ $bill->status === 'overdue' ? 'bg-red-50' : ($bill->status === 'pending' ? 'bg-yellow-50' : '') }}">
+      <!-- Periode -->
+      <td class="px-6 py-4 whitespace-nowrap">
+        <div class="text-sm font-medium text-gray-900">
+          {{ $bill->waterUsage->billingPeriod->period_name }}
+        </div>
+      </td>
+
+      <!-- Pemakaian -->
+      <td class="px-6 py-4 whitespace-nowrap">
+        <div class="text-sm text-gray-900">{{ $bill->waterUsage->total_usage_m3 }} m³</div>
+        <div class="text-sm text-gray-500">
+          {{ number_format($bill->waterUsage->initial_meter) }} →
+          {{ number_format($bill->waterUsage->final_meter) }}
+        </div>
+      </td>
+
+      <!-- Total Tagihan -->
+      <td class="px-6 py-4 whitespace-nowrap">
+        <div class="text-sm font-medium text-gray-900">
+          Rp {{ number_format($bill->total_amount) }}
+        </div>
+        <div class="text-xs text-gray-500">
+          @php
+            $breakdown = \App\Models\WaterTariff::calculateBill(
+                $bill->waterUsage->total_usage_m3,
+                $bill->waterUsage->customer->village_id,
+            );
+          @endphp
+          @if (count($breakdown['breakdown']) > 1)
+            <div class="mb-1">
+              @foreach ($breakdown['breakdown'] as $index => $tier)
+                {{ $tier['usage'] }}m³ ×
+                Rp{{ number_format($tier['rate']) }}{{ $index < count($breakdown['breakdown']) - 1 ? ' + ' : '' }}
+              @endforeach
+            </div>
+          @endif
+          Air: Rp {{ number_format($bill->water_charge) }} + Admin: Rp
+          {{ number_format($bill->admin_fee) }} + Pemeliharaan: Rp
+          {{ number_format($bill->maintenance_fee) }}
+        </div>
+      </td>
+
+      <!-- Jatuh Tempo -->
+      <td class="px-6 py-4 whitespace-nowrap">
+        <div class="text-sm {{ $bill->due_date->isPast() ? 'text-red-600 font-medium' : 'text-gray-900' }}">
+          {{ $bill->due_date->format('d/m/Y') }}
+        </div>
+        @if ($bill->is_overdue)
+          <div class="text-xs text-red-600">⚠️ Terlambat {{ $bill->days_overdue }} hari</div>
+        @endif
+      </td>
+
+      <!-- Status -->
+      <td class="px-6 py-4 whitespace-nowrap">
+        <span
+          class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                {{ $bill->status === 'overdue' ? 'bg-red-100 text-red-800' : ($bill->status === 'pending' ? 'bg-yellow-100 text-yellow-800' : ($bill->status === 'paid' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800')) }}">
+          {{ match ($bill->status) {
+              'overdue' => 'Terlambat',
+              'pending' => 'Menunggu Pembayaran',
+              'paid' => 'Sudah Dibayar',
+              default => 'Belum Bayar',
+          } }}
+        </span>
+      </td>
+
+      <!-- Aksi -->
+      <td class="px-6 py-4 whitespace-nowrap">
+        <div class="flex flex-col gap-2">
+          @if ($bill->status === 'paid')
+            <!-- Already Paid -->
+            <div class="text-center p-3 bg-green-100 text-green-800 rounded-lg">
+              <svg class="w-6 h-6 mx-auto mb-1" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd"
+                  d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                  clip-rule="evenodd"></path>
+              </svg>
+              <div class="text-xs font-medium">Lunas</div>
+              @if ($bill->payment_date)
+                <div class="text-xs">{{ $bill->payment_date->format('d/m/Y') }}</div>
+              @endif
+            </div>
+
+            <!-- Print Receipt Button for Paid Bills -->
+            <a href="{{ route('receipt.bill', ['bill' => $bill->bill_id, 'customer_code' => $customer->customer_code]) }}"
+              target="_blank"
+              class="bg-gray-600 text-white py-2 px-4 rounded-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 transition duration-200 text-center text-sm font-medium flex items-center justify-center">
+              <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z">
+                </path>
+              </svg>
+              Cetak Kwitansi
+            </a>
+          @elseif($bill->status === 'pending')
+            <!-- Pending Payment -->
+            <a href="{{ route('tripay.form', ['village' => $villageSlug, 'bill' => $bill->bill_id]) }}"
+              class="bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-200 text-center text-sm">
+              Lanjutkan Pembayaran
+            </a>
+
+            <!-- Print Bill/Invoice for Pending -->
+            <a href="{{ route('receipt.bill', ['bill' => $bill->bill_id, 'customer_code' => $customer->customer_code]) }}"
+              target="_blank"
+              class="bg-gray-600 text-white py-2 px-4 rounded-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 transition duration-200 text-center text-sm font-medium flex items-center justify-center">
+              <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
+                </path>
+              </svg>
+              Lihat Tagihan
+            </a>
+          @else
+            <!-- Unpaid - Show Payment Options -->
+            @php
+              // Check if Tripay is configured for this village
+              $variable = \App\Models\Variable::where('village_id', $customer->village_id)->first();
+              $tripayConfigured = $variable && ($variable->tripay_use_main || $variable->isConfigured());
+            @endphp
+
+            @if ($tripayConfigured)
+              <a href="{{ route('tripay.form', ['village' => $villageSlug, 'bill' => $bill->bill_id]) }}"
+                class="bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-200 flex items-center justify-center text-sm font-medium">
+                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M12 4v1m6 11h2m-6 0h-2v4m-2 0h-2m2-4v-3m2 3V9l-6 6 2-2z"></path>
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M4 4h4v4H4V4zm8 0h4v4h-4V4zm-8 8h4v4H4v-4zm8 8h4v4h-4v-4z"></path>
+                </svg>
+                Bayar dengan QRIS
+              </a>
+            @else
+              <div class="text-red-600 text-sm font-medium text-center">
+                Pembayaran QRIS tidak tersedia untuk desa ini.
+              </div>
+            @endif
+
+            <!-- Print Bill/Invoice for Unpaid -->
+            <a href="{{ route('receipt.bill', ['bill' => $bill->bill_id, 'customer_code' => $customer->customer_code]) }}"
+              target="_blank"
+              class="bg-gray-600 text-white py-2 px-4 rounded-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 transition duration-200 text-center text-sm font-medium flex items-center justify-center">
+              <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
+                </path>
+              </svg>
+              Lihat Tagihan
+            </a>
+          @endif
+        </div>
+      </td>
+    </tr>
+  @endforeach
+</tbody>
+</table>
+</div>
+</div>
+@else
+<div class="bg-white rounded-lg shadow-md p-8 text-center mb-6">
+  <div class="text-green-600 mb-4">
+    <svg class="mx-auto h-12 w-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+    </svg>
+  </div>
+  <h3 class="text-lg font-semibold text-gray-900 mb-2">Tidak Ada Tagihan</h3>
+  <p class="text-gray-600">Semua tagihan Anda sudah lunas. Terima kasih!</p>
+</div>
+@endif
+
+<!-- Payment History -->
+@if ($paidBills->count() > 0)
+  <div class="bg-white rounded-lg shadow-md overflow-hidden mb-6">
+    <div class="px-6 py-4 border-b bg-gray-50">
+      <h3 class="text-lg font-semibold">Riwayat Pembayaran</h3>
+      <p class="text-sm text-gray-600">{{ $paidBills->count() }} pembayaran terakhir</p>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Periode
+            </th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Pemakaian
+            </th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Total Tagihan
+            </th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
