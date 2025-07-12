@@ -128,6 +128,10 @@ Route::middleware(['village.context'])->group(function () {
             // Check payment status (AJAX)
             Route::get('/payment/status', [TripayController::class, 'checkStatus'])
                 ->name('tripay.status');
+
+            // Continue payment
+            Route::get('/payment/continue', [TripayController::class, 'continuePayment'])
+                ->name('tripay.continue');
         });
     });
 
@@ -168,24 +172,3 @@ Route::get('/health', function () {
         'system' => 'PAMDes Management System',
     ]);
 });
-
-// Debug route for development
-// Route::get('/debug/config', function () {
-//     if (app()->environment('production')) {
-//         abort(404);
-//     }
-
-//     return response()->json([
-//         'pamdes_config' => config('pamdes'),
-//         'session_info' => [
-//             'id' => session()->getId(),
-//             'token' => csrf_token(),
-//         ],
-//         'host' => request()->getHost(),
-//         'user' => auth()->user() ? [
-//             'id' => auth()->user()->id,
-//             'name' => auth()->user()->name,
-//             'role' => auth()->user()->role,
-//         ] : null,
-//     ]);
-// })->name('debug.config');

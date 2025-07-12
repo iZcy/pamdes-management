@@ -70,6 +70,9 @@ class TripayController extends Controller
 
             // Create payment
             $paymentResult = $tripayService->createPayment($bill, $customerData);
+            // Save billref
+            $bill->bill_ref = $paymentResult['data']['reference'];
+            $bill->save();
 
             if ($paymentResult['success']) {
                 // Redirect to Tripay payment page
@@ -152,46 +155,57 @@ class TripayController extends Controller
      */
     public function handleReturn(Request $request)
     {
-        $merchantRef = $request->get('merchant_ref');
-
-        Log::info('Tripay return received', [
-            'merchant_ref' => $merchantRef,
-            'data' => $request->all(),
-        ]);
-
         try {
-            if (!$merchantRef) {
-                return redirect()->route('home')->with('error', 'Invalid payment return');
-            }
-
-            // Extract bill ID from merchant reference
-            if (preg_match('/^BILL-(\d+)-\d+$/', $merchantRef, $matches)) {
-                $billId = $matches[1];
-                $bill = Bill::with('waterUsage.customer.village')->find($billId);
-
-                if (!$bill) {
-                    return redirect()->route('home')->with('error', 'Bill not found');
-                }
-
-                $village = $bill->waterUsage->customer->village;
-                if (!$village) {
-                    return redirect()->route('home')->with('error', 'Village not found');
-                }
-
-                // Redirect to customer portal or bill detail page
-                return redirect()->route('portal.bills', [
-                    'customer_code' => $bill->waterUsage->customer->customer_code
-                ])->with('success', 'Payment process completed. Please check your payment status.');
-            }
-
-            return redirect()->route('home')->with('error', 'Invalid payment reference');
+            // just return to current subdom /portal
+            return redirect()->route('portal.index')->with('success', 'Payment completed successfully.');
         } catch (\Exception $e) {
             Log::error('Failed to handle Tripay return', [
                 'error' => $e->getMessage(),
-                'merchant_ref' => $merchantRef,
             ]);
 
-            return redirect()->route('home')->with('error', 'Payment return processing failed');
+            return redirect()->route('portal.index')->with('error', 'Failed to complete payment: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Handle continue from Tripay payment page
+     */
+    public function continuePayment(Request $request, $villageSlug, $billId)
+    {
+        try {
+            // Find village and bill
+            $village = Village::where('slug', $villageSlug)->firstOrFail();
+            $bill = Bill::where('bill_id', $billId)
+                ->whereHas('waterUsage.customer', function ($q) use ($village) {
+                    $q->where('village_id', $village->id);
+                })
+                ->firstOrFail();
+
+            // Initialize Tripay service
+            $tripayService = new TripayService($village);
+
+            // Check if the bill has a payment reference
+            if (!$bill->bill_ref) {
+                return redirect()->back()->with('error', 'Payment reference not found for this bill.');
+            }
+
+            // Continue payment process
+            $paymentResult = $tripayService->continuePayment($bill->bill_ref);
+
+            if ($paymentResult['success']) {
+                // Redirect to Tripay payment page
+                return redirect($paymentResult['checkout_url']);
+            } else {
+                return redirect()->back()->with('error', 'Failed to continue payment: ' . $paymentResult['message']);
+            }
+        } catch (\Exception $e) {
+            Log::error('Failed to continue payment', [
+                'village_slug' => $villageSlug,
+                'bill_id' => $billId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return redirect()->back()->with('error', 'Failed to continue payment: ' . $e->getMessage());
         }
     }
 
@@ -208,6 +222,10 @@ class TripayController extends Controller
                 })
                 ->firstOrFail();
 
+            // Change bill status to unpaid if no payment reference found
+            $bill->status = 'unpaid';
+            $bill->save();
+
             if (!$bill->bill_ref) {
                 return response()->json([
                     'success' => false,
@@ -218,19 +236,24 @@ class TripayController extends Controller
             // Initialize Tripay service
             $tripayService = new TripayService($village);
 
-            // For checking status, we need the Tripay reference, not our merchant ref
-            // This would require storing the Tripay reference in the bill record
-            // For now, return the current bill status
-            return response()->json([
-                'success' => true,
-                'data' => [
-                    'bill_id' => $bill->bill_id,
+            // Check payment status
+            $statusResult = $tripayService->checkTransactionStatus($bill->bill_ref);
+            if ($statusResult['success']) {
+                // Update bill status based on Tripay response
+                $bill->status = $statusResult['data']['status'];
+                $bill->save();
+
+                return response()->json([
+                    'success' => true,
                     'status' => $bill->status,
-                    'amount' => $bill->total_amount,
-                    'payment_date' => $bill->payment_date,
-                    'merchant_ref' => $bill->bill_ref,
-                ]
-            ]);
+                    'message' => 'Payment status checked successfully'
+                ]);
+            } else {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to check payment status'
+                ]);
+            }
         } catch (\Exception $e) {
             Log::error('Failed to check payment status', [
                 'village_slug' => $villageSlug,

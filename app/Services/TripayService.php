@@ -5,6 +5,7 @@ namespace App\Services;
 
 use App\Models\Variable;
 use App\Models\Bill;
+use App\Models\Village;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -86,7 +87,14 @@ class TripayService
     {
         try {
             // Generate unique merchant reference
-            $merchantRef = 'BILL-' . $bill->bill_id . '-' . time();
+            $village = Village::find($bill->waterUsage->customer->village_id);
+            if (!$village) {
+                throw new \Exception('Village not found for this bill');
+            }
+            $villageSlug = $village->slug;
+            $villageCode = strtoupper($villageSlug); // Use village slug as code
+            $yearMonth = $bill->waterUsage->billingPeriod->created_at->format('Ym'); // e.g., "202401" for January 2024
+            $merchantRef = 'PAMDES-' . $villageCode . '-' . $yearMonth . '-' . $bill->bill_id . '-' . time();
 
             // Calculate timeout
             $timeout = Carbon::now()->addMinutes($this->timeoutMinutes)->timestamp;
@@ -168,6 +176,25 @@ class TripayService
             ]);
             throw $e;
         }
+    }
+
+    /**
+     * Continue payment /checkout/bill_ref
+     */
+    public function continuePayment($reference)
+    {
+        if (!$reference) {
+            throw new \Exception('Payment reference is required to continue payment');
+        }
+
+        // clear /api from baseUrl into ''
+        $cleanUrl = rtrim($this->baseUrl, '/api');
+
+        return [
+            'success' => true,
+            'checkout_url' => $cleanUrl . "/checkout/{$reference}",
+            'message' => 'Redirecting to Tripay payment page',
+        ];
     }
 
     /**
