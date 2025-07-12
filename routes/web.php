@@ -8,6 +8,7 @@ use App\Models\Bill;
 use App\Http\Controllers\TripayController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 // Apply village context middleware to all routes
 Route::middleware(['village.context'])->group(function () {
@@ -202,6 +203,98 @@ Route::middleware(['auth'])->prefix('admin')->group(function () {
         return redirect()->route('bill.receipt', $bill);
     })->name('bill.invoice');
 });
+
+// Export download routes (protected by auth)
+Route::middleware(['auth'])->prefix('admin')->group(function () {
+    // Export download route
+    Route::get('/exports/{filename}', function ($filename) {
+        // Validate filename to prevent directory traversal
+        if (!preg_match('/^[a-zA-Z0-9_\-\.]+$/', $filename)) {
+            abort(404, 'File not found');
+        }
+
+        $path = "exports/{$filename}";
+
+        // Check if file exists in public storage
+        if (!Storage::disk('public')->exists($path)) {
+            abort(404, 'Export file not found or has expired');
+        }
+
+        // Get file contents
+        $fileContent = Storage::disk('public')->get($path);
+        $mimeType = Storage::disk('public')->mimeType($path);
+
+        // Determine proper content type
+        $extension = pathinfo($filename, PATHINFO_EXTENSION);
+        switch ($extension) {
+            case 'pdf':
+                $contentType = 'application/pdf';
+                break;
+            case 'csv':
+                $contentType = 'text/csv';
+                break;
+            default:
+                $contentType = $mimeType ?: 'application/octet-stream';
+        }
+
+        // Log the download
+        Log::info('Export file downloaded', [
+            'filename' => $filename,
+            'user_id' => auth()->id(),
+            'ip' => request()->ip(),
+        ]);
+
+        // Return file download response
+        return response($fileContent)
+            ->header('Content-Type', $contentType)
+            ->header('Content-Disposition', 'attachment; filename="' . $filename . '"')
+            ->header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            ->header('Pragma', 'no-cache')
+            ->header('Expires', '0');
+    })->name('export.download');
+
+    // Export cleanup route (optional - to clean old exports)
+    Route::delete('/exports/{filename}', function ($filename) {
+        // Validate filename
+        if (!preg_match('/^[a-zA-Z0-9_\-\.]+$/', $filename)) {
+            abort(404, 'File not found');
+        }
+
+        $path = "exports/{$filename}";
+
+        if (Storage::disk('public')->exists($path)) {
+            Storage::disk('public')->delete($path);
+            return response()->json(['message' => 'File deleted successfully']);
+        }
+
+        return response()->json(['message' => 'File not found'], 404);
+    })->name('export.delete');
+});
+
+// Cleanup old exports command (you can also add this to a scheduled task)
+Route::middleware(['auth'])->get('/admin/exports/cleanup', function () {
+    $user = User::find(Auth::id());
+    if (!$user || !$user->isSuperAdmin()) {
+        abort(403, 'Unauthorized');
+    }
+
+    $deleted = 0;
+    $files = Storage::disk('public')->files('exports');
+    $oldDate = now()->subDays(7); // Delete files older than 7 days
+
+    foreach ($files as $file) {
+        $lastModified = Storage::disk('public')->lastModified($file);
+        if ($lastModified < $oldDate->timestamp) {
+            Storage::disk('public')->delete($file);
+            $deleted++;
+        }
+    }
+
+    return response()->json([
+        'message' => "Cleaned up {$deleted} old export files",
+        'deleted_count' => $deleted
+    ]);
+})->name('export.cleanup');
 
 // Health check and debug routes
 Route::get('/health', function () {

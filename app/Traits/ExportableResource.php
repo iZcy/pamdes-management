@@ -1,5 +1,5 @@
 <?php
-// app/Traits/ExportableResource.php - Complete Fixed implementation
+// app/Traits/ExportableResource.php - Fixed notification URLs
 
 namespace App\Traits;
 
@@ -448,7 +448,7 @@ trait ExportableResource
                 \Filament\Notifications\Actions\Action::make('download')
                     ->label('Download')
                     ->icon('heroicon-o-arrow-down-tray')
-                    ->url(Storage::url("exports/{$fileName}"))
+                    ->url(route('export.download', ['filename' => $fileName]))
                     ->openUrlInNewTab(),
             ])
             ->duration(10000)
@@ -468,7 +468,7 @@ trait ExportableResource
                 \Filament\Notifications\Actions\Action::make('download')
                     ->label('Download')
                     ->icon('heroicon-o-arrow-down-tray')
-                    ->url(Storage::url("exports/{$fileName}"))
+                    ->url(route('export.download', ['filename' => $fileName]))
                     ->openUrlInNewTab(),
             ])
             ->duration(10000)

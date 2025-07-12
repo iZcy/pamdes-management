@@ -1,5 +1,5 @@
 <?php
-// app/Services/ExportService.php - Fixed implementation
+// app/Services/ExportService.php - Fixed implementation with proper download URLs
 
 namespace App\Services;
 
@@ -41,11 +41,12 @@ class ExportService
 
             // Create exports directory if it doesn't exist
             $exportPath = 'exports';
-            if (!Storage::exists($exportPath)) {
-                Storage::makeDirectory($exportPath);
+            if (!Storage::disk('public')->exists($exportPath)) {
+                Storage::disk('public')->makeDirectory($exportPath);
             }
 
-            Storage::put("exports/{$fileName}", $pdf->output());
+            // Store file in public disk
+            Storage::disk('public')->put("exports/{$fileName}", $pdf->output());
 
             Log::info('PDF export created successfully', [
                 'filename' => $fileName,
@@ -107,8 +108,8 @@ class ExportService
 
             // Create exports directory if it doesn't exist
             $exportPath = 'exports';
-            if (!Storage::exists($exportPath)) {
-                Storage::makeDirectory($exportPath);
+            if (!Storage::disk('public')->exists($exportPath)) {
+                Storage::disk('public')->makeDirectory($exportPath);
             }
 
             // Create CSV content
@@ -120,7 +121,8 @@ class ExportService
             $csvContent = stream_get_contents($handle);
             fclose($handle);
 
-            Storage::put("exports/{$fileName}", $csvContent);
+            // Store file in public disk
+            Storage::disk('public')->put("exports/{$fileName}", $csvContent);
 
             Log::info('CSV export created successfully', [
                 'filename' => $fileName,
