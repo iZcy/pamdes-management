@@ -1,14 +1,16 @@
 <?php
-// app/Traits/ExportableResource.php - Complete implementation
+// app/Traits/ExportableResource.php - Complete Fixed implementation
 
 namespace App\Traits;
 
+use App\Models\User;
 use App\Services\ExportService;
 use Filament\Forms;
 use Filament\Tables;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Auth;
 
 trait ExportableResource
 {
@@ -99,13 +101,15 @@ trait ExportableResource
         try {
             $exportService = app(ExportService::class);
 
-            // Create query for selected records
-            $primaryKey = (new static::$model)->getKeyName();
-            $query = static::$model::whereIn($primaryKey, $records->pluck($primaryKey));
+            // Create query for selected records using the Resource's model
+            $modelClass = static::getModel();
+            $modelInstance = new $modelClass();
+            $primaryKey = $modelInstance->getKeyName();
+            $query = $modelClass::whereIn($primaryKey, $records->pluck($primaryKey));
 
             $filters = [
                 'selection' => 'Selected ' . $records->count() . ' records',
-                'exported_by' => auth()->user()->name ?? 'System'
+                'exported_by' => User::find(Auth::id())->name ?? 'System'
             ];
 
             $fileName = static::callExportMethod($exportService, $query, $format, $filters);
@@ -143,7 +147,7 @@ trait ExportableResource
      */
     protected static function applySearchToQuery($query, string $search)
     {
-        $modelClass = static::$model;
+        $modelClass = static::getModel();
         $modelName = class_basename($modelClass);
 
         return match ($modelName) {
@@ -245,7 +249,7 @@ trait ExportableResource
      */
     protected static function applyFilterToQuery($query, string $filterName, $filterValue)
     {
-        $modelClass = static::$model;
+        $modelClass = static::getModel();
         $modelName = class_basename($modelClass);
 
         return match ([$modelName, $filterName]) {
@@ -406,7 +410,7 @@ trait ExportableResource
      */
     protected static function callExportMethod(ExportService $exportService, $query, string $format, array $filters): string
     {
-        $modelClass = static::$model;
+        $modelClass = static::getModel();
         $modelName = class_basename($modelClass);
 
         // Map model names to export methods
