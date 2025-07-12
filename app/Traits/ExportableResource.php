@@ -1,12 +1,15 @@
 <?php
-// app/Traits/ExportableResource.php - Trait to add export functionality to all resources
+// First, let's fix the ExportableResource trait - it was cut off
+// app/Traits/ExportableResource.php
 
 namespace App\Traits;
 
 use App\Services\ExportService;
+use Filament\Forms;
 use Filament\Tables;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Database\Eloquent\Builder;
 
 trait ExportableResource
 {
@@ -84,7 +87,6 @@ trait ExportableResource
             $fileName = static::callExportMethod($exportService, $query, $format, $appliedFilters);
 
             static::sendExportNotification($format, $fileName);
-
         } catch (\Exception $e) {
             static::sendExportErrorNotification($e->getMessage());
         }
@@ -110,29 +112,27 @@ trait ExportableResource
             $fileName = static::callExportMethod($exportService, $query, $format, $filters);
 
             static::sendBulkExportNotification($format, $fileName, $records->count());
-
         } catch (\Exception $e) {
             static::sendExportErrorNotification($e->getMessage());
         }
     }
 
     /**
-     * Apply table filters to query
+     * Apply table filters to query - Override this in each resource
      */
     protected static function applyTableFiltersToQuery($query, $livewire)
     {
         $tableFilters = $livewire->tableFilters ?? [];
         $search = $livewire->tableSearch ?? '';
 
-        // Apply search based on model type
+        // Apply search
         if (!empty($search)) {
             $query = static::applySearchToQuery($query, $search);
         }
 
-        // Apply filters based on model type
+        // Apply filters
         foreach ($tableFilters as $filterName => $filterValue) {
             if (empty($filterValue)) continue;
-
             $query = static::applyFilterToQuery($query, $filterName, $filterValue);
         }
 
@@ -140,20 +140,20 @@ trait ExportableResource
     }
 
     /**
-     * Apply search to query (override in each resource)
+     * Apply search to query - Override in each resource
      */
     protected static function applySearchToQuery($query, string $search)
     {
-        // Default implementation - override in specific resources
+        // Default implementation - should be overridden in specific resources
         return $query;
     }
 
     /**
-     * Apply individual filter to query (override in each resource)
+     * Apply individual filter to query - Override in each resource
      */
     protected static function applyFilterToQuery($query, string $filterName, $filterValue)
     {
-        // Default implementation - override in specific resources
+        // Default implementation - should be overridden in specific resources
         return $query;
     }
 
@@ -174,7 +174,6 @@ trait ExportableResource
         foreach ($tableFilters as $filterName => $filterValue) {
             if (!empty($filterValue)) {
                 if (is_array($filterValue)) {
-                    // Handle date range and complex filters
                     $appliedFilters[$filterName] = implode(' - ', array_filter($filterValue));
                 } else {
                     $appliedFilters[$filterName] = $filterValue;
@@ -201,6 +200,9 @@ trait ExportableResource
             'WaterUsage' => 'exportWaterUsage',
             'WaterTariff' => 'exportWaterTariffs',
             'BillingPeriod' => 'exportBillingPeriods',
+            'Village' => 'exportVillages',
+            'User' => 'exportUsers',
+            'Variable' => 'exportVariables',
         ];
 
         $method = $exportMethods[$modelName] ?? null;
@@ -227,13 +229,8 @@ trait ExportableResource
                     ->icon('heroicon-o-arrow-down-tray')
                     ->url(Storage::url("exports/{$fileName}"))
                     ->openUrlInNewTab(),
-                \Filament\Notifications\Actions\Action::make('view_folder')
-                    ->label('Lihat Folder')
-                    ->icon('heroicon-o-folder-open')
-                    ->url('/admin/exports')
-                    ->visible(false), // Will be implemented later
             ])
-            ->duration(10000) // Show for 10 seconds
+            ->duration(10000)
             ->send();
     }
 
@@ -289,11 +286,11 @@ trait ExportableResource
                 return $query
                     ->when(
                         $data['from'],
-                        fn (Builder $query, $date): Builder => $query->whereDate($field, '>=', $date),
+                        fn(Builder $query, $date): Builder => $query->whereDate($field, '>=', $date),
                     )
                     ->when(
                         $data['until'],
-                        fn (Builder $query, $date): Builder => $query->whereDate($field, '<=', $date),
+                        fn(Builder $query, $date): Builder => $query->whereDate($field, '<=', $date),
                     );
             })
             ->indicateUsing(function (array $data): array {
@@ -334,48 +331,4 @@ trait ExportableResource
             ->options($options)
             ->placeholder('Semua Status');
     }
-
-    /**
-     * Get quick export button for individual records
-     */
-    public static function getQuickExportAction(): Tables\Actions\Action
-    {
-        return Tables\Actions\Action::make('quick_export')
-            ->label('Export')
-            ->icon('heroicon-o-arrow-down-tray')
-            ->color('gray')
-            ->dropdown([
-                Tables\Actions\Action::make('export_record_pdf')
-                    ->label('Export PDF')
-                    ->icon('heroicon-o-document-arrow-down')
-                    ->action(function ($record) {
-                        $exportService = app(ExportService::class);
-                        $primaryKey = $record->getKeyName();
-                        $query = static::$model::where($primaryKey, $record->getKey());
-
-                        try {
-                            $fileName = static::callExportMethod($exportService, $query, 'pdf', [
-                                'single_record' => 'Yes',
-                                'record_id' => $record->getKey()
-                            ]);
-                            static::sendExportNotification('pdf', $fileName);
-                        } catch (\Exception $e) {
-                            static::sendExportErrorNotification($e->getMessage());
-                        }
-                    }),
-                Tables\Actions\Action::make('export_record_csv')
-                    ->label('Export CSV')
-                    ->icon('heroicon-o-table-cells')
-                    ->action(function ($record) {
-                        $exportService = app(ExportService::class);
-                        $primaryKey = $record->getKeyName();
-                        $query = static::$model::where($primaryKey, $record->getKey());
-
-                        try {
-                            $fileName = static::callExportMethod($exportService, $query, 'csv', [
-                                'single_record' => 'Yes',
-                                'record_id' => $record->getKey()
-                            ]);
-                            static::sendExportNotification('csv', $fileName);
-                        } catch (\Exception $e) {
-                            static::
+}

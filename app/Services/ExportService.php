@@ -1,5 +1,5 @@
 <?php
-// app/Services/ExportService.php - Universal export service for all tables
+// app/Services/ExportService.php - Enhanced with all models
 
 namespace App\Services;
 
@@ -7,7 +7,6 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Storage;
 use Barryvdh\DomPDF\Facade\Pdf;
-use Maatwebsite\Excel\Facades\Excel;
 use Carbon\Carbon;
 
 class ExportService
@@ -343,38 +342,93 @@ class ExportService
     }
 
     /**
-     * Helper methods
+     * Export Villages
      */
-    private function generateFileName(string $title, string $extension): string
+    public function exportVillages(Builder $query, string $format, array $filters = []): string
     {
-        $slug = \Illuminate\Support\Str::slug($title);
-        $timestamp = now()->format('Y-m-d_H-i-s');
-        return "{$slug}_{$timestamp}.{$extension}";
-    }
+        $villages = $query->withCount(['customers'])->get();
 
-    private function getCurrentVillageInfo(): array
-    {
-        $village = config('pamdes.current_village');
-        return $village ?: ['name' => 'All Villages', 'id' => null];
-    }
+        $columns = [
+            'name' => 'Nama Desa',
+            'slug' => 'Slug',
+            'phone_number' => 'Telepon',
+            'email' => 'Email',
+            'address' => 'Alamat',
+            'customers_count' => 'Jumlah Pelanggan',
+            'is_active' => 'Status',
+            'established_at' => 'Didirikan',
+        ];
 
-    private function formatCellValue($row, string $key)
-    {
-        if (is_array($row)) {
-            return $row[$key] ?? '';
+        $exportData = $villages->map(function ($village) {
+            return [
+                'name' => $village->name,
+                'slug' => $village->slug,
+                'phone_number' => $village->phone_number ?? '',
+                'email' => $village->email ?? '',
+                'address' => $village->address ?? '',
+                'customers_count' => $village->customers_count,
+                'is_active' => $village->is_active ? 'Aktif' : 'Tidak Aktif',
+                'established_at' => $village->established_at?->format('d/m/Y') ?? '',
+            ];
+        });
+
+        if ($format === 'pdf') {
+            return $this->exportToPdf($exportData, 'Laporan Desa', $columns, $filters);
+        } else {
+            return $this->exportToCsv($exportData, 'Laporan Desa', $columns, $filters);
         }
-
-        return data_get($row, $key, '');
     }
 
-    private function formatBillStatus(string $status): string
+    /**
+     * Export Users
+     */
+    public function exportUsers(Builder $query, string $format, array $filters = []): string
     {
-        return match ($status) {
-            'paid' => 'Sudah Bayar',
-            'unpaid' => 'Belum Bayar',
-            'overdue' => 'Terlambat',
-            'pending' => 'Dalam Proses',
-            default => $status
-        };
+        $users = $query->with(['villages'])->get();
+
+        $columns = [
+            'name' => 'Nama',
+            'email' => 'Email',
+            'role' => 'Role',
+            'villages' => 'Desa',
+            'contact_info' => 'Kontak',
+            'is_active' => 'Status',
+            'created_at' => 'Terdaftar',
+        ];
+
+        $exportData = $users->map(function ($user) {
+            return [
+                'name' => $user->name,
+                'email' => $user->email,
+                'role' => $user->display_role,
+                'villages' => $user->isSuperAdmin() ? 'Semua Desa' : $user->villages->pluck('name')->join(', '),
+                'contact_info' => $user->contact_info ?? '',
+                'is_active' => $user->is_active ? 'Aktif' : 'Tidak Aktif',
+                'created_at' => $user->created_at->format('d/m/Y'),
+            ];
+        });
+
+        if ($format === 'pdf') {
+            return $this->exportToPdf($exportData, 'Laporan Pengguna', $columns, $filters);
+        } else {
+            return $this->exportToCsv($exportData, 'Laporan Pengguna', $columns, $filters);
+        }
     }
-}
+
+    /**
+     * Export Variables (Settings)
+     */
+    public function exportVariables(Builder $query, string $format, array $filters = []): string
+    {
+        $variables = $query->with('village')->get();
+
+        $columns = [
+            'village_name' => 'Desa',
+            'tripay_use_main' => 'Gunakan Config Global',
+            'tripay_is_production' => 'Mode Produksi',
+            'tripay_timeout_minutes' => 'Timeout (Menit)',
+            'configuration_status' => 'Status Konfigurasi',
+            'updated_at' => 'Terakhir Diupdate',
+        ];
+
+        $
