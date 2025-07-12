@@ -76,7 +76,6 @@ class UserResource extends Resource
                                 'super_admin' => 'Super Administrator',
                                 'village_admin' => 'Village Administrator',
                                 'collector' => 'Penagih',
-                                'cashier' => 'Kasir',
                                 'operator' => 'Operator',
                             ])
                             ->required()

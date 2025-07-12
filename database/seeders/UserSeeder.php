@@ -87,10 +87,10 @@ class UserSeeder extends Seeder
             }
         }
 
-        // Create collectors/cashiers for each village
+        // Create collectors for each village
         foreach ($villages as $village) {
             $slugCleaned = str_replace('pamdes-', '', $village->slug);
-            $collectorRoles = ['collector', 'cashier'];
+            $collectorRoles = ['collector'];
 
             foreach ($collectorRoles as $index => $role) {
                 $email = $role . '@' . $slugCleaned . '.' . $domain;

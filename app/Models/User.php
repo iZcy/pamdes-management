@@ -98,7 +98,7 @@ class User extends Authenticatable implements FilamentUser
         $currentVillageId = config('pamdes.current_village_id');
         $isSuperAdminDomain = config('pamdes.is_super_admin_domain', false);
 
-        // Village admins, collectors, cashiers, operators cannot access super admin domain
+        // Village admins, collectors, operators cannot access super admin domain
         if ($isSuperAdminDomain) {
             return false;
         }
@@ -214,7 +214,7 @@ class User extends Authenticatable implements FilamentUser
 
     public function isVillageAdmin(): bool
     {
-        return in_array($this->role, ['village_admin', 'collector', 'cashier', 'operator']);
+        return in_array($this->role, ['village_admin', 'collector', 'operator']);
     }
 
     public function isCollector(): bool
@@ -222,14 +222,9 @@ class User extends Authenticatable implements FilamentUser
         return $this->role === 'collector';
     }
 
-    public function isCashier(): bool
-    {
-        return $this->role === 'cashier';
-    }
-
     public function isOperator(): bool
     {
-        return in_array($this->role, ['collector', 'cashier', 'operator']);
+        return in_array($this->role, ['collector', 'operator']);
     }
 
     public function getDisplayRoleAttribute(): string
@@ -238,7 +233,6 @@ class User extends Authenticatable implements FilamentUser
             'super_admin' => 'Super Administrator',
             'village_admin' => 'Admin Desa',
             'collector' => 'Penagih',
-            'cashier' => 'Kasir',
             'operator' => 'Operator',
             default => 'Unknown'
         };

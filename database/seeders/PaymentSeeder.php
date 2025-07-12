@@ -29,7 +29,7 @@ class PaymentSeeder extends Seeder
             $collectors = User::whereHas('villages', function ($q) use ($village) {
                 $q->where('villages.id', $village->id);
             })
-                ->whereIn('role', ['collector', 'cashier', 'operator'])
+                ->whereIn('role', ['collector', 'operator'])
                 ->where('is_active', true)
                 ->get();
 
@@ -176,7 +176,7 @@ class PaymentSeeder extends Seeder
             $collectors = User::whereHas('villages', function ($q) use ($village) {
                 $q->where('villages.id', $village->id);
             })
-                ->whereIn('role', ['collector', 'cashier', 'operator'])
+                ->whereIn('role', ['collector', 'operator'])
                 ->where('is_active', true)
                 ->get();
 

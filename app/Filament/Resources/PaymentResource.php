@@ -96,7 +96,7 @@ class PaymentResource extends Resource
                                 return User::whereHas('villages', function ($q) use ($currentVillage) {
                                     $q->where('villages.id', $currentVillage);
                                 })
-                                    ->whereIn('role', ['collector', 'cashier', 'operator'])
+                                    ->whereIn('role', ['collector', 'operator'])
                                     ->where('is_active', true)
                                     ->orderBy('name')
                                     ->get()
@@ -134,7 +134,6 @@ class PaymentResource extends Resource
                                     ->label('Peran')
                                     ->options([
                                         'collector' => 'Penagih',
-                                        'cashier' => 'Kasir',
                                         'operator' => 'Operator',
                                     ])
                                     ->default('collector')
