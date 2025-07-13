@@ -7,9 +7,7 @@ use App\Models\Village;
 use App\Models\Customer;
 use App\Models\Bill;
 use App\Models\Payment;
-use App\Models\BillingPeriod;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Collection;
 use Carbon\Carbon;
 
 class ReportService

@@ -190,7 +190,13 @@ class BillResource extends Resource
 
                 Tables\Columns\TextColumn::make('waterUsage.billingPeriod.period_name')
                     ->label('Periode')
-                    ->sortable(),
+                    ->sortable(query: function (Builder $query, string $direction): Builder {
+                        return $query->join('water_usages', 'bills.usage_id', '=', 'water_usages.usage_id')
+                            ->join('billing_periods', 'water_usages.period_id', '=', 'billing_periods.period_id')
+                            ->orderBy('billing_periods.year', $direction)
+                            ->orderBy('billing_periods.month', $direction)
+                            ->select('bills.*'); // Make sure to select only bills columns to avoid conflicts
+                    }),
 
                 Tables\Columns\TextColumn::make('waterUsage.total_usage_m3')
                     ->label('Pemakaian')
