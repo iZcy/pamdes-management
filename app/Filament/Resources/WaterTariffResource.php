@@ -791,7 +791,6 @@ class WaterTariffResource extends Resource
         return [
             'index' => Pages\ListWaterTariffs::route('/'),
             'create' => Pages\CreateWaterTariff::route('/create'),
-            'view' => Pages\ViewWaterTariff::route('/{record}'),
             'edit' => Pages\EditWaterTariff::route('/{record}/edit'),
         ];
     }

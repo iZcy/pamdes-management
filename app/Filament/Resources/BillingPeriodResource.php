@@ -275,7 +275,6 @@ class BillingPeriodResource extends Resource
         return [
             'index' => Pages\ListBillingPeriods::route('/'),
             'create' => Pages\CreateBillingPeriod::route('/create'),
-            'view' => Pages\ViewBillingPeriod::route('/{record}'),
             'edit' => Pages\EditBillingPeriod::route('/{record}/edit'),
         ];
     }

@@ -240,14 +240,10 @@ class WaterUsageResource extends Resource
                 ])
             ])
             ->headerActions([
-                // Add export actions to header
                 ...static::getExportHeaderActions(),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
-                    // ... existing bulk actions ...
-
-                    // Add export bulk actions
                     ...static::getExportBulkActions(),
                 ]),
             ])
@@ -259,7 +255,6 @@ class WaterUsageResource extends Resource
         return [
             'index' => Pages\ListWaterUsages::route('/'),
             'create' => Pages\CreateWaterUsage::route('/create'),
-            'view' => Pages\ViewWaterUsage::route('/{record}'),
             'edit' => Pages\EditWaterUsage::route('/{record}/edit'),
         ];
     }

@@ -145,7 +145,6 @@ class VillageResource extends Resource
         return [
             'index' => Pages\ListVillages::route('/'),
             'create' => Pages\CreateVillage::route('/create'),
-            'view' => Pages\ViewVillage::route('/{record}'),
             'edit' => Pages\EditVillage::route('/{record}/edit'),
         ];
     }
