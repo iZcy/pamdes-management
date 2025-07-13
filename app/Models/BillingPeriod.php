@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
+use Illuminate\Support\Facades\Log;
 
 class BillingPeriod extends Model
 {
@@ -118,7 +119,7 @@ class BillingPeriod extends Model
                 ->distinct('customer_id')
                 ->count('customer_id');
         } catch (\Exception $e) {
-            \Log::error("Error calculating total customers for period {$this->period_id}: " . $e->getMessage());
+            Log::error("Error calculating total customers for period {$this->period_id}: " . $e->getMessage());
             return 0;
         }
     }
@@ -129,7 +130,7 @@ class BillingPeriod extends Model
             // Sum total amount from bills related to this period
             return $this->bills()->sum('total_amount') ?? 0;
         } catch (\Exception $e) {
-            \Log::error("Error calculating total billed for period {$this->period_id}: " . $e->getMessage());
+            Log::error("Error calculating total billed for period {$this->period_id}: " . $e->getMessage());
             return 0;
         }
     }
@@ -140,7 +141,7 @@ class BillingPeriod extends Model
             // Sum total amount from paid bills related to this period
             return $this->bills()->where('status', 'paid')->sum('total_amount') ?? 0;
         } catch (\Exception $e) {
-            \Log::error("Error calculating total paid for period {$this->period_id}: " . $e->getMessage());
+            Log::error("Error calculating total paid for period {$this->period_id}: " . $e->getMessage());
             return 0;
         }
     }
@@ -154,7 +155,7 @@ class BillingPeriod extends Model
             $totalPaid = $this->getTotalPaidAttribute();
             return round(($totalPaid / $totalBilled) * 100, 1);
         } catch (\Exception $e) {
-            \Log::error("Error calculating collection rate for period {$this->period_id}: " . $e->getMessage());
+            Log::error("Error calculating collection rate for period {$this->period_id}: " . $e->getMessage());
             return 0;
         }
     }
