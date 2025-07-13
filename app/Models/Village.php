@@ -160,6 +160,18 @@ class Village extends Model
         return $this->getPamdesSetting('default_maintenance_fee', 2000);
     }
 
+    // Get Contact
+    public function getTel(): ?string
+    {
+        return "tel:" . preg_replace('/[^\d]/', '', $this->getSetting('phone_number') ?? $this->phone_number);
+    }
+
+    public function getWA(): ?string
+    {
+        $phone = $this->getSetting('phone_number') ?? $this->phone_number;
+        return $phone ? "https://wa.me/" . preg_replace('/[^\d]/', '', $phone) : null;
+    }
+
     public function isAutoGenerateBillsEnabled(): bool
     {
         return $this->getPamdesSetting('auto_generate_bills', true);
