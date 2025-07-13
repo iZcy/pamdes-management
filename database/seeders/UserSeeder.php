@@ -1,5 +1,5 @@
 <?php
-// database/seeders/UserSeeder.php - Fixed to prevent duplicate emails
+// database/seeders/UserSeeder.php - Fixed domain handling
 
 namespace Database\Seeders;
 
@@ -17,7 +17,12 @@ class UserSeeder extends Seeder
         $mainDomain = env('PAMDES_MAIN_DOMAIN', $domain);
         $villagePattern = env('PAMDES_VILLAGE_DOMAIN_PATTERN', 'pamdes-{village}.' . $domain);
 
+        // Extract the base domain (everything after the first dot)
+        // For pamdes.kecamatanbayan.id -> kecamatanbayan.id
+        $baseDomain = preg_replace('/^[^.]+\./', '', $domain);
+
         $this->command->info('Creating users with domain: ' . $domain);
+        $this->command->info('Base domain: ' . $baseDomain);
 
         // Create super admin
         $superAdmin = User::firstOrCreate(
@@ -46,7 +51,6 @@ class UserSeeder extends Seeder
         // Get all villages to create village-specific admins
         $villages = Village::all();
 
-        $baseDomain = preg_replace('/^[^.]+\./', '', $domain);
         foreach ($villages as $village) {
             // Remove "pamdes-" from the slug (if present)
             $slugCleaned = str_replace('pamdes-', '', $village->slug);
@@ -54,6 +58,7 @@ class UserSeeder extends Seeder
             $this->command->info("Creating users for village: {$village->name} (slug: {$slugCleaned})");
 
             // Create primary village admin
+            // Email format: admin@village.basedomain (e.g., admin@senaru.kecamatanbayan.id)
             $villageAdmin = User::firstOrCreate(
                 ['email' => 'admin@' . $slugCleaned . '.' . $baseDomain],
                 [
@@ -72,7 +77,7 @@ class UserSeeder extends Seeder
 
             // Create secondary village admin (operator)
             $villageOperator = User::firstOrCreate(
-                ['email' => 'operator@' . $slugCleaned . '.' . $domain],
+                ['email' => 'operator@' . $slugCleaned . '.' . $baseDomain],
                 [
                     'name' => 'Operator PAMDes ' . $village->name,
                     'password' => Hash::make('password'),
@@ -94,7 +99,7 @@ class UserSeeder extends Seeder
             $collectorRoles = ['collector'];
 
             foreach ($collectorRoles as $index => $role) {
-                $email = $role . '@' . $slugCleaned . '.' . $domain;
+                $email = $role . '@' . $slugCleaned . '.' . $baseDomain;
 
                 // Check if user already exists
                 $existingUser = User::where('email', $email)->first();
@@ -150,33 +155,27 @@ class UserSeeder extends Seeder
             }
         }
 
-        $this->command->info('Created users with village assignments:');
-        $this->command->info('- Super Admins: Can access all villages');
-        $this->command->info('- Village Admins: Assigned to specific villages');
-        $this->command->info('- Multi-village Admin: Can access multiple villages');
-        $this->command->info('- All passwords: password');
         $this->command->info('');
-        $this->command->info('Login URLs:');
-        $this->command->info('- Super Admin: http://' . $mainDomain . '/admin');
+        $this->command->info('===================');
+        $this->command->info('Main Admin URL: https://' . $mainDomain . '/admin');
+        $this->command->info('Super Admin Credentials:');
+        $this->command->info('  📧 Email: admin@' . $domain);
+        $this->command->info('  🔑 Password: password');
+        $this->command->info('');
+        $this->command->info('Village Admin URLs:');
 
         foreach ($villages as $village) {
             $villageUrl = str_replace('{village}', $village->slug, $villagePattern);
-            $this->command->info("- {$village->name}: http://{$villageUrl}/admin");
+            $slugCleaned = str_replace('pamdes-', '', $village->slug);
+            $this->command->info("  🏘️  {$village->name}: https://{$villageUrl}/admin");
+            $this->command->info("     📧 Email: admin@{$slugCleaned}.{$baseDomain}");
+            $this->command->info("     🔑 Password: password");
         }
 
         $this->command->info('');
-        $this->command->info('Login Credentials:');
-        $this->command->info('Super Admin:');
-        $this->command->info('  - Email: admin@' . $domain);
-        $this->command->info('  - Email: system@' . $domain);
-        $this->command->info('Village Admins:');
-        foreach ($villages as $village) {
-            $slugCleaned = str_replace('pamdes-', '', $village->slug);
-            $this->command->info("  - {$village->name} Admin: admin@{$slugCleaned}.{$domain}");
-            $this->command->info("  - {$village->name} Operator: operator@{$slugCleaned}.{$domain}");
-        }
         $this->command->info('Multi-Village Admin:');
-        $this->command->info('  - Email: multi@' . $domain);
-        $this->command->info('  - Password for all: password');
+        $this->command->info('  📧 Email: multi@' . $domain);
+        $this->command->info('  🔑 Password: password');
+        $this->command->info('===================');
     }
 }
