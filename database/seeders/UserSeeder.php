@@ -49,12 +49,13 @@ class UserSeeder extends Seeder
         foreach ($villages as $village) {
             // Remove "pamdes-" from the slug (if present)
             $slugCleaned = str_replace('pamdes-', '', $village->slug);
+            $domainCleaned = str_replace('pamdes.', '', $domain);
 
             $this->command->info("Creating users for village: {$village->name} (slug: {$slugCleaned})");
 
             // Create primary village admin
             $villageAdmin = User::firstOrCreate(
-                ['email' => 'admin@' . $slugCleaned . '.' . $domain],
+                ['email' => 'admin@' . $slugCleaned . '.' . $domainCleaned],
                 [
                     'name' => 'Admin PAMDes ' . $village->name,
                     'password' => Hash::make('password'),
