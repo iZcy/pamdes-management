@@ -1,5 +1,5 @@
 <?php
-// app/Filament/Resources/BillResource.php - Updated with export functionality
+// app/Filament/Resources/BillResource.php - Updated without export filters
 
 namespace App\Filament\Resources;
 
@@ -8,7 +8,7 @@ use App\Models\Bill;
 use App\Models\Customer;
 use App\Models\User;
 use App\Models\WaterUsage;
-use App\Services\ExportService;
+use App\Traits\ExportableResource;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -17,11 +17,11 @@ use Filament\Tables\Table;
 use Filament\Support\Colors\Color;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Storage;
-use Filament\Notifications\Notification;
 
 class BillResource extends Resource
 {
+    use ExportableResource; // Simplified trait without filters
+
     protected static ?string $model = Bill::class;
     protected static ?string $navigationIcon = 'heroicon-o-document-text';
     protected static ?string $navigationLabel = 'Tagihan';
@@ -304,22 +304,8 @@ class BillResource extends Resource
                     }),
             ])
             ->headerActions([
-                // Export Actions in Header
-                Tables\Actions\Action::make('export_pdf')
-                    ->label('Export PDF')
-                    ->icon('heroicon-o-document-arrow-down')
-                    ->color('danger')
-                    ->action(function ($livewire) {
-                        return static::exportData('pdf', $livewire);
-                    }),
-
-                Tables\Actions\Action::make('export_csv')
-                    ->label('Export CSV')
-                    ->icon('heroicon-o-table-cells')
-                    ->color('success')
-                    ->action(function ($livewire) {
-                        return static::exportData('csv', $livewire);
-                    }),
+                // Simplified Export Actions - exports all data
+                ...static::getExportHeaderActions(),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
@@ -339,139 +325,11 @@ class BillResource extends Resource
                         })
                         ->deselectRecordsAfterCompletion(),
 
-                    // Bulk Export Actions
-                    Tables\Actions\BulkAction::make('bulk_export_pdf')
-                        ->label('Export Terpilih ke PDF')
-                        ->icon('heroicon-o-document-arrow-down')
-                        ->color('danger')
-                        ->action(function ($records, $livewire) {
-                            return static::exportSelectedData('pdf', $records, $livewire);
-                        })
-                        ->deselectRecordsAfterCompletion(),
-
-                    Tables\Actions\BulkAction::make('bulk_export_csv')
-                        ->label('Export Terpilih ke CSV')
-                        ->icon('heroicon-o-table-cells')
-                        ->color('success')
-                        ->action(function ($records, $livewire) {
-                            return static::exportSelectedData('csv', $records, $livewire);
-                        })
-                        ->deselectRecordsAfterCompletion(),
+                    // Simplified Bulk Export Actions - no filter processing
+                    ...static::getExportBulkActions(),
                 ]),
             ])
             ->defaultSort('created_at', 'desc');
-    }
-
-    /**
-     * Export filtered data
-     */
-    protected static function exportData(string $format, $livewire)
-    {
-        try {
-            // Get the filtered query
-            $query = static::getEloquentQuery();
-
-            // Apply table filters
-            $tableFilters = $livewire->tableFilters ?? [];
-            $search = $livewire->tableSearch ?? '';
-
-            // Apply search
-            if (!empty($search)) {
-                $query->where(function ($q) use ($search) {
-                    $q->whereHas('waterUsage.customer', function ($customerQuery) use ($search) {
-                        $customerQuery->where('name', 'like', "%{$search}%")
-                            ->orWhere('customer_code', 'like', "%{$search}%");
-                    })
-                        ->orWhereHas('waterUsage.billingPeriod', function ($periodQuery) use ($search) {
-                            $periodQuery->where('period_name', 'like', "%{$search}%");
-                        });
-                });
-            }
-
-            // Apply filters
-            foreach ($tableFilters as $filterName => $filterValue) {
-                if (empty($filterValue)) continue;
-
-                switch ($filterName) {
-                    case 'village':
-                        $query->whereHas('waterUsage.customer', function ($q) use ($filterValue) {
-                            $q->where('village_id', $filterValue);
-                        });
-                        break;
-                    case 'status':
-                        $query->where('status', $filterValue);
-                        break;
-                    case 'overdue':
-                        if ($filterValue) {
-                            $query->overdue();
-                        }
-                        break;
-                    case 'date_range':
-                        if (!empty($filterValue['from'])) {
-                            $query->whereDate('created_at', '>=', $filterValue['from']);
-                        }
-                        if (!empty($filterValue['until'])) {
-                            $query->whereDate('created_at', '<=', $filterValue['until']);
-                        }
-                        break;
-                }
-            }
-
-            $exportService = app(ExportService::class);
-            $fileName = $exportService->exportBills($query, $format, $tableFilters);
-
-            Notification::make()
-                ->title('Export Berhasil')
-                ->body("File {$format} telah dibuat: {$fileName}")
-                ->success()
-                ->actions([
-                    \Filament\Notifications\Actions\Action::make('download')
-                        ->label('Download')
-                        ->url(Storage::url("exports/{$fileName}"))
-                        ->openUrlInNewTab(),
-                ])
-                ->send();
-        } catch (\Exception $e) {
-            Notification::make()
-                ->title('Export Gagal')
-                ->body("Error: {$e->getMessage()}")
-                ->danger()
-                ->send();
-        }
-    }
-
-    /**
-     * Export selected records
-     */
-    protected static function exportSelectedData(string $format, $records, $livewire)
-    {
-        try {
-            $exportService = app(ExportService::class);
-
-            // Create a query for selected records
-            $query = Bill::whereIn('bill_id', $records->pluck('bill_id'));
-
-            $filters = ['selection' => 'Selected ' . $records->count() . ' records'];
-            $fileName = $exportService->exportBills($query, $format, $filters);
-
-            Notification::make()
-                ->title('Export Berhasil')
-                ->body("File {$format} telah dibuat untuk {$records->count()} tagihan terpilih")
-                ->success()
-                ->actions([
-                    \Filament\Notifications\Actions\Action::make('download')
-                        ->label('Download')
-                        ->url(Storage::url("exports/{$fileName}"))
-                        ->openUrlInNewTab(),
-                ])
-                ->send();
-        } catch (\Exception $e) {
-            Notification::make()
-                ->title('Export Gagal')
-                ->body("Error: {$e->getMessage()}")
-                ->danger()
-                ->send();
-        }
     }
 
     public static function getPages(): array

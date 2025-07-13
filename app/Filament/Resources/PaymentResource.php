@@ -327,8 +327,6 @@ class PaymentResource extends Resource
                     ->label('Ada Kembalian')
                     ->query(fn(Builder $query) => $query->where('change_given', '>', 0)),
 
-                static::getDateRangeFilter('Tanggal Pembayaran', 'payment_date'),
-
                 Tables\Filters\Filter::make('today')
                     ->label('Hari Ini')
                     ->query(fn(Builder $query) => $query->whereDate('payment_date', today())),

@@ -1,5 +1,5 @@
 <?php
-// app/Models/BillingPeriod.php
+// app/Models/BillingPeriod.php - Fixed relationships
 
 namespace App\Models;
 
@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 
 class BillingPeriod extends Model
 {
@@ -36,9 +37,22 @@ class BillingPeriod extends Model
         return $this->hasMany(WaterUsage::class, 'period_id', 'period_id');
     }
 
-    public function bills(): HasMany
+    // Fixed: Bills relationship should go through water_usages
+    public function bills(): HasManyThrough
     {
-        return $this->hasMany(Bill::class, 'period_id', 'period_id');
+        return $this->hasManyThrough(
+            Bill::class,           // Target model
+            WaterUsage::class,     // Through model
+            'period_id',           // Foreign key on water_usages table
+            'usage_id',            // Foreign key on bills table
+            'period_id',           // Local key on billing_periods table
+            'usage_id'             // Local key on water_usages table
+        );
+    }
+
+    public function village(): BelongsTo
+    {
+        return $this->belongsTo(Village::class, 'village_id', 'id');
     }
 
     // Scopes
@@ -88,7 +102,7 @@ class BillingPeriod extends Model
         };
     }
 
-    // Helper methods
+    // Helper methods - Fixed to use correct relationships
     public function getTotalCustomers(): int
     {
         return $this->waterUsages()->distinct('customer_id')->count();
@@ -110,10 +124,5 @@ class BillingPeriod extends Model
         if ($total == 0) return 0;
 
         return ($this->getTotalPaid() / $total) * 100;
-    }
-
-    public function village(): BelongsTo
-    {
-        return $this->belongsTo(Village::class, 'village_id', 'id');
     }
 }

@@ -197,13 +197,6 @@ class BillingPeriodResource extends Resource
                         'active' => 'Aktif',
                         'completed' => 'Selesai',
                     ]),
-
-                static::getVillageFilter(),
-                static::getStatusFilter([
-                    'inactive' => 'Tidak Aktif',
-                    'active' => 'Aktif',
-                    'completed' => 'Selesai',
-                ]),
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),

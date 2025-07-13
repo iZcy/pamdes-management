@@ -122,13 +122,6 @@ class VillageResource extends Resource
                     ->boolean()
                     ->trueLabel('Aktif')
                     ->falseLabel('Tidak Aktif'),
-
-                static::getStatusFilter([
-                    true => 'Aktif',
-                    false => 'Tidak Aktif',
-                ]),
-
-                static::getDateRangeFilter('Tanggal Didirikan', 'established_at'),
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),

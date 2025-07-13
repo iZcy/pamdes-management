@@ -287,8 +287,6 @@ class VariableResource extends Resource
                     ->boolean()
                     ->trueLabel('Produksi')
                     ->falseLabel('Sandbox'),
-
-                static::getDateRangeFilter('Tanggal Update', 'updated_at'),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),

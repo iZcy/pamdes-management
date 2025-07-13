@@ -175,16 +175,6 @@ class UserResource extends Resource
                     ->boolean()
                     ->trueLabel('Aktif')
                     ->falseLabel('Tidak Aktif'),
-
-                static::getStatusFilter([
-                    'super_admin' => 'Super Admin',
-                    'village_admin' => 'Village Admin',
-                    'collector' => 'Penagih',
-                    'cashier' => 'Kasir',
-                    'operator' => 'Operator',
-                ]),
-
-                static::getDateRangeFilter('Tanggal Registrasi', 'created_at'),
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),

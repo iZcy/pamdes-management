@@ -1,5 +1,5 @@
 <?php
-// app/Services/ExportService.php - Fixed implementation with proper download URLs
+// app/Services/ExportService.php - Simplified implementation without filters
 
 namespace App\Services;
 
@@ -15,7 +15,7 @@ class ExportService
     /**
      * Export data to PDF format
      */
-    public function exportToPdf($data, string $title, array $columns, array $filters = []): string
+    public function exportToPdf($data, string $title, array $columns, array $metadata = []): string
     {
         try {
             $fileName = $this->generateFileName($title, 'pdf');
@@ -27,7 +27,7 @@ class ExportService
                 'title' => $title,
                 'data' => $processedData,
                 'columns' => $columns,
-                'filters' => $this->sanitizeFilters($filters),
+                'metadata' => $metadata,
                 'exported_at' => now(),
                 'village' => $this->getCurrentVillageInfo(),
             ]);
@@ -68,7 +68,7 @@ class ExportService
     /**
      * Export data to CSV format
      */
-    public function exportToCsv($data, string $title, array $columns, array $filters = []): string
+    public function exportToCsv($data, string $title, array $columns, array $metadata = []): string
     {
         try {
             $fileName = $this->generateFileName($title, 'csv');
@@ -76,23 +76,13 @@ class ExportService
 
             $csvData = [];
 
-            // Add header with filters info
-            if (!empty($filters)) {
-                $csvData[] = ['Export Information'];
-                $csvData[] = ['Title', $title];
-                $csvData[] = ['Exported At', now()->format('d/m/Y H:i:s')];
-                $csvData[] = ['Village', $this->getCurrentVillageInfo()['name'] ?? 'All Villages'];
-                $csvData[] = [];
-
-                // Add filter information
-                $csvData[] = ['Applied Filters'];
-                foreach ($this->sanitizeFilters($filters) as $key => $value) {
-                    if (!empty($value)) {
-                        $csvData[] = [ucfirst(str_replace('_', ' ', $key)), $value];
-                    }
-                }
-                $csvData[] = [];
-            }
+            // Add header with export info
+            $csvData[] = ['Export Information'];
+            $csvData[] = ['Title', $title];
+            $csvData[] = ['Exported At', now()->format('d/m/Y H:i:s')];
+            $csvData[] = ['Village', $this->getCurrentVillageInfo()['name'] ?? 'All Villages'];
+            $csvData[] = ['Total Records', count($processedData)];
+            $csvData[] = [];
 
             // Add column headers
             $csvData[] = array_values($columns);
@@ -175,30 +165,9 @@ class ExportService
     }
 
     /**
-     * Sanitize filters to ensure they're safe for display
-     */
-    protected function sanitizeFilters(array $filters): array
-    {
-        $sanitized = [];
-        foreach ($filters as $key => $value) {
-            if (is_array($value)) {
-                // Convert arrays to comma-separated strings
-                $sanitized[$key] = implode(', ', array_filter($value, function ($item) {
-                    return !is_array($item) && !is_object($item);
-                }));
-            } elseif (is_object($value)) {
-                $sanitized[$key] = method_exists($value, '__toString') ? (string) $value : '[Object]';
-            } else {
-                $sanitized[$key] = (string) $value;
-            }
-        }
-        return $sanitized;
-    }
-
-    /**
      * Export Bills with all relationships
      */
-    public function exportBills(Builder $query, string $format, array $filters = []): string
+    public function exportBills(Builder $query, string $format, array $metadata = []): string
     {
         $bills = $query->with([
             'waterUsage.customer.village',
@@ -241,16 +210,16 @@ class ExportService
         })->toArray();
 
         if ($format === 'pdf') {
-            return $this->exportToPdf($exportData, 'Laporan Tagihan', $columns, $filters);
+            return $this->exportToPdf($exportData, 'Laporan Tagihan', $columns, $metadata);
         } else {
-            return $this->exportToCsv($exportData, 'Laporan Tagihan', $columns, $filters);
+            return $this->exportToCsv($exportData, 'Laporan Tagihan', $columns, $metadata);
         }
     }
 
     /**
      * Export Customers
      */
-    public function exportCustomers(Builder $query, string $format, array $filters = []): string
+    public function exportCustomers(Builder $query, string $format, array $metadata = []): string
     {
         $customers = $query->with('village')->get();
 
@@ -277,16 +246,16 @@ class ExportService
         })->toArray();
 
         if ($format === 'pdf') {
-            return $this->exportToPdf($exportData, 'Laporan Pelanggan', $columns, $filters);
+            return $this->exportToPdf($exportData, 'Laporan Pelanggan', $columns, $metadata);
         } else {
-            return $this->exportToCsv($exportData, 'Laporan Pelanggan', $columns, $filters);
+            return $this->exportToCsv($exportData, 'Laporan Pelanggan', $columns, $metadata);
         }
     }
 
     /**
      * Export Payments
      */
-    public function exportPayments(Builder $query, string $format, array $filters = []): string
+    public function exportPayments(Builder $query, string $format, array $metadata = []): string
     {
         $payments = $query->with([
             'bill.waterUsage.customer.village',
@@ -323,16 +292,16 @@ class ExportService
         })->toArray();
 
         if ($format === 'pdf') {
-            return $this->exportToPdf($exportData, 'Laporan Pembayaran', $columns, $filters);
+            return $this->exportToPdf($exportData, 'Laporan Pembayaran', $columns, $metadata);
         } else {
-            return $this->exportToCsv($exportData, 'Laporan Pembayaran', $columns, $filters);
+            return $this->exportToCsv($exportData, 'Laporan Pembayaran', $columns, $metadata);
         }
     }
 
     /**
      * Export Water Usage
      */
-    public function exportWaterUsage(Builder $query, string $format, array $filters = []): string
+    public function exportWaterUsage(Builder $query, string $format, array $metadata = []): string
     {
         $usages = $query->with([
             'customer.village',
@@ -366,16 +335,16 @@ class ExportService
         })->toArray();
 
         if ($format === 'pdf') {
-            return $this->exportToPdf($exportData, 'Laporan Pemakaian Air', $columns, $filters);
+            return $this->exportToPdf($exportData, 'Laporan Pemakaian Air', $columns, $metadata);
         } else {
-            return $this->exportToCsv($exportData, 'Laporan Pemakaian Air', $columns, $filters);
+            return $this->exportToCsv($exportData, 'Laporan Pemakaian Air', $columns, $metadata);
         }
     }
 
     /**
      * Export Water Tariffs
      */
-    public function exportWaterTariffs(Builder $query, string $format, array $filters = []): string
+    public function exportWaterTariffs(Builder $query, string $format, array $metadata = []): string
     {
         $tariffs = $query->with('village')->get();
 
@@ -398,16 +367,16 @@ class ExportService
         })->toArray();
 
         if ($format === 'pdf') {
-            return $this->exportToPdf($exportData, 'Laporan Tarif Air', $columns, $filters);
+            return $this->exportToPdf($exportData, 'Laporan Tarif Air', $columns, $metadata);
         } else {
-            return $this->exportToCsv($exportData, 'Laporan Tarif Air', $columns, $filters);
+            return $this->exportToCsv($exportData, 'Laporan Tarif Air', $columns, $metadata);
         }
     }
 
     /**
      * Export Billing Periods
      */
-    public function exportBillingPeriods(Builder $query, string $format, array $filters = []): string
+    public function exportBillingPeriods(Builder $query, string $format, array $metadata = []): string
     {
         $periods = $query->with('village')->get();
 
@@ -424,6 +393,25 @@ class ExportService
         ];
 
         $exportData = $periods->map(function ($period) {
+            // Safely get calculated values with error handling
+            try {
+                $totalCustomers = $period->getTotalCustomers();
+            } catch (\Exception $e) {
+                $totalCustomers = 0;
+            }
+
+            try {
+                $totalBilled = $period->getTotalBilled();
+            } catch (\Exception $e) {
+                $totalBilled = 0;
+            }
+
+            try {
+                $collectionRate = $period->getCollectionRate();
+            } catch (\Exception $e) {
+                $collectionRate = 0;
+            }
+
             return [
                 'village_name' => $period->village->name ?? '',
                 'period_name' => $period->period_name ?? '',
@@ -436,23 +424,23 @@ class ExportService
                 'reading_start_date' => $period->reading_start_date?->format('d/m/Y') ?? '',
                 'reading_end_date' => $period->reading_end_date?->format('d/m/Y') ?? '',
                 'billing_due_date' => $period->billing_due_date?->format('d/m/Y') ?? '',
-                'total_customers' => $period->getTotalCustomers(),
-                'total_billed' => 'Rp ' . number_format($period->getTotalBilled()),
-                'collection_rate' => number_format($period->getCollectionRate(), 1) . '%',
+                'total_customers' => $totalCustomers,
+                'total_billed' => 'Rp ' . number_format($totalBilled),
+                'collection_rate' => number_format($collectionRate, 1) . '%',
             ];
         })->toArray();
 
         if ($format === 'pdf') {
-            return $this->exportToPdf($exportData, 'Laporan Periode Tagihan', $columns, $filters);
+            return $this->exportToPdf($exportData, 'Laporan Periode Tagihan', $columns, $metadata);
         } else {
-            return $this->exportToCsv($exportData, 'Laporan Periode Tagihan', $columns, $filters);
+            return $this->exportToCsv($exportData, 'Laporan Periode Tagihan', $columns, $metadata);
         }
     }
 
     /**
      * Export Villages
      */
-    public function exportVillages(Builder $query, string $format, array $filters = []): string
+    public function exportVillages(Builder $query, string $format, array $metadata = []): string
     {
         $villages = $query->withCount(['customers'])->get();
 
@@ -481,16 +469,16 @@ class ExportService
         })->toArray();
 
         if ($format === 'pdf') {
-            return $this->exportToPdf($exportData, 'Laporan Desa', $columns, $filters);
+            return $this->exportToPdf($exportData, 'Laporan Desa', $columns, $metadata);
         } else {
-            return $this->exportToCsv($exportData, 'Laporan Desa', $columns, $filters);
+            return $this->exportToCsv($exportData, 'Laporan Desa', $columns, $metadata);
         }
     }
 
     /**
      * Export Users
      */
-    public function exportUsers(Builder $query, string $format, array $filters = []): string
+    public function exportUsers(Builder $query, string $format, array $metadata = []): string
     {
         $users = $query->with(['villages'])->get();
 
@@ -517,16 +505,16 @@ class ExportService
         })->toArray();
 
         if ($format === 'pdf') {
-            return $this->exportToPdf($exportData, 'Laporan Pengguna', $columns, $filters);
+            return $this->exportToPdf($exportData, 'Laporan Pengguna', $columns, $metadata);
         } else {
-            return $this->exportToCsv($exportData, 'Laporan Pengguna', $columns, $filters);
+            return $this->exportToCsv($exportData, 'Laporan Pengguna', $columns, $metadata);
         }
     }
 
     /**
      * Export Variables (Settings)
      */
-    public function exportVariables(Builder $query, string $format, array $filters = []): string
+    public function exportVariables(Builder $query, string $format, array $metadata = []): string
     {
         $variables = $query->with('village')->get();
 
@@ -551,9 +539,9 @@ class ExportService
         })->toArray();
 
         if ($format === 'pdf') {
-            return $this->exportToPdf($exportData, 'Laporan Pengaturan', $columns, $filters);
+            return $this->exportToPdf($exportData, 'Laporan Pengaturan', $columns, $metadata);
         } else {
-            return $this->exportToCsv($exportData, 'Laporan Pengaturan', $columns, $filters);
+            return $this->exportToCsv($exportData, 'Laporan Pengaturan', $columns, $metadata);
         }
     }
 

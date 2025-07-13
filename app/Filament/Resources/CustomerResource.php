@@ -1,5 +1,5 @@
 <?php
-// app/Filament/Resources/CustomerResource.php - Updated with village display
+// app/Filament/Resources/CustomerResource.php - Updated without export filters
 
 namespace App\Filament\Resources;
 
@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\Auth;
 
 class CustomerResource extends Resource
 {
-    use ExportableResource;
+    use ExportableResource; // Simplified trait without filters
 
     protected static ?string $model = Customer::class;
     protected static ?string $navigationIcon = 'heroicon-o-users';
@@ -200,23 +200,18 @@ class CustomerResource extends Resource
                         'active' => 'Aktif',
                         'inactive' => 'Tidak Aktif',
                     ]),
-
-                static::getDateRangeFilter('Tanggal Pendaftaran', 'created_at'),
-                static::getVillageFilter(),
-                static::getStatusFilter([
-                    'active' => 'Aktif',
-                    'inactive' => 'Tidak Aktif',
-                ]),
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),
                 Tables\Actions\EditAction::make(),
             ])
             ->headerActions([
+                // Simplified Export Actions - exports all data without processing table filters
                 ...static::getExportHeaderActions(),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
+                    // Simplified Bulk Export Actions - no filter processing
                     ...static::getExportBulkActions(),
                 ]),
             ]);

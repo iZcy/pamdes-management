@@ -219,10 +219,6 @@ class WaterUsageResource extends Resource
                 Tables\Filters\Filter::make('no_bill')
                     ->label('Belum Dibill')
                     ->query(fn($query) => $query->whereDoesntHave('bill')),
-
-                static::getDateRangeFilter('Tanggal Pembacaan', 'usage_date'),
-
-                static::getVillageFilter('customer.village'),
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),

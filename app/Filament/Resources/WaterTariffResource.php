@@ -683,9 +683,6 @@ class WaterTariffResource extends Resource
                     ->boolean()
                     ->trueLabel('Aktif')
                     ->falseLabel('Tidak Aktif'),
-
-                static::getVillageFilter(),
-                static::getDateRangeFilter('Tanggal Dibuat', 'created_at'),
             ])
             ->actions([
                 Tables\Actions\EditAction::make()
