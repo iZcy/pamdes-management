@@ -81,6 +81,7 @@ class UserResource extends Resource
                                 'collector' => 'Penagih',
                                 'operator' => 'Operator',
                             ])
+                            ->searchable()
                             ->required()
                             ->live(),
 
@@ -100,12 +101,14 @@ class UserResource extends Resource
                             ->label('Desa yang Dapat Diakses')
                             ->relationship('villages', 'name')
                             ->options(Village::active()->pluck('name', 'id'))
+                            ->searchable()
                             ->columns(2)
                             ->hidden(fn(Forms\Get $get) => $get('role') === 'super_admin'),
 
                         Forms\Components\Select::make('primary_village')
                             ->label('Desa Utama')
                             ->options(Village::active()->pluck('name', 'id'))
+                            ->searchable()
                             ->hidden(fn(Forms\Get $get) => $get('role') === 'super_admin')
                             ->helperText('Desa utama yang akan menjadi default saat login'),
                     ])
@@ -174,7 +177,10 @@ class UserResource extends Resource
                     ->options([
                         'super_admin' => 'Super Admin',
                         'village_admin' => 'Village Admin',
-                    ]),
+                        'collector' => 'Penagih',
+                        'operator' => 'Operator',
+                    ])
+                    ->searchable(),
 
                 Tables\Filters\TernaryFilter::make('is_active')
                     ->label('Status')

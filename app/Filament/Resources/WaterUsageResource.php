@@ -109,6 +109,7 @@ class WaterUsageResource extends Resource
                                     ->get()
                                     ->pluck('period_name', 'period_id');
                             })
+                            ->searchable()
                             ->required(),
 
                         Forms\Components\TextInput::make('initial_meter')

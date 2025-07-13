@@ -85,7 +85,8 @@ class PaymentResource extends Resource
                             ->searchable()
                             ->preload()
                             ->required()
-                            ->columnSpan(2),
+                            ->columnSpan(2)
+                            ->reactive(),
 
                         Forms\Components\Select::make('collector_id')
                             ->label('Penagih/Kasir')
@@ -141,6 +142,7 @@ class PaymentResource extends Resource
                                         'collector' => 'Penagih',
                                         'operator' => 'Operator',
                                     ])
+                                    ->searchable()
                                     ->default('collector')
                                     ->required(),
                             ])
@@ -167,30 +169,41 @@ class PaymentResource extends Resource
 
                                 return $newUser->id;
                             }),
+
                         Forms\Components\TextInput::make('amount_paid')
                             ->label('Jumlah Dibayar')
                             ->required()
                             ->numeric()
                             ->prefix('Rp')
-                            ->step(100),
+                            ->step(100)
+                            ->reactive()
+                            ->afterStateUpdated(fn($state, callable $set, callable $get) => static::updateChangeGiven($set, $get)),
 
                         Forms\Components\TextInput::make('change_given')
                             ->label('Kembalian')
                             ->numeric()
                             ->prefix('Rp')
                             ->default(0)
-                            ->step(100),
+                            ->readOnly()
+                            ->extraAttributes(['class' => 'bg-gray-100']),
 
                         Forms\Components\Select::make('payment_method')
                             ->label('Metode Pembayaran')
                             ->options([
                                 'cash' => 'Tunai',
                                 'transfer' => 'Transfer Bank',
-                                'qris' => 'QRIS',
                                 'other' => 'Lainnya',
                             ])
+                            ->searchable()
                             ->default('cash')
                             ->required(),
+
+                        Forms\Components\DatePicker::make('payment_date')
+                            ->label('Tanggal Pembayaran')
+                            ->default(now())
+                            ->required()
+                            ->displayFormat('d M Y'),
+
 
                         Forms\Components\TextInput::make('payment_reference')
                             ->label('Referensi Pembayaran')
@@ -301,7 +314,8 @@ class PaymentResource extends Resource
                         'transfer' => 'Transfer Bank',
                         'qris' => 'QRIS',
                         'other' => 'Lainnya',
-                    ]),
+                    ])
+                    ->searchable(),
 
                 Tables\Filters\SelectFilter::make('collector_id')
                     ->label('Penagih/Kasir')
@@ -379,6 +393,22 @@ class PaymentResource extends Resource
             ->persistSortInSession()
             ->persistSearchInSession()
             ->persistFiltersInSession();
+    }
+
+    protected static function updateChangeGiven(callable $set, callable $get): void
+    {
+        $bill = \App\Models\Bill::find($get('bill_id'));
+
+        if ($bill) {
+            $totalAmount = $bill->total_amount;
+            $amountPaid = $get('amount_paid');
+
+            if (is_numeric($amountPaid) && $amountPaid >= $totalAmount) {
+                $set('change_given', $amountPaid - $totalAmount);
+            } else {
+                $set('change_given', 0);
+            }
+        }
     }
 
     public static function getPages(): array

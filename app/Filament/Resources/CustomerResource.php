@@ -108,6 +108,7 @@ class CustomerResource extends Resource
                                 'active' => 'Aktif',
                                 'inactive' => 'Tidak Aktif',
                             ])
+                            ->searchable()
                             ->default('active')
                             ->required(),
                     ])
@@ -199,7 +200,8 @@ class CustomerResource extends Resource
                     ->options([
                         'active' => 'Aktif',
                         'inactive' => 'Tidak Aktif',
-                    ]),
+                    ])
+                    ->searchable(),
             ])
             ->actions([
                 Tables\Actions\ActionGroup::make([

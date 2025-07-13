@@ -146,6 +146,7 @@ class BillResource extends Resource
                                 'paid' => 'Sudah Bayar',
                                 'overdue' => 'Terlambat',
                             ])
+                            ->searchable()
                             ->default('unpaid')
                             ->required(),
 
@@ -235,7 +236,8 @@ class BillResource extends Resource
                         'unpaid' => 'Belum Bayar',
                         'paid' => 'Sudah Bayar',
                         'overdue' => 'Terlambat',
-                    ]),
+                    ])
+                    ->searchable(),
 
                 Tables\Filters\Filter::make('overdue')
                     ->label('Tagihan Terlambat')
@@ -297,6 +299,7 @@ class BillResource extends Resource
                                     'qris' => 'QRIS',
                                     'other' => 'Lainnya',
                                 ])
+                                ->searchable()
                                 ->default('cash')
                                 ->required(),
                         ])

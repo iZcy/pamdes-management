@@ -97,6 +97,7 @@ class BillingPeriodResource extends Resource
                                 11 => 'November',
                                 12 => 'Desember'
                             ])
+                            ->searchable()
                             ->required()
                             ->default(now()->month),
 
@@ -115,6 +116,7 @@ class BillingPeriodResource extends Resource
                                 'active' => 'Aktif',
                                 'completed' => 'Selesai',
                             ])
+                            ->searchable()
                             ->default('inactive')
                             ->required(),
                     ])
@@ -196,7 +198,8 @@ class BillingPeriodResource extends Resource
                         'inactive' => 'Tidak Aktif',
                         'active' => 'Aktif',
                         'completed' => 'Selesai',
-                    ]),
+                    ])
+                    ->searchable(),
             ])
             ->actions([
                 Tables\Actions\ActionGroup::make([
