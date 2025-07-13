@@ -82,6 +82,16 @@ class ExportService
             $csvData[] = ['Exported At', now()->format('d/m/Y H:i:s')];
             $csvData[] = ['Village', $this->getCurrentVillageInfo()['name'] ?? 'All Villages'];
             $csvData[] = ['Total Records', count($processedData)];
+
+            // Add date range if available
+            if (isset($metadata['date_range']) && $metadata['date_range'] !== 'Semua periode') {
+                $csvData[] = ['Date Range', $metadata['date_range']];
+            }
+
+            if (isset($metadata['exported_by'])) {
+                $csvData[] = ['Exported By', $metadata['exported_by']];
+            }
+
             $csvData[] = [];
 
             // Add column headers

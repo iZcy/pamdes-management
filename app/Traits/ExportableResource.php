@@ -1,10 +1,11 @@
 <?php
-// app/Traits/ExportableResource.php - Simplified version without filters
+// app/Traits/ExportableResource.php - Simplified version with date range filter
 
 namespace App\Traits;
 
 use App\Models\User;
 use App\Services\ExportService;
+use Filament\Forms;
 use Filament\Tables;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\Auth;
@@ -21,18 +22,48 @@ trait ExportableResource
                 ->label('Export PDF')
                 ->icon('heroicon-o-document-arrow-down')
                 ->color('danger')
-                ->tooltip('Export all data to PDF')
-                ->action(function () {
-                    return static::handleExport('pdf');
+                ->tooltip('Export data to PDF with date range')
+                ->form([
+                    Forms\Components\Section::make('Rentang Tanggal Export')
+                        ->schema([
+                            Forms\Components\DatePicker::make('start_date')
+                                ->label('Tanggal Mulai')
+                                ->placeholder('Pilih tanggal mulai')
+                                ->helperText('Kosongkan untuk mengambil semua data dari awal'),
+
+                            Forms\Components\DatePicker::make('end_date')
+                                ->label('Tanggal Akhir')
+                                ->placeholder('Pilih tanggal akhir')
+                                ->helperText('Kosongkan untuk mengambil semua data sampai sekarang'),
+                        ])
+                        ->columns(2),
+                ])
+                ->action(function (array $data) {
+                    return static::handleExport('pdf', $data);
                 }),
 
             Tables\Actions\Action::make('export_csv')
                 ->label('Export CSV')
                 ->icon('heroicon-o-table-cells')
                 ->color('success')
-                ->tooltip('Export all data to CSV')
-                ->action(function () {
-                    return static::handleExport('csv');
+                ->tooltip('Export data to CSV with date range')
+                ->form([
+                    Forms\Components\Section::make('Rentang Tanggal Export')
+                        ->schema([
+                            Forms\Components\DatePicker::make('start_date')
+                                ->label('Tanggal Mulai')
+                                ->placeholder('Pilih tanggal mulai')
+                                ->helperText('Kosongkan untuk mengambil semua data dari awal'),
+
+                            Forms\Components\DatePicker::make('end_date')
+                                ->label('Tanggal Akhir')
+                                ->placeholder('Pilih tanggal akhir')
+                                ->helperText('Kosongkan untuk mengambil semua data sampai sekarang'),
+                        ])
+                        ->columns(2),
+                ])
+                ->action(function (array $data) {
+                    return static::handleExport('csv', $data);
                 }),
         ];
     }
@@ -66,26 +97,32 @@ trait ExportableResource
     }
 
     /**
-     * Handle export without filters - exports all data
+     * Handle export with date range filter
      */
-    protected static function handleExport(string $format)
+    protected static function handleExport(string $format, array $dateRange = [])
     {
         try {
-            // Get the base query without any filters
+            // Get the base query
             $query = static::getEloquentQuery();
 
-            // Simple metadata for documentation
+            // Apply date range filter if provided
+            if (!empty($dateRange['start_date']) || !empty($dateRange['end_date'])) {
+                $query = static::applyDateRangeFilter($query, $dateRange);
+            }
+
+            // Prepare metadata with date range information
             $metadata = [
-                'export_type' => 'complete_data',
+                'export_type' => !empty($dateRange['start_date']) || !empty($dateRange['end_date']) ? 'date_range_filtered' : 'complete_data',
                 'exported_by' => User::find(Auth::id())->name ?? 'System',
                 'exported_at' => now()->toISOString(),
+                'date_range' => static::formatDateRangeForMetadata($dateRange),
             ];
 
             // Determine export method based on model
             $exportService = app(ExportService::class);
             $fileName = static::callExportMethod($exportService, $query, $format, $metadata);
 
-            static::sendExportNotification($format, $fileName);
+            static::sendExportNotification($format, $fileName, $metadata);
         } catch (\Exception $e) {
             static::sendExportErrorNotification($e->getMessage());
         }
@@ -150,8 +187,59 @@ trait ExportableResource
     }
 
     /**
-     * Send export success notification
+     * Apply date range filter to query based on model
      */
+    protected static function applyDateRangeFilter($query, array $dateRange)
+    {
+        $modelClass = static::getModel();
+        $modelName = class_basename($modelClass);
+
+        // Determine the appropriate date field for each model
+        $dateField = match ($modelName) {
+            'Payment' => 'payment_date',
+            'WaterUsage' => 'usage_date',
+            'Bill' => 'created_at',
+            'Customer' => 'created_at',
+            'BillingPeriod' => 'created_at',
+            'WaterTariff' => 'created_at',
+            'Village' => 'created_at',
+            'User' => 'created_at',
+            'Variable' => 'created_at',
+            default => 'created_at',
+        };
+
+        if (!empty($dateRange['start_date'])) {
+            $query->whereDate($dateField, '>=', $dateRange['start_date']);
+        }
+
+        if (!empty($dateRange['end_date'])) {
+            $query->whereDate($dateField, '<=', $dateRange['end_date']);
+        }
+
+        return $query;
+    }
+
+    /**
+     * Format date range for metadata display
+     */
+    protected static function formatDateRangeForMetadata(array $dateRange): string
+    {
+        $parts = [];
+
+        if (!empty($dateRange['start_date'])) {
+            $parts[] = 'Dari: ' . \Carbon\Carbon::parse($dateRange['start_date'])->format('d/m/Y');
+        }
+
+        if (!empty($dateRange['end_date'])) {
+            $parts[] = 'Sampai: ' . \Carbon\Carbon::parse($dateRange['end_date'])->format('d/m/Y');
+        }
+
+        if (empty($parts)) {
+            return 'Semua periode';
+        }
+
+        return implode(' - ', $parts);
+    }
     protected static function sendExportNotification(string $format, string $fileName)
     {
         Notification::make()
