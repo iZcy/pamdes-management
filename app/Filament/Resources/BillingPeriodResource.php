@@ -160,6 +160,7 @@ class BillingPeriodResource extends Resource
 
                 Tables\Columns\TextColumn::make('status')
                     ->label('Status')
+                    ->badge()
                     ->colors([
                         'gray' => 'inactive',
                         'success' => 'active',
@@ -173,15 +174,30 @@ class BillingPeriodResource extends Resource
 
                 Tables\Columns\TextColumn::make('total_customers')
                     ->label('Jumlah Pelanggan')
-                    ->numeric(),
+                    ->numeric()
+                    ->getStateUsing(function (BillingPeriod $record): int {
+                        return $record->total_customers;
+                    }),
 
                 Tables\Columns\TextColumn::make('total_billed')
                     ->label('Total Tagihan')
-                    ->money('IDR'),
+                    ->money('IDR')
+                    ->getStateUsing(function (BillingPeriod $record): float {
+                        return $record->total_billed;
+                    }),
 
                 Tables\Columns\TextColumn::make('collection_rate')
                     ->label('Tingkat Penagihan')
-                    ->formatStateUsing(fn($state) => number_format($state, 1) . '%'),
+                    ->getStateUsing(function (BillingPeriod $record): string {
+                        return number_format($record->collection_rate, 1) . '%';
+                    })
+                    ->badge()
+                    ->color(fn(BillingPeriod $record): string => match (true) {
+                        $record->collection_rate >= 90 => 'success',
+                        $record->collection_rate >= 75 => 'primary',
+                        $record->collection_rate >= 50 => 'warning',
+                        default => 'danger'
+                    }),
 
                 Tables\Columns\TextColumn::make('billing_due_date')
                     ->label('Jatuh Tempo')

@@ -1,5 +1,5 @@
 <?php
-// app/Models/BillingPeriod.php - Fixed relationships
+// app/Models/BillingPeriod.php - Fixed with proper calculations
 
 namespace App\Models;
 
@@ -29,6 +29,13 @@ class BillingPeriod extends Model
         'reading_start_date' => 'date',
         'reading_end_date' => 'date',
         'billing_due_date' => 'date',
+    ];
+
+    // Add appends to automatically include calculated fields
+    protected $appends = [
+        'total_customers',
+        'total_billed',
+        'collection_rate'
     ];
 
     // Relationships
@@ -102,27 +109,112 @@ class BillingPeriod extends Model
         };
     }
 
-    // Helper methods - Fixed to use correct relationships
+    // Fixed calculation methods with proper error handling
+    public function getTotalCustomersAttribute(): int
+    {
+        try {
+            // Count unique customers who have water usage in this period
+            return $this->waterUsages()
+                ->distinct('customer_id')
+                ->count('customer_id');
+        } catch (\Exception $e) {
+            \Log::error("Error calculating total customers for period {$this->period_id}: " . $e->getMessage());
+            return 0;
+        }
+    }
+
+    public function getTotalBilledAttribute(): float
+    {
+        try {
+            // Sum total amount from bills related to this period
+            return $this->bills()->sum('total_amount') ?? 0;
+        } catch (\Exception $e) {
+            \Log::error("Error calculating total billed for period {$this->period_id}: " . $e->getMessage());
+            return 0;
+        }
+    }
+
+    public function getTotalPaidAttribute(): float
+    {
+        try {
+            // Sum total amount from paid bills related to this period
+            return $this->bills()->where('status', 'paid')->sum('total_amount') ?? 0;
+        } catch (\Exception $e) {
+            \Log::error("Error calculating total paid for period {$this->period_id}: " . $e->getMessage());
+            return 0;
+        }
+    }
+
+    public function getCollectionRateAttribute(): float
+    {
+        try {
+            $totalBilled = $this->getTotalBilledAttribute();
+            if ($totalBilled == 0) return 0;
+
+            $totalPaid = $this->getTotalPaidAttribute();
+            return round(($totalPaid / $totalBilled) * 100, 1);
+        } catch (\Exception $e) {
+            \Log::error("Error calculating collection rate for period {$this->period_id}: " . $e->getMessage());
+            return 0;
+        }
+    }
+
+    // Legacy methods for backwards compatibility
     public function getTotalCustomers(): int
     {
-        return $this->waterUsages()->distinct('customer_id')->count();
+        return $this->getTotalCustomersAttribute();
     }
 
     public function getTotalBilled(): float
     {
-        return $this->bills()->sum('total_amount');
+        return $this->getTotalBilledAttribute();
     }
 
     public function getTotalPaid(): float
     {
-        return $this->bills()->where('status', 'paid')->sum('total_amount');
+        return $this->getTotalPaidAttribute();
     }
 
     public function getCollectionRate(): float
     {
-        $total = $this->getTotalBilled();
-        if ($total == 0) return 0;
+        return $this->getCollectionRateAttribute();
+    }
 
-        return ($this->getTotalPaid() / $total) * 100;
+    // Additional helper methods
+    public function hasWaterUsages(): bool
+    {
+        return $this->waterUsages()->exists();
+    }
+
+    public function hasBills(): bool
+    {
+        return $this->bills()->exists();
+    }
+
+    public function getBillsCount(): int
+    {
+        try {
+            return $this->bills()->count();
+        } catch (\Exception $e) {
+            return 0;
+        }
+    }
+
+    public function getPaidBillsCount(): int
+    {
+        try {
+            return $this->bills()->where('status', 'paid')->count();
+        } catch (\Exception $e) {
+            return 0;
+        }
+    }
+
+    public function getUnpaidBillsCount(): int
+    {
+        try {
+            return $this->bills()->whereIn('status', ['unpaid', 'overdue'])->count();
+        } catch (\Exception $e) {
+            return 0;
+        }
     }
 }

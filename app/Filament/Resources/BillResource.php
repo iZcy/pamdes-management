@@ -5,7 +5,6 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\BillResource\Pages;
 use App\Models\Bill;
-use App\Models\Customer;
 use App\Models\User;
 use App\Models\WaterUsage;
 use App\Traits\ExportableResource;
@@ -14,8 +13,8 @@ use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Filament\Support\Colors\Color;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 
 class BillResource extends Resource
@@ -29,6 +28,30 @@ class BillResource extends Resource
     protected static ?string $pluralModelLabel = 'Tagihan';
     protected static ?int $navigationSort = 4;
     protected static ?string $navigationGroup = 'Tagihan & Pembayaran';
+
+    // Disable creation of new bills
+    public static function canCreate(): bool
+    {
+        return false;
+    }
+
+    // Disable editing of existing bills
+    public static function canEdit(Model $record): bool
+    {
+        return false;
+    }
+
+    // Optional: Also disable deletion if you want bills to be read-only
+    public static function canDelete(Model $record): bool
+    {
+        return false;
+    }
+
+    // Optional: Disable bulk deletion too
+    public static function canDeleteAny(): bool
+    {
+        return false;
+    }
 
     public static function getEloquentQuery(): Builder
     {

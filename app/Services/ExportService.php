@@ -384,7 +384,7 @@ class ExportService
     }
 
     /**
-     * Export Billing Periods
+     * Export Billing Periods - Fixed version
      */
     public function exportBillingPeriods(Builder $query, string $format, array $metadata = []): string
     {
@@ -403,24 +403,10 @@ class ExportService
         ];
 
         $exportData = $periods->map(function ($period) {
-            // Safely get calculated values with error handling
-            try {
-                $totalCustomers = $period->getTotalCustomers();
-            } catch (\Exception $e) {
-                $totalCustomers = 0;
-            }
-
-            try {
-                $totalBilled = $period->getTotalBilled();
-            } catch (\Exception $e) {
-                $totalBilled = 0;
-            }
-
-            try {
-                $collectionRate = $period->getCollectionRate();
-            } catch (\Exception $e) {
-                $collectionRate = 0;
-            }
+            // Use the accessor methods directly
+            $totalCustomers = $period->total_customers;
+            $totalBilled = $period->total_billed;
+            $collectionRate = $period->collection_rate;
 
             return [
                 'village_name' => $period->village->name ?? '',
