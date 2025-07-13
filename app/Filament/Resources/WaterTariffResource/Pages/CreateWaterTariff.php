@@ -51,7 +51,8 @@ class CreateWaterTariff extends CreateRecord
                 ->duration(10000) // Show error longer
                 ->send();
 
-            throw $e;
+            $this->halt();
+            return $tariff;
         }
     }
 
@@ -64,15 +65,30 @@ class CreateWaterTariff extends CreateRecord
     {
         // Add some helpful validation messages
         if (!isset($data['village_id']) || !$data['village_id']) {
-            throw new \Exception('Village is required');
+            Notification::make()
+                ->title('Gagal membuat tarif')
+                ->body('Desa harus dipilih')
+                ->danger()
+                ->send();
+            $this->halt();
         }
 
         if (!isset($data['usage_min']) || $data['usage_min'] < 0) {
-            throw new \Exception('Valid minimum usage is required');
+            Notification::make()
+                ->title('Gagal membuat tarif')
+                ->body('Penggunaan minimum harus diisi dan tidak boleh negatif')
+                ->danger()
+                ->send();
+            $this->halt();
         }
 
         if (!isset($data['price_per_m3']) || $data['price_per_m3'] <= 0) {
-            throw new \Exception('Price per m³ must be greater than 0');
+            Notification::make()
+                ->title('Gagal membuat tarif')
+                ->body('Harga per m³ harus diisi dan lebih besar dari 0')
+                ->danger()
+                ->send();
+            $this->halt();
         }
 
         return $data;

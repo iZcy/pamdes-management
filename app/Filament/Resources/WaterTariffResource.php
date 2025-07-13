@@ -338,28 +338,61 @@ class WaterTariffResource extends Resource
                                         $tariffs = $updatedTariffs;
                                     }
 
-                                    // For edit context, update current record values
+                                    // For edit context, update the current record values with form data
                                     if ($record) {
-                                        foreach ($tariffs as &$tariff) {
-                                            if ($tariff['usage_min'] == $record->usage_min) {
-                                                $tariff['usage_min'] = (int) ($get('usage_min') ?? $record->usage_min);
-                                                $tariff['usage_max'] = $get('usage_max') !== null ? (int) $get('usage_max') : $record->usage_max;
-                                                $tariff['price_per_m3'] = (float) ($get('price_per_m3') ?? $record->price_per_m3);
+                                        $recordUpdated = false;
 
-                                                if ($tariff['usage_max'] === null) {
-                                                    $tariff['range_display'] = $tariff['usage_min'] . '+ m³';
-                                                } else {
-                                                    $tariff['range_display'] = $tariff['usage_min'] . '-' . $tariff['usage_max'] . ' m³';
+                                        foreach ($tariffs as &$tariff) {
+                                            // Match by the original record's usage_min to identify which tariff is being edited
+                                            if ($tariff['usage_min'] == $record->usage_min && !$recordUpdated) {
+                                                // Get form values, fallback to original record values
+                                                $formUsageMin = $get('usage_min');
+                                                $formUsageMax = $get('usage_max');
+                                                $formPrice = $get('price_per_m3');
+
+                                                // Only update if form values are different from original
+                                                $hasChanges = false;
+
+                                                if ($formUsageMin !== null && $formUsageMin != $record->usage_min) {
+                                                    $tariff['usage_min'] = (int) $formUsageMin;
+                                                    $hasChanges = true;
                                                 }
-                                                $tariff['is_preview'] = true;
+
+                                                if ($formUsageMax !== null && $formUsageMax != $record->usage_max) {
+                                                    $tariff['usage_max'] = (int) $formUsageMax;
+                                                    $hasChanges = true;
+                                                }
+
+                                                if ($formPrice !== null && $formPrice != $record->price_per_m3) {
+                                                    $tariff['price_per_m3'] = (float) $formPrice;
+                                                    $hasChanges = true;
+                                                }
+
+                                                // Update range display if there were changes
+                                                if ($hasChanges) {
+                                                    if ($tariff['usage_max'] === null) {
+                                                        $tariff['range_display'] = $tariff['usage_min'] . '+ m³';
+                                                    } else {
+                                                        $tariff['range_display'] = $tariff['usage_min'] . '-' . $tariff['usage_max'] . ' m³';
+                                                    }
+                                                    $tariff['is_preview'] = true;
+                                                }
+
+                                                $recordUpdated = true;
                                                 break;
                                             }
                                         }
+                                        unset($tariff); // Clean up reference
                                     }
 
                                     if (empty($tariffs)) {
-                                        return '<div class="text-transparent italic">Belum ada tarif untuk desa ini</div>';
+                                        return '<div class="text-gray-500 italic">Belum ada tarif untuk desa ini</div>';
                                     }
+
+                                    // Sort tariffs by usage_min to ensure proper order
+                                    usort($tariffs, function ($a, $b) {
+                                        return $a['usage_min'] <=> $b['usage_min'];
+                                    });
 
                                     $content = '<div class="space-y-2">';
                                     foreach ($tariffs as $tariff) {
@@ -368,11 +401,11 @@ class WaterTariffResource extends Resource
                                         if ($tariff['editable_fields']['can_edit_max']) $editableInfo[] = 'max';
                                         $editableText = !empty($editableInfo) ? ' <span class="text-xs text-blue-600">(dapat edit: ' . implode(', ', $editableInfo) . ')</span>' : '';
 
-                                        $previewClass = isset($tariff['is_preview']) ? 'border-blue-500 bg-blue-50' : 'border-transparent';
+                                        $previewClass = isset($tariff['is_preview']) ? 'border-blue-500 bg-blue-50' : 'border-gray-200';
                                         $previewLabel = isset($tariff['is_preview']) ? ' <span class="text-xs text-blue-600 font-bold">(PREVIEW)</span>' : '';
 
                                         $content .= '<div class="flex justify-between items-center p-3 rounded-lg border ' . $previewClass . '">';
-                                        $content .= '<span class="font-medium text-transparent">' . $tariff['range_display'] . $previewLabel . '</span>';
+                                        $content .= '<span class="font-medium text-gray-900">' . $tariff['range_display'] . $previewLabel . '</span>';
                                         $content .= '<span class="text-green-600 font-semibold">Rp ' . number_format($tariff['price_per_m3']) . '/m³' . $editableText . '</span>';
                                         $content .= '</div>';
                                     }
