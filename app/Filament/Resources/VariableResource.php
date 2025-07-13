@@ -289,31 +289,33 @@ class VariableResource extends Resource
                     ->falseLabel('Sandbox'),
             ])
             ->actions([
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\Action::make('test_connection')
-                    ->label('Test Koneksi')
-                    ->icon('heroicon-o-wifi')
-                    ->color('info')
-                    ->action(function (Variable $record) {
-                        // Test Tripay connection
-                        try {
-                            $tripayService = new \App\Services\TripayService($record->village);
-                            $channels = $tripayService->getPaymentChannels();
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\EditAction::make(),
+                    Tables\Actions\Action::make('test_connection')
+                        ->label('Test Koneksi')
+                        ->icon('heroicon-o-wifi')
+                        ->color('info')
+                        ->action(function (Variable $record) {
+                            // Test Tripay connection
+                            try {
+                                $tripayService = new \App\Services\TripayService($record->village);
+                                $channels = $tripayService->getPaymentChannels();
 
-                            \Filament\Notifications\Notification::make()
-                                ->title('Koneksi Berhasil')
-                                ->body('Berhasil terhubung ke Tripay. Ditemukan ' . count($channels) . ' channel pembayaran.')
-                                ->success()
-                                ->send();
-                        } catch (\Exception $e) {
-                            \Filament\Notifications\Notification::make()
-                                ->title('Koneksi Gagal')
-                                ->body('Error: ' . $e->getMessage())
-                                ->danger()
-                                ->send();
-                        }
-                    })
-                    ->visible(fn(Variable $record) => $record->isConfigured()),
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Koneksi Berhasil')
+                                    ->body('Berhasil terhubung ke Tripay. Ditemukan ' . count($channels) . ' channel pembayaran.')
+                                    ->success()
+                                    ->send();
+                            } catch (\Exception $e) {
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Koneksi Gagal')
+                                    ->body('Error: ' . $e->getMessage())
+                                    ->danger()
+                                    ->send();
+                            }
+                        })
+                        ->visible(fn(Variable $record) => $record->isConfigured()),
+                ])
             ])
             ->emptyStateHeading('Belum Ada Pengaturan')
             ->emptyStateDescription('Buat pengaturan Tripay untuk desa Anda')

@@ -199,41 +199,43 @@ class BillingPeriodResource extends Resource
                     ]),
             ])
             ->actions([
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\Action::make('generate_bills')
-                    ->label('Generate Tagihan')
-                    ->icon('heroicon-o-document-plus')
-                    ->color('success')
-                    ->visible(fn(BillingPeriod $record): bool => $record->status === 'active')
-                    ->action(function (BillingPeriod $record) {
-                        $recorded = 0;
-                        $record->waterUsages->each(function ($usage) use (&$recorded) {
-                            $village = \App\Models\Village::find($usage->customer->village_id);
-                            if (!$usage->bill()->exists()) {
-                                $usage->generateBill([
-                                    'admin_fee' => $village?->getDefaultAdminFee() ?? 5000,
-                                    'maintenance_fee' => $village?->getDefaultMaintenanceFee() ?? 2000,
-                                ]);
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\ViewAction::make(),
+                    Tables\Actions\EditAction::make(),
+                    Tables\Actions\Action::make('generate_bills')
+                        ->label('Generate Tagihan')
+                        ->icon('heroicon-o-document-plus')
+                        ->color('success')
+                        ->visible(fn(BillingPeriod $record): bool => $record->status === 'active')
+                        ->action(function (BillingPeriod $record) {
+                            $recorded = 0;
+                            $record->waterUsages->each(function ($usage) use (&$recorded) {
+                                $village = \App\Models\Village::find($usage->customer->village_id);
+                                if (!$usage->bill()->exists()) {
+                                    $usage->generateBill([
+                                        'admin_fee' => $village?->getDefaultAdminFee() ?? 5000,
+                                        'maintenance_fee' => $village?->getDefaultMaintenanceFee() ?? 2000,
+                                    ]);
 
-                                $recorded++;
+                                    $recorded++;
+                                }
+                            });
+
+                            if ($recorded === 0) {
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Tidak ada tagihan baru')
+                                    ->body('Tidak ada tagihan yang perlu dibuat untuk periode ini.')
+                                    ->warning()
+                                    ->send();
+                            } else {
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Tagihan berhasil dibuat')
+                                    ->body("Berhasil membuat {$recorded} tagihan untuk periode {$record->period_name}.")
+                                    ->success()
+                                    ->send();
                             }
-                        });
-
-                        if ($recorded === 0) {
-                            \Filament\Notifications\Notification::make()
-                                ->title('Tidak ada tagihan baru')
-                                ->body('Tidak ada tagihan yang perlu dibuat untuk periode ini.')
-                                ->warning()
-                                ->send();
-                        } else {
-                            \Filament\Notifications\Notification::make()
-                                ->title('Tagihan berhasil dibuat')
-                                ->body("Berhasil membuat {$recorded} tagihan untuk periode {$record->period_name}.")
-                                ->success()
-                                ->send();
-                        }
-                    }),
+                        }),
+                ])
             ])
             ->headerActions([
                 ...static::getExportHeaderActions(),

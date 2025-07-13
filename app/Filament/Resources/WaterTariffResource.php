@@ -685,53 +685,55 @@ class WaterTariffResource extends Resource
                     ->falseLabel('Tidak Aktif'),
             ])
             ->actions([
-                Tables\Actions\EditAction::make()
-                    ->mutateFormDataUsing(function (array $data, WaterTariff $record): array {
-                        // Handle smart updates using the service
-                        try {
-                            $service = app(TariffRangeService::class);
-                            $fields = $service->getEditableFields($record);
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\EditAction::make()
+                        ->mutateFormDataUsing(function (array $data, WaterTariff $record): array {
+                            // Handle smart updates using the service
+                            try {
+                                $service = app(TariffRangeService::class);
+                                $fields = $service->getEditableFields($record);
 
-                            $newMin = $fields['can_edit_min'] && isset($data['usage_min']) ? $data['usage_min'] : null;
-                            $newMax = $fields['can_edit_max'] && isset($data['usage_max']) ? $data['usage_max'] : null;
-                            $newPrice = isset($data['price_per_m3']) ? $data['price_per_m3'] : null;
+                                $newMin = $fields['can_edit_min'] && isset($data['usage_min']) ? $data['usage_min'] : null;
+                                $newMax = $fields['can_edit_max'] && isset($data['usage_max']) ? $data['usage_max'] : null;
+                                $newPrice = isset($data['price_per_m3']) ? $data['price_per_m3'] : null;
 
-                            $service->updateTariffRange($record, $newMax, $newMin, $newPrice);
+                                $service->updateTariffRange($record, $newMax, $newMin, $newPrice);
 
-                            Notification::make()
-                                ->title('Tarif berhasil diperbarui')
-                                ->success()
-                                ->send();
-                        } catch (\Exception $e) {
-                            Notification::make()
-                                ->title('Gagal memperbarui tarif')
-                                ->body($e->getMessage())
-                                ->danger()
-                                ->send();
+                                Notification::make()
+                                    ->title('Tarif berhasil diperbarui')
+                                    ->success()
+                                    ->send();
+                            } catch (\Exception $e) {
+                                Notification::make()
+                                    ->title('Gagal memperbarui tarif')
+                                    ->body($e->getMessage())
+                                    ->danger()
+                                    ->send();
 
-                            throw $e;
-                        }
+                                throw $e;
+                            }
 
-                        return $data;
-                    }),
+                            return $data;
+                        }),
 
-                Tables\Actions\DeleteAction::make()
-                    ->action(function (WaterTariff $record) {
-                        try {
-                            app(TariffRangeService::class)->deleteTariffRange($record);
+                    Tables\Actions\DeleteAction::make()
+                        ->action(function (WaterTariff $record) {
+                            try {
+                                app(TariffRangeService::class)->deleteTariffRange($record);
 
-                            Notification::make()
-                                ->title('Tarif berhasil dihapus')
-                                ->success()
-                                ->send();
-                        } catch (\Exception $e) {
-                            Notification::make()
-                                ->title('Gagal menghapus tarif')
-                                ->body($e->getMessage())
-                                ->danger()
-                                ->send();
-                        }
-                    }),
+                                Notification::make()
+                                    ->title('Tarif berhasil dihapus')
+                                    ->success()
+                                    ->send();
+                            } catch (\Exception $e) {
+                                Notification::make()
+                                    ->title('Gagal menghapus tarif')
+                                    ->body($e->getMessage())
+                                    ->danger()
+                                    ->send();
+                            }
+                        }),
+                ])
             ])
             ->headerActions([
                 ...static::getExportHeaderActions(),

@@ -346,14 +346,16 @@ class PaymentResource extends Resource
                         ->whereYear('payment_date', now()->year)),
             ])
             ->actions([
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\Action::make('print_receipt')
-                    ->label('Cetak Kwitansi')
-                    ->icon('heroicon-o-printer')
-                    ->color('primary')
-                    ->url(fn(Payment $record): string => "/admin/payments/{$record->payment_id}/receipt")
-                    ->openUrlInNewTab(),
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\ViewAction::make(),
+                    Tables\Actions\EditAction::make(),
+                    Tables\Actions\Action::make('print_receipt')
+                        ->label('Cetak Kwitansi')
+                        ->icon('heroicon-o-printer')
+                        ->color('primary')
+                        ->url(fn(Payment $record): string => "/admin/payments/{$record->payment_id}/receipt")
+                        ->openUrlInNewTab(),
+                ])
             ])
             ->headerActions([
                 ...static::getExportHeaderActions(),

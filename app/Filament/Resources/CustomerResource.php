@@ -202,8 +202,10 @@ class CustomerResource extends Resource
                     ]),
             ])
             ->actions([
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\ViewAction::make(),
+                    Tables\Actions\EditAction::make(),
+                ])
             ])
             ->headerActions([
                 // Simplified Export Actions - exports all data without processing table filters

@@ -261,47 +261,49 @@ class BillResource extends Resource
                     })
             ])
             ->actions([
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\ViewAction::make(),
+                    Tables\Actions\EditAction::make(),
 
-                // Print Receipt Action
-                Tables\Actions\Action::make('print_receipt')
-                    ->label('Cetak Kwitansi')
-                    ->icon('heroicon-o-printer')
-                    ->color('primary')
-                    ->url(fn(Bill $record): string => route('bill.receipt', $record))
-                    ->openUrlInNewTab()
-                    ->tooltip('Cetak/Lihat kwitansi tagihan'),
+                    // Print Receipt Action
+                    Tables\Actions\Action::make('print_receipt')
+                        ->label('Cetak Kwitansi')
+                        ->icon('heroicon-o-printer')
+                        ->color('primary')
+                        ->url(fn(Bill $record): string => route('bill.receipt', $record))
+                        ->openUrlInNewTab()
+                        ->tooltip('Cetak/Lihat kwitansi tagihan'),
 
-                Tables\Actions\Action::make('mark_paid')
-                    ->label('Tandai Lunas')
-                    ->icon('heroicon-o-check-circle')
-                    ->color('success')
-                    ->visible(fn(Bill $record): bool => $record->canBePaid())
-                    ->form([
-                        Forms\Components\DatePicker::make('payment_date')
-                            ->label('Tanggal Pembayaran')
-                            ->default(now())
-                            ->required(),
-                        Forms\Components\TextInput::make('amount_paid')
-                            ->label('Jumlah Dibayar')
-                            ->numeric()
-                            ->prefix('Rp')
-                            ->required(),
-                        Forms\Components\Select::make('payment_method')
-                            ->label('Metode Pembayaran')
-                            ->options([
-                                'cash' => 'Tunai',
-                                'transfer' => 'Transfer',
-                                'qris' => 'QRIS',
-                                'other' => 'Lainnya',
-                            ])
-                            ->default('cash')
-                            ->required(),
-                    ])
-                    ->action(function (Bill $record, array $data) {
-                        $record->markAsPaid($data);
-                    }),
+                    Tables\Actions\Action::make('mark_paid')
+                        ->label('Tandai Lunas')
+                        ->icon('heroicon-o-check-circle')
+                        ->color('success')
+                        ->visible(fn(Bill $record): bool => $record->canBePaid())
+                        ->form([
+                            Forms\Components\DatePicker::make('payment_date')
+                                ->label('Tanggal Pembayaran')
+                                ->default(now())
+                                ->required(),
+                            Forms\Components\TextInput::make('amount_paid')
+                                ->label('Jumlah Dibayar')
+                                ->numeric()
+                                ->prefix('Rp')
+                                ->required(),
+                            Forms\Components\Select::make('payment_method')
+                                ->label('Metode Pembayaran')
+                                ->options([
+                                    'cash' => 'Tunai',
+                                    'transfer' => 'Transfer',
+                                    'qris' => 'QRIS',
+                                    'other' => 'Lainnya',
+                                ])
+                                ->default('cash')
+                                ->required(),
+                        ])
+                        ->action(function (Bill $record, array $data) {
+                            $record->markAsPaid($data);
+                        }),
+                ])
             ])
             ->headerActions([
                 // Simplified Export Actions - exports all data

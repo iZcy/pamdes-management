@@ -221,20 +221,22 @@ class WaterUsageResource extends Resource
                     ->query(fn($query) => $query->whereDoesntHave('bill')),
             ])
             ->actions([
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\Action::make('generate_bill')
-                    ->label('Buat Tagihan')
-                    ->icon('heroicon-o-document-plus')
-                    ->color('success')
-                    ->visible(fn(WaterUsage $record): bool => $record->bill === null)
-                    ->action(function (WaterUsage $record) {
-                        $village = \App\Models\Village::find($record->customer->village_id);
-                        $record->generateBill([
-                            'admin_fee' => $village?->getDefaultAdminFee() ?? 5000,
-                            'maintenance_fee' => $village?->getDefaultMaintenanceFee() ?? 2000,
-                        ]);
-                    }),
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\ViewAction::make(),
+                    Tables\Actions\EditAction::make(),
+                    Tables\Actions\Action::make('generate_bill')
+                        ->label('Buat Tagihan')
+                        ->icon('heroicon-o-document-plus')
+                        ->color('success')
+                        ->visible(fn(WaterUsage $record): bool => $record->bill === null)
+                        ->action(function (WaterUsage $record) {
+                            $village = \App\Models\Village::find($record->customer->village_id);
+                            $record->generateBill([
+                                'admin_fee' => $village?->getDefaultAdminFee() ?? 5000,
+                                'maintenance_fee' => $village?->getDefaultMaintenanceFee() ?? 2000,
+                            ]);
+                        }),
+                ])
             ])
             ->headerActions([
                 // Add export actions to header

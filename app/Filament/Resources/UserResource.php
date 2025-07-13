@@ -183,14 +183,16 @@ class UserResource extends Resource
                     ->falseLabel('Tidak Aktif'),
             ])
             ->actions([
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make()
-                    ->before(function (User $record) {
-                        if ($record->isSuperAdmin() && User::superAdmins()->count() <= 1) {
-                            throw new \Exception('Cannot delete the last super administrator.');
-                        }
-                    }),
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\ViewAction::make(),
+                    Tables\Actions\EditAction::make(),
+                    Tables\Actions\DeleteAction::make()
+                        ->before(function (User $record) {
+                            if ($record->isSuperAdmin() && User::superAdmins()->count() <= 1) {
+                                throw new \Exception('Cannot delete the last super administrator.');
+                            }
+                        }),
+                ]),
             ])
             ->headerActions([
                 ...static::getExportHeaderActions(),
