@@ -207,8 +207,32 @@ class BillingPeriodResource extends Resource
                     ->color('success')
                     ->visible(fn(BillingPeriod $record): bool => $record->status === 'active')
                     ->action(function (BillingPeriod $record) {
-                        // Logic to generate bills for this period
-                        // This will be implemented later
+                        $recorded = 0;
+                        $record->waterUsages->each(function ($usage) use (&$recorded) {
+                            $village = \App\Models\Village::find($usage->customer->village_id);
+                            if (!$usage->bill()->exists()) {
+                                $usage->generateBill([
+                                    'admin_fee' => $village?->getDefaultAdminFee() ?? 5000,
+                                    'maintenance_fee' => $village?->getDefaultMaintenanceFee() ?? 2000,
+                                ]);
+
+                                $recorded++;
+                            }
+                        });
+
+                        if ($recorded === 0) {
+                            \Filament\Notifications\Notification::make()
+                                ->title('Tidak ada tagihan baru')
+                                ->body('Tidak ada tagihan yang perlu dibuat untuk periode ini.')
+                                ->warning()
+                                ->send();
+                        } else {
+                            \Filament\Notifications\Notification::make()
+                                ->title('Tagihan berhasil dibuat')
+                                ->body("Berhasil membuat {$recorded} tagihan untuk periode {$record->period_name}.")
+                                ->success()
+                                ->send();
+                        }
                     }),
             ])
             ->headerActions([
