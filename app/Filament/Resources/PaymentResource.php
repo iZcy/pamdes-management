@@ -7,6 +7,7 @@ use App\Filament\Resources\PaymentResource\Pages;
 use App\Models\Payment;
 use App\Models\User;
 use App\Models\Collector;
+use App\Models\Village;
 use App\Traits\ExportableResource;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -60,7 +61,8 @@ class PaymentResource extends Resource
                             ->label('Desa')
                             ->content(function (?Payment $record) {
                                 if ($record && $record->bill?->waterUsage?->customer?->village) {
-                                    return $record->bill->waterUsage->customer->village->name;
+                                    $village = Village::find($record->bill->waterUsage->customer->village_id);
+                                    return $village?->name ?? 'Unknown Village';
                                 }
                                 $user = User::find(Auth::user()->id);
                                 $currentVillage = $user?->getCurrentVillageContext();
