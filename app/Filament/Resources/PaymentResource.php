@@ -1,5 +1,5 @@
 <?php
-// app/Filament/Resources/PaymentResource.php - Updated with collector integration
+// app/Filament/Resources/PaymentResource.php - Updated with role-based access
 
 namespace App\Filament\Resources;
 
@@ -20,7 +20,7 @@ use Illuminate\Support\Facades\Hash;
 
 class PaymentResource extends Resource
 {
-    use ExportableResource; // Add this trait
+    use ExportableResource;
 
     protected static ?string $model = Payment::class;
     protected static ?string $navigationIcon = 'heroicon-o-banknotes';
@@ -29,6 +29,77 @@ class PaymentResource extends Resource
     protected static ?string $pluralModelLabel = 'Pembayaran';
     protected static ?int $navigationSort = 6;
     protected static ?string $navigationGroup = 'Tagihan & Pembayaran';
+
+    // Role-based navigation visibility
+    public static function shouldRegisterNavigation(): bool
+    {
+        $user = Auth::user();
+        $user = User::find($user->id);
+
+        // Super admin and village admin have full access
+        if ($user?->isSuperAdmin() || $user?->role === 'village_admin') {
+            return true;
+        }
+
+        // Collectors can access payments (their main function)
+        if ($user?->role === 'collector') {
+            return true;
+        }
+
+        // Operators cannot access payments
+        return false;
+    }
+
+    // Role-based record access
+    public static function canCreate(): bool
+    {
+        $user = User::find(Auth::user()->id);
+
+        // Super admin and village admin can create
+        if ($user?->isSuperAdmin() || $user?->role === 'village_admin') {
+            return true;
+        }
+
+        // Collectors can create payments (their primary function)
+        if ($user?->role === 'collector') {
+            return true;
+        }
+
+        // Operators cannot create payments
+        return false;
+    }
+
+    public static function canEdit(\Illuminate\Database\Eloquent\Model $record): bool
+    {
+        $user = User::find(Auth::user()->id);
+
+        // Super admin and village admin can edit
+        if ($user?->isSuperAdmin() || $user?->role === 'village_admin') {
+            return true;
+        }
+
+        // Collectors can edit their own payments within 24 hours
+        if ($user?->role === 'collector') {
+            return $record->collector_id === $user->id &&
+                $record->created_at->gt(now()->subDay());
+        }
+
+        return false;
+    }
+
+    public static function canDelete(\Illuminate\Database\Eloquent\Model $record): bool
+    {
+        $user = User::find(Auth::user()->id);
+
+        // Only super admin and village admin can delete
+        return $user?->isSuperAdmin() || $user?->role === 'village_admin';
+    }
+
+    public static function canDeleteAny(): bool
+    {
+        $user = User::find(Auth::user()->id);
+        return $user?->isSuperAdmin() || $user?->role === 'village_admin';
+    }
 
     public static function getEloquentQuery(): Builder
     {
@@ -41,7 +112,13 @@ class PaymentResource extends Resource
             $query->whereHas('bill.waterUsage.customer', function ($q) use ($currentVillage) {
                 $q->where('village_id', $currentVillage);
             });
-        } elseif ($user?->isVillageAdmin()) {
+        } elseif ($user?->role === 'village_admin') {
+            $accessibleVillages = $user->getAccessibleVillages()->pluck('id');
+            $query->whereHas('bill.waterUsage.customer', function ($q) use ($accessibleVillages) {
+                $q->whereIn('village_id', $accessibleVillages);
+            });
+        } elseif ($user?->role === 'collector') {
+            // Collectors see all payments in their village(s) for reference
             $accessibleVillages = $user->getAccessibleVillages()->pluck('id');
             $query->whereHas('bill.waterUsage.customer', function ($q) use ($accessibleVillages) {
                 $q->whereIn('village_id', $accessibleVillages);
@@ -53,6 +130,9 @@ class PaymentResource extends Resource
 
     public static function form(Form $form): Form
     {
+        $user = User::find(Auth::user()->id);
+        $isCollector = $user?->role === 'collector';
+
         return $form
             ->schema([
                 Forms\Components\Section::make('Informasi Pembayaran')
@@ -88,6 +168,7 @@ class PaymentResource extends Resource
                             ->columnSpan(2)
                             ->reactive(),
 
+                        // Collector field - auto-fill for collectors, selectable for admins
                         Forms\Components\Select::make('collector_id')
                             ->label('Penagih/Kasir')
                             ->options(function () {
@@ -112,63 +193,12 @@ class PaymentResource extends Resource
                                     ->toArray();
                             })
                             ->searchable()
-                            ->allowHtml()
-                            ->createOptionForm([
-                                Forms\Components\TextInput::make('name')
-                                    ->label('Nama Lengkap')
-                                    ->required()
-                                    ->maxLength(255),
-
-                                Forms\Components\TextInput::make('email')
-                                    ->label('Email')
-                                    ->email()
-                                    ->required()
-                                    ->unique('users', 'email'),
-
-                                Forms\Components\TextInput::make('password')
-                                    ->label('Password')
-                                    ->password()
-                                    ->required()
-                                    ->minLength(8),
-
-                                Forms\Components\TextInput::make('contact_info')
-                                    ->label('Nomor Telepon')
-                                    ->tel()
-                                    ->maxLength(20),
-
-                                Forms\Components\Select::make('role')
-                                    ->label('Peran')
-                                    ->options([
-                                        'collector' => 'Penagih',
-                                        'operator' => 'Operator',
-                                    ])
-                                    ->searchable()
-                                    ->default('collector')
-                                    ->required(),
-                            ])
-                            ->createOptionUsing(function (array $data) {
-                                $user = Auth::user();
-                                $user = User::find($user->id);
-                                $currentVillage = $user?->getCurrentVillageContext();
-
-                                if (!$currentVillage) {
-                                    throw new \Exception('Village context not found');
-                                }
-
-                                $newUser = User::create([
-                                    'name' => $data['name'],
-                                    'email' => $data['email'],
-                                    'password' => Hash::make($data['password']),
-                                    'contact_info' => $data['contact_info'] ?? null,
-                                    'role' => $data['role'],
-                                    'is_active' => true,
-                                ]);
-
-                                // Assign to current village
-                                $newUser->assignToVillage($currentVillage, false);
-
-                                return $newUser->id;
-                            }),
+                            ->default(function () use ($isCollector) {
+                                // Auto-fill collector ID for collectors
+                                return $isCollector ? Auth::id() : null;
+                            })
+                            ->disabled($isCollector) // Collectors cannot change this
+                            ->dehydrated(),
 
                         Forms\Components\TextInput::make('amount_paid')
                             ->label('Jumlah Dibayar')
@@ -192,6 +222,7 @@ class PaymentResource extends Resource
                             ->options([
                                 'cash' => 'Tunai',
                                 'transfer' => 'Transfer Bank',
+                                'qris' => 'QRIS',
                                 'other' => 'Lainnya',
                             ])
                             ->searchable()
@@ -203,7 +234,6 @@ class PaymentResource extends Resource
                             ->default(now())
                             ->required()
                             ->displayFormat('d M Y'),
-
 
                         Forms\Components\TextInput::make('payment_reference')
                             ->label('Referensi Pembayaran')
@@ -224,6 +254,7 @@ class PaymentResource extends Resource
         $user = Auth::user();
         $user = User::find($user->id);
         $isSuperAdmin = $user?->isSuperAdmin();
+        $isCollector = $user?->role === 'collector';
 
         return $table
             ->columns([
@@ -294,12 +325,6 @@ class PaymentResource extends Resource
                     ->money('IDR')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
-
-                Tables\Columns\TextColumn::make('created_at')
-                    ->label('Dicatat')
-                    ->dateTime()
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('village')
@@ -321,27 +346,8 @@ class PaymentResource extends Resource
                     ->label('Penagih/Kasir')
                     ->relationship('collector', 'name')
                     ->searchable()
-                    ->preload(),
-
-                Tables\Filters\Filter::make('today')
-                    ->label('Hari Ini')
-                    ->query(fn(Builder $query) => $query->whereDate('payment_date', today())),
-
-                Tables\Filters\Filter::make('this_week')
-                    ->label('Minggu Ini')
-                    ->query(fn(Builder $query) => $query->whereBetween('payment_date', [
-                        now()->startOfWeek(),
-                        now()->endOfWeek()
-                    ])),
-
-                Tables\Filters\Filter::make('this_month')
-                    ->label('Bulan Ini')
-                    ->query(fn(Builder $query) => $query->whereMonth('payment_date', now()->month)
-                        ->whereYear('payment_date', now()->year)),
-
-                Tables\Filters\Filter::make('has_change')
-                    ->label('Ada Kembalian')
-                    ->query(fn(Builder $query) => $query->where('change_given', '>', 0)),
+                    ->preload()
+                    ->visible(!$isCollector), // Collectors don't need this filter
 
                 Tables\Filters\Filter::make('today')
                     ->label('Hari Ini')
@@ -362,7 +368,8 @@ class PaymentResource extends Resource
             ->actions([
                 Tables\Actions\ActionGroup::make([
                     Tables\Actions\ViewAction::make(),
-                    Tables\Actions\EditAction::make(),
+                    Tables\Actions\EditAction::make()
+                        ->visible(fn(Payment $record): bool => static::canEdit($record)),
                     Tables\Actions\Action::make('print_receipt')
                         ->label('Cetak Kwitansi')
                         ->icon('heroicon-o-printer')
@@ -372,27 +379,30 @@ class PaymentResource extends Resource
                 ])
             ])
             ->headerActions([
-                ...static::getExportHeaderActions(),
+                // Only admins can export
+                ...($isCollector ? [] : static::getExportHeaderActions()),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
-                    Tables\Actions\BulkAction::make('export_daily_report')
-                        ->label('Ekspor Laporan Harian')
-                        ->icon('heroicon-o-document-arrow-down')
-                        ->color('success')
+                    // Only admins can bulk delete
+                    ...($isCollector ? [] : [Tables\Actions\DeleteBulkAction::make()]),
+
+                    Tables\Actions\BulkAction::make('bulk_print')
+                        ->label('Cetak Kwitansi Terpilih')
+                        ->icon('heroicon-o-printer')
+                        ->color('primary')
                         ->action(function ($records) {
-                            // Implementation for daily report export
-                            // This would generate a PDF or Excel file
-                        }),
-                    ...static::getExportBulkActions(),
+                            $urls = $records->map(fn(Payment $payment) =>
+                            "/admin/payments/{$payment->payment_id}/receipt")->toArray();
+                            return redirect()->back()->with('openUrls', $urls);
+                        })
+                        ->deselectRecordsAfterCompletion(),
+
+                    // Only admins can export
+                    ...($isCollector ? [] : static::getExportBulkActions()),
                 ]),
             ])
-            ->defaultSort('payment_date', 'desc')
-            ->poll('30s') // Auto-refresh every 30 seconds for real-time updates
-            ->persistSortInSession()
-            ->persistSearchInSession()
-            ->persistFiltersInSession();
+            ->defaultSort('payment_date', 'desc');
     }
 
     protected static function updateChangeGiven(callable $set, callable $get): void
@@ -423,15 +433,21 @@ class PaymentResource extends Resource
     public static function getNavigationBadge(): ?string
     {
         $user = User::find(Auth::user()->id);
-        $currentVillage = $user?->getCurrentVillageContext();
 
+        // Only show badges for collectors (their main KPI)
+        if ($user?->role !== 'collector') {
+            return null;
+        }
+
+        $currentVillage = $user?->getCurrentVillageContext();
         if (!$currentVillage) {
             return null;
         }
 
-        // Show today's payment count
+        // Show today's payment count for collectors
         $todayPayments = static::getEloquentQuery()
             ->whereDate('payment_date', today())
+            ->where('collector_id', $user->id)
             ->count();
 
         return $todayPayments > 0 ? (string) $todayPayments : null;

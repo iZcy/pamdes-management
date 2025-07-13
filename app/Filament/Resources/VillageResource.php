@@ -12,12 +12,14 @@ use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 
 class VillageResource extends Resource
 {
-    use ExportableResource; // Add this trait
+    use ExportableResource;
 
     protected static ?string $model = Village::class;
     protected static ?string $navigationIcon = 'heroicon-o-map-pin';
@@ -27,11 +29,73 @@ class VillageResource extends Resource
     protected static ?int $navigationSort = 0;
     protected static ?string $navigationGroup = 'Sistem';
 
+    // Role-based navigation visibility
     public static function shouldRegisterNavigation(): bool
     {
         $user = Auth::user();
         $user = User::find($user->id);
+
+        // Only super_admin can see village management
         return $user && $user->isSuperAdmin() ?? false;
+    }
+
+    // Role-based access control
+    public static function canCreate(): bool
+    {
+        $user = Auth::user();
+        $user = User::find($user->id);
+
+        // Only super_admin can create villages
+        return $user && $user->isSuperAdmin();
+    }
+
+    public static function canEdit(Model $record): bool
+    {
+        $user = Auth::user();
+        $user = User::find($user->id);
+
+        // Only super_admin can edit villages
+        return $user && $user->isSuperAdmin();
+    }
+
+    public static function canDelete(Model $record): bool
+    {
+        $user = Auth::user();
+        $user = User::find($user->id);
+
+        // Only super_admin can delete villages
+        return $user && $user->isSuperAdmin();
+    }
+
+    public static function canDeleteAny(): bool
+    {
+        $user = Auth::user();
+        $user = User::find($user->id);
+
+        return $user && $user->isSuperAdmin();
+    }
+
+    public static function canViewAny(): bool
+    {
+        $user = Auth::user();
+        $user = User::find($user->id);
+
+        // Only super_admin can view villages
+        return $user && $user->isSuperAdmin();
+    }
+
+    public static function getEloquentQuery(): Builder
+    {
+        $user = Auth::user();
+        $user = User::find($user->id);
+
+        // Only super admin can access village management
+        if ($user && $user->isSuperAdmin()) {
+            return parent::getEloquentQuery();
+        }
+
+        // Return empty query for non-super admins
+        return parent::getEloquentQuery()->whereRaw('1 = 0');
     }
 
     public static function form(Form $form): Form

@@ -1,5 +1,5 @@
 <?php
-// app/Filament/Resources/WaterUsageResource.php - Updated with village display
+// app/Filament/Resources/WaterUsageResource.php - Updated with operator access
 
 namespace App\Filament\Resources;
 
@@ -15,11 +15,12 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 
 class WaterUsageResource extends Resource
 {
-    use ExportableResource; // Add this trait
+    use ExportableResource;
 
     protected static ?string $model = WaterUsage::class;
     protected static ?string $navigationIcon = 'heroicon-o-clipboard-document-list';
@@ -28,6 +29,47 @@ class WaterUsageResource extends Resource
     protected static ?string $pluralModelLabel = 'Pembacaan Meter';
     protected static ?int $navigationSort = 3;
     protected static ?string $navigationGroup = 'Manajemen Data';
+
+    // Role-based access control
+    public static function canCreate(): bool
+    {
+        $user = User::find(Auth::user()->id);
+
+        // Collectors cannot create water usage records
+        return $user && !$user->isCollector();
+    }
+
+    public static function canEdit(Model $record): bool
+    {
+        $user = User::find(Auth::user()->id);
+
+        // Collectors cannot edit water usage records
+        return $user && !$user->isCollector();
+    }
+
+    public static function canDelete(Model $record): bool
+    {
+        $user = User::find(Auth::user()->id);
+
+        // Only super_admin and village_admin can delete water usage records
+        return $user && in_array($user->role, ['super_admin', 'village_admin']);
+    }
+
+    public static function canDeleteAny(): bool
+    {
+        $user = User::find(Auth::user()->id);
+
+        // Only super_admin and village_admin can bulk delete
+        return $user && in_array($user->role, ['super_admin', 'village_admin']);
+    }
+
+    public static function canViewAny(): bool
+    {
+        $user = User::find(Auth::user()->id);
+
+        // All roles can view water usage records
+        return $user && in_array($user->role, ['super_admin', 'village_admin', 'collector', 'operator']);
+    }
 
     public static function getEloquentQuery(): Builder
     {
@@ -41,7 +83,7 @@ class WaterUsageResource extends Resource
             $query->whereHas('customer', function ($q) use ($currentVillage) {
                 $q->where('village_id', $currentVillage);
             });
-        } elseif ($user?->isVillageAdmin()) {
+        } elseif ($user?->isVillageAdmin() || $user?->isCollector() || $user?->role === 'operator') {
             $accessibleVillages = $user->getAccessibleVillages()->pluck('id');
             $query->whereHas('customer', function ($q) use ($accessibleVillages) {
                 $q->whereIn('village_id', $accessibleVillages);
@@ -53,6 +95,70 @@ class WaterUsageResource extends Resource
 
     public static function form(Form $form): Form
     {
+        $user = Auth::user();
+        $user = User::find($user->id);
+        $isCollector = $user?->isCollector();
+
+        // Collectors get a read-only view
+        if ($isCollector) {
+            return $form
+                ->schema([
+                    Forms\Components\Section::make('Pembacaan Meter Air (Read-Only)')
+                        ->description('Anda hanya dapat melihat data pembacaan meter')
+                        ->schema([
+                            Forms\Components\Placeholder::make('village_info')
+                                ->label('Desa')
+                                ->content(function (?WaterUsage $record) {
+                                    if ($record && $record->customer?->village) {
+                                        return $record->customer->village->name;
+                                    }
+                                    $user = User::find(Auth::user()->id);
+                                    $currentVillage = $user?->getCurrentVillageContext();
+                                    if ($currentVillage) {
+                                        $village = \App\Models\Village::find($currentVillage);
+                                        return $village?->name ?? 'Unknown Village';
+                                    }
+                                    return 'No Village Context';
+                                }),
+
+                            Forms\Components\Placeholder::make('customer_info')
+                                ->label('Pelanggan')
+                                ->content(fn(?WaterUsage $record) => $record ?
+                                    "{$record->customer->customer_code} - {$record->customer->name}" : '-'),
+
+                            Forms\Components\Placeholder::make('period_info')
+                                ->label('Periode Tagihan')
+                                ->content(fn(?WaterUsage $record) => $record?->billingPeriod?->period_name ?? '-'),
+
+                            Forms\Components\Placeholder::make('initial_meter')
+                                ->label('Meter Awal')
+                                ->content(fn(?WaterUsage $record) => number_format($record?->initial_meter ?? 0)),
+
+                            Forms\Components\Placeholder::make('final_meter')
+                                ->label('Meter Akhir')
+                                ->content(fn(?WaterUsage $record) => number_format($record?->final_meter ?? 0)),
+
+                            Forms\Components\Placeholder::make('total_usage_m3')
+                                ->label('Total Pemakaian (m³)')
+                                ->content(fn(?WaterUsage $record) => ($record?->total_usage_m3 ?? 0) . ' m³'),
+
+                            Forms\Components\Placeholder::make('usage_date')
+                                ->label('Tanggal Baca')
+                                ->content(fn(?WaterUsage $record) => $record?->usage_date?->format('d/m/Y') ?? '-'),
+
+                            Forms\Components\Placeholder::make('reader_name')
+                                ->label('Nama Pembaca')
+                                ->content(fn(?WaterUsage $record) => $record?->reader_name ?? '-'),
+
+                            Forms\Components\Placeholder::make('notes')
+                                ->label('Catatan')
+                                ->content(fn(?WaterUsage $record) => $record?->notes ?? '-'),
+                        ])
+                        ->columns(3),
+                ]);
+        }
+
+        // Full form for admin and operator roles
         return $form
             ->schema([
                 Forms\Components\Section::make('Pembacaan Meter Air')
@@ -61,7 +167,7 @@ class WaterUsageResource extends Resource
                             ->label('Desa')
                             ->content(function (?WaterUsage $record) {
                                 if ($record && $record->customer?->village) {
-                                    return $record->customer->village;
+                                    return $record->customer->village->name;
                                 }
                                 $user = User::find(Auth::user()->id);
                                 $currentVillage = $user?->getCurrentVillageContext();
@@ -157,6 +263,8 @@ class WaterUsageResource extends Resource
         $user = Auth::user();
         $user = User::find($user->id);
         $isSuperAdmin = $user?->isSuperAdmin();
+        $isCollector = $user?->isCollector();
+        $isOperator = $user?->role === 'operator';
 
         return $table
             ->columns([
@@ -224,12 +332,20 @@ class WaterUsageResource extends Resource
             ->actions([
                 Tables\Actions\ActionGroup::make([
                     Tables\Actions\ViewAction::make(),
-                    Tables\Actions\EditAction::make(),
+
+                    // Edit only for non-collectors
+                    Tables\Actions\EditAction::make()
+                        ->visible(fn() => !$isCollector),
+
+                    // Generate bill action - only for admin roles and when no bill exists
                     Tables\Actions\Action::make('generate_bill')
                         ->label('Buat Tagihan')
                         ->icon('heroicon-o-document-plus')
                         ->color('success')
-                        ->visible(fn(WaterUsage $record): bool => $record->bill === null)
+                        ->visible(
+                            fn(WaterUsage $record): bool =>
+                            $record->bill === null && !$isCollector && !$isOperator
+                        )
                         ->action(function (WaterUsage $record) {
                             $village = \App\Models\Village::find($record->customer->village_id);
                             $record->generateBill([
@@ -240,11 +356,13 @@ class WaterUsageResource extends Resource
                 ])
             ])
             ->headerActions([
-                ...static::getExportHeaderActions(),
+                // Export actions only for admin and operator roles
+                ...($isCollector ? [] : static::getExportHeaderActions()),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
-                    ...static::getExportBulkActions(),
+                    // Export actions only for admin and operator roles
+                    ...($isCollector ? [] : static::getExportBulkActions()),
                 ]),
             ])
             ->defaultSort('usage_date', 'desc');

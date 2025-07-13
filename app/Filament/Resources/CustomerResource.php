@@ -1,5 +1,5 @@
 <?php
-// app/Filament/Resources/CustomerResource.php - Updated without export filters
+// app/Filament/Resources/CustomerResource.php - Updated with operator access
 
 namespace App\Filament\Resources;
 
@@ -14,11 +14,12 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 
 class CustomerResource extends Resource
 {
-    use ExportableResource; // Simplified trait without filters
+    use ExportableResource;
 
     protected static ?string $model = Customer::class;
     protected static ?string $navigationIcon = 'heroicon-o-users';
@@ -27,6 +28,47 @@ class CustomerResource extends Resource
     protected static ?string $pluralModelLabel = 'Pelanggan';
     protected static ?int $navigationSort = 2;
     protected static ?string $navigationGroup = 'Manajemen Data';
+
+    // Role-based access control
+    public static function canCreate(): bool
+    {
+        $user = User::find(Auth::user()->id);
+
+        // Collectors cannot create customers, others can
+        return $user && !$user->isCollector();
+    }
+
+    public static function canEdit(Model $record): bool
+    {
+        $user = User::find(Auth::user()->id);
+
+        // Collectors cannot edit customers, others can
+        return $user && !$user->isCollector();
+    }
+
+    public static function canDelete(Model $record): bool
+    {
+        $user = User::find(Auth::user()->id);
+
+        // Only super_admin and village_admin can delete customers
+        return $user && in_array($user->role, ['super_admin', 'village_admin']);
+    }
+
+    public static function canDeleteAny(): bool
+    {
+        $user = User::find(Auth::user()->id);
+
+        // Only super_admin and village_admin can bulk delete
+        return $user && in_array($user->role, ['super_admin', 'village_admin']);
+    }
+
+    public static function canViewAny(): bool
+    {
+        $user = User::find(Auth::user()->id);
+
+        // All roles can view customers
+        return $user && in_array($user->role, ['super_admin', 'village_admin', 'collector', 'operator']);
+    }
 
     public static function getEloquentQuery(): Builder
     {
@@ -40,7 +82,7 @@ class CustomerResource extends Resource
                 $query->byVillage($currentVillage);
             }
         } else {
-            // For village admin, only show customers from their accessible villages
+            // For village admin, collector, and operator - only show customers from their accessible villages
             $accessibleVillages = $user?->getAccessibleVillages()->pluck('id') ?? collect();
             $query->whereIn('village_id', $accessibleVillages);
         }
@@ -53,7 +95,53 @@ class CustomerResource extends Resource
         $user = Auth::user();
         $user = User::find($user->id);
         $currentVillageId = $user?->getCurrentVillageContext();
+        $isCollector = $user?->isCollector();
 
+        // Collectors get a read-only view
+        if ($isCollector) {
+            return $form
+                ->schema([
+                    Forms\Components\Section::make('Informasi Pelanggan (Read-Only)')
+                        ->description('Anda hanya dapat melihat informasi pelanggan')
+                        ->schema([
+                            Forms\Components\Placeholder::make('village_display')
+                                ->label('Desa')
+                                ->content(function (?Customer $record) use ($currentVillageId) {
+                                    if ($record && $record->village) {
+                                        return $record->village->name;
+                                    }
+                                    if ($currentVillageId) {
+                                        $village = Village::find($currentVillageId);
+                                        return $village?->name ?? 'Unknown Village';
+                                    }
+                                    return 'No Village Selected';
+                                }),
+
+                            Forms\Components\Placeholder::make('customer_code')
+                                ->label('Kode Pelanggan')
+                                ->content(fn(?Customer $record) => $record?->customer_code ?? '-'),
+
+                            Forms\Components\Placeholder::make('name')
+                                ->label('Nama Lengkap')
+                                ->content(fn(?Customer $record) => $record?->name ?? '-'),
+
+                            Forms\Components\Placeholder::make('phone_number')
+                                ->label('Nomor Telepon')
+                                ->content(fn(?Customer $record) => $record?->phone_number ?? '-'),
+
+                            Forms\Components\Placeholder::make('status')
+                                ->label('Status')
+                                ->content(fn(?Customer $record) => $record?->status === 'active' ? 'Aktif' : 'Tidak Aktif'),
+
+                            Forms\Components\Placeholder::make('address')
+                                ->label('Alamat Lengkap')
+                                ->content(fn(?Customer $record) => $record?->full_address ?? '-'),
+                        ])
+                        ->columns(2),
+                ]);
+        }
+
+        // Full form for admin and operator roles
         return $form
             ->schema([
                 Forms\Components\Section::make('Informasi Pelanggan')
@@ -143,6 +231,8 @@ class CustomerResource extends Resource
         $user = Auth::user();
         $user = User::find($user->id);
         $isSuperAdmin = $user?->isSuperAdmin();
+        $isCollector = $user?->isCollector();
+        $isOperator = $user?->role === 'operator';
 
         return $table
             ->columns([
@@ -207,17 +297,20 @@ class CustomerResource extends Resource
             ->actions([
                 Tables\Actions\ActionGroup::make([
                     Tables\Actions\ViewAction::make(),
-                    Tables\Actions\EditAction::make(),
+
+                    // Edit only for non-collectors
+                    Tables\Actions\EditAction::make()
+                        ->visible(fn() => !$isCollector),
                 ])
             ])
             ->headerActions([
-                // Simplified Export Actions - exports all data without processing table filters
-                ...static::getExportHeaderActions(),
+                // Export actions only for admin and operator roles
+                ...($isCollector ? [] : static::getExportHeaderActions()),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
-                    // Simplified Bulk Export Actions - no filter processing
-                    ...static::getExportBulkActions(),
+                    // Export actions only for admin and operator roles
+                    ...($isCollector ? [] : static::getExportBulkActions()),
                 ]),
             ]);
     }

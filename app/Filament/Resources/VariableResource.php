@@ -13,11 +13,12 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 
 class VariableResource extends Resource
 {
-    use ExportableResource; // Add this trait
+    use ExportableResource;
 
     protected static ?string $model = Variable::class;
     protected static ?string $navigationIcon = 'heroicon-o-cog-6-tooth';
@@ -26,6 +27,72 @@ class VariableResource extends Resource
     protected static ?string $pluralModelLabel = 'Pengaturan';
     protected static ?int $navigationSort = 10;
     protected static ?string $navigationGroup = 'Pengaturan';
+
+    // Role-based navigation visibility
+    public static function shouldRegisterNavigation(): bool
+    {
+        $user = Auth::user();
+        $user = User::find($user->id);
+
+        // Collectors and operators cannot see system settings
+        if ($user && in_array($user->role, ['collector', 'operator'])) {
+            return false;
+        }
+
+        return true;
+    }
+
+    public static function canCreate(): bool
+    {
+        $user = User::find(Auth::user()->id);
+
+        if (!$user || !in_array($user->role, ['super_admin', 'village_admin'])) {
+            return false;
+        }
+
+        $currentVillage = $user->getCurrentVillageContext();
+
+        if (!$currentVillage) {
+            return false;
+        }
+
+        return !Variable::where('village_id', $currentVillage)->exists();
+    }
+
+    public static function canEdit(Model $record): bool
+    {
+        $user = Auth::user();
+        $user = User::find($user->id);
+
+        // Only super_admin and village_admin can edit settings
+        return $user && in_array($user->role, ['super_admin', 'village_admin']);
+    }
+
+    public static function canDelete(Model $record): bool
+    {
+        $user = Auth::user();
+        $user = User::find($user->id);
+
+        // Only super_admin and village_admin can delete settings
+        return $user && in_array($user->role, ['super_admin', 'village_admin']);
+    }
+
+    public static function canDeleteAny(): bool
+    {
+        $user = Auth::user();
+        $user = User::find($user->id);
+
+        return $user && in_array($user->role, ['super_admin', 'village_admin']);
+    }
+
+    public static function canViewAny(): bool
+    {
+        $user = Auth::user();
+        $user = User::find($user->id);
+
+        // Collectors and operators cannot view system settings
+        return $user && !in_array($user->role, ['collector', 'operator']);
+    }
 
     public static function getEloquentQuery(): Builder
     {
@@ -213,6 +280,54 @@ class VariableResource extends Resource
         $user = User::find($user->id);
         $isSuperAdmin = $user?->isSuperAdmin();
 
+        // Role-based table customization
+        $actions = [];
+        $headerActions = [];
+        $bulkActions = [];
+
+        // Only super_admin and village_admin get full actions
+        if ($user && in_array($user->role, ['super_admin', 'village_admin'])) {
+            $actions = [
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\EditAction::make(),
+                    Tables\Actions\Action::make('test_connection')
+                        ->label('Test Koneksi')
+                        ->icon('heroicon-o-wifi')
+                        ->color('info')
+                        ->action(function (Variable $record) {
+                            // Test Tripay connection
+                            try {
+                                $tripayService = new \App\Services\TripayService($record->village);
+                                $channels = $tripayService->getPaymentChannels();
+
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Koneksi Berhasil')
+                                    ->body('Berhasil terhubung ke Tripay. Ditemukan ' . count($channels) . ' channel pembayaran.')
+                                    ->success()
+                                    ->send();
+                            } catch (\Exception $e) {
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Koneksi Gagal')
+                                    ->body('Error: ' . $e->getMessage())
+                                    ->danger()
+                                    ->send();
+                            }
+                        })
+                        ->visible(fn(Variable $record) => $record->isConfigured()),
+                ])
+            ];
+
+            $headerActions = [
+                ...static::getExportHeaderActions(),
+            ];
+
+            $bulkActions = [
+                Tables\Actions\BulkActionGroup::make([
+                    ...static::getExportBulkActions(),
+                ]),
+            ];
+        }
+
         return $table
             ->columns([
                 Tables\Columns\TextColumn::make('village.name')
@@ -275,66 +390,16 @@ class VariableResource extends Resource
                     ->boolean()
                     ->trueLabel('Produksi')
                     ->falseLabel('Sandbox'),
-
-                Tables\Filters\TernaryFilter::make('tripay_use_main')
-                    ->label('Gunakan Global')
-                    ->boolean()
-                    ->trueLabel('Ya')
-                    ->falseLabel('Tidak'),
-
-                Tables\Filters\TernaryFilter::make('tripay_is_production')
-                    ->label('Mode Produksi')
-                    ->boolean()
-                    ->trueLabel('Produksi')
-                    ->falseLabel('Sandbox'),
             ])
-            ->actions([
-                Tables\Actions\ActionGroup::make([
-                    Tables\Actions\EditAction::make(),
-                    Tables\Actions\Action::make('test_connection')
-                        ->label('Test Koneksi')
-                        ->icon('heroicon-o-wifi')
-                        ->color('info')
-                        ->action(function (Variable $record) {
-                            // Test Tripay connection
-                            try {
-                                $tripayService = new \App\Services\TripayService($record->village);
-                                $channels = $tripayService->getPaymentChannels();
-
-                                \Filament\Notifications\Notification::make()
-                                    ->title('Koneksi Berhasil')
-                                    ->body('Berhasil terhubung ke Tripay. Ditemukan ' . count($channels) . ' channel pembayaran.')
-                                    ->success()
-                                    ->send();
-                            } catch (\Exception $e) {
-                                \Filament\Notifications\Notification::make()
-                                    ->title('Koneksi Gagal')
-                                    ->body('Error: ' . $e->getMessage())
-                                    ->danger()
-                                    ->send();
-                            }
-                        })
-                        ->visible(fn(Variable $record) => $record->isConfigured()),
-                ])
-            ])
+            ->actions($actions)
+            ->headerActions($headerActions)
+            ->bulkActions($bulkActions)
             ->emptyStateHeading('Belum Ada Pengaturan')
             ->emptyStateDescription('Buat pengaturan Tripay untuk desa Anda')
             ->emptyStateActions([
                 Tables\Actions\CreateAction::make()
-                    ->label('Buat Pengaturan'),
-            ])->headerActions([
-                ...static::getExportHeaderActions(),
-            ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    ...static::getExportBulkActions(),
-                ]),
-            ])
-            ->emptyStateHeading('Belum Ada Pengaturan')
-            ->emptyStateDescription('Buat pengaturan Tripay untuk desa Anda')
-            ->emptyStateActions([
-                Tables\Actions\CreateAction::make()
-                    ->label('Buat Pengaturan'),
+                    ->label('Buat Pengaturan')
+                    ->visible(fn() => $user && in_array($user->role, ['super_admin', 'village_admin'])),
             ]);
     }
 
@@ -345,19 +410,6 @@ class VariableResource extends Resource
             'create' => Pages\CreateVariable::route('/create'),
             'edit' => Pages\EditVariable::route('/{record}/edit'),
         ];
-    }
-
-    public static function canCreate(): bool
-    {
-        // Only allow creating if no settings exist for current village
-        $user = User::find(Auth::user()->id);
-        $currentVillage = $user?->getCurrentVillageContext();
-
-        if (!$currentVillage) {
-            return false;
-        }
-
-        return !Variable::where('village_id', $currentVillage)->exists();
     }
 
     public static function getNavigationBadge(): ?string

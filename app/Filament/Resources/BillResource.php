@@ -1,5 +1,5 @@
 <?php
-// app/Filament/Resources/BillResource.php - Updated without export filters
+// app/Filament/Resources/BillResource.php - Updated with collector restrictions
 
 namespace App\Filament\Resources;
 
@@ -19,7 +19,7 @@ use Illuminate\Support\Facades\Auth;
 
 class BillResource extends Resource
 {
-    use ExportableResource; // Simplified trait without filters
+    use ExportableResource;
 
     protected static ?string $model = Bill::class;
     protected static ?string $navigationIcon = 'heroicon-o-document-text';
@@ -29,34 +29,50 @@ class BillResource extends Resource
     protected static ?int $navigationSort = 4;
     protected static ?string $navigationGroup = 'Tagihan & Pembayaran';
 
-    // Disable creation of new bills
+    // Role-based access control
     public static function canCreate(): bool
     {
-        return false;
+        $user = User::find(Auth::user()->id);
+
+        // Only super_admin and village_admin can create bills
+        return $user && in_array($user->role, ['super_admin', 'village_admin']);
     }
 
-    // Disable editing of existing bills
     public static function canEdit(Model $record): bool
     {
-        return false;
+        $user = User::find(Auth::user()->id);
+
+        // Only super_admin and village_admin can edit bills
+        return $user && in_array($user->role, ['super_admin', 'village_admin']);
     }
 
-    // Optional: Also disable deletion if you want bills to be read-only
     public static function canDelete(Model $record): bool
     {
-        return false;
+        $user = User::find(Auth::user()->id);
+
+        // Only super_admin and village_admin can delete bills
+        return $user && in_array($user->role, ['super_admin', 'village_admin']);
     }
 
-    // Optional: Disable bulk deletion too
     public static function canDeleteAny(): bool
     {
-        return false;
+        $user = User::find(Auth::user()->id);
+
+        // Only super_admin and village_admin can bulk delete
+        return $user && in_array($user->role, ['super_admin', 'village_admin']);
+    }
+
+    public static function canViewAny(): bool
+    {
+        $user = User::find(Auth::user()->id);
+
+        // All roles can view bills, but with different scopes
+        return $user && in_array($user->role, ['super_admin', 'village_admin', 'collector', 'operator']);
     }
 
     public static function getEloquentQuery(): Builder
     {
         $query = parent::getEloquentQuery()->with(['waterUsage.customer.village']);
-
         $user = User::find(Auth::user()->id);
         $currentVillage = $user?->getCurrentVillageContext();
 
@@ -71,6 +87,18 @@ class BillResource extends Resource
             $query->whereHas('waterUsage.customer', function ($q) use ($accessibleVillages) {
                 $q->whereIn('village_id', $accessibleVillages);
             });
+        } elseif ($user?->isCollector()) {
+            // Collector sees only unpaid/overdue bills in their villages
+            $accessibleVillages = $user->getAccessibleVillages()->pluck('id');
+            $query->whereHas('waterUsage.customer', function ($q) use ($accessibleVillages) {
+                $q->whereIn('village_id', $accessibleVillages);
+            })->whereIn('status', ['unpaid', 'overdue', 'pending']);
+        } elseif ($user?->role === 'operator') {
+            // Operator has read-only access to bills in their villages
+            $accessibleVillages = $user->getAccessibleVillages()->pluck('id');
+            $query->whereHas('waterUsage.customer', function ($q) use ($accessibleVillages) {
+                $q->whereIn('village_id', $accessibleVillages);
+            });
         }
 
         return $query;
@@ -78,6 +106,18 @@ class BillResource extends Resource
 
     public static function form(Form $form): Form
     {
+        $user = User::find(Auth::user()->id);
+
+        // Collectors and operators cannot access the form
+        if ($user && in_array($user->role, ['collector', 'operator'])) {
+            return $form->schema([
+                Forms\Components\Placeholder::make('access_denied')
+                    ->label('Akses Ditolak')
+                    ->content('Anda tidak memiliki izin untuk mengubah data tagihan.')
+                    ->columnSpanFull(),
+            ]);
+        }
+
         return $form
             ->schema([
                 Forms\Components\Section::make('Informasi Tagihan')
@@ -190,6 +230,8 @@ class BillResource extends Resource
         $user = Auth::user();
         $user = User::find($user->id);
         $isSuperAdmin = $user?->isSuperAdmin();
+        $isCollector = $user?->isCollector();
+        $isOperator = $user?->role === 'operator';
 
         return $table
             ->columns([
@@ -218,7 +260,7 @@ class BillResource extends Resource
                             ->join('billing_periods', 'water_usages.period_id', '=', 'billing_periods.period_id')
                             ->orderBy('billing_periods.year', $direction)
                             ->orderBy('billing_periods.month', $direction)
-                            ->select('bills.*'); // Make sure to select only bills columns to avoid conflicts
+                            ->select('bills.*');
                     }),
 
                 Tables\Columns\TextColumn::make('waterUsage.total_usage_m3')
@@ -294,9 +336,12 @@ class BillResource extends Resource
             ->actions([
                 Tables\Actions\ActionGroup::make([
                     Tables\Actions\ViewAction::make(),
-                    Tables\Actions\EditAction::make(),
 
-                    // Print Receipt Action
+                    // Edit only for super_admin and village_admin
+                    Tables\Actions\EditAction::make()
+                        ->visible(fn() => !$isCollector && !$isOperator),
+
+                    // Print Receipt - available for all roles
                     Tables\Actions\Action::make('print_receipt')
                         ->label('Cetak Kwitansi')
                         ->icon('heroicon-o-printer')
@@ -305,11 +350,15 @@ class BillResource extends Resource
                         ->openUrlInNewTab()
                         ->tooltip('Cetak/Lihat kwitansi tagihan'),
 
+                    // Mark as Paid - only for collectors and above
                     Tables\Actions\Action::make('mark_paid')
                         ->label('Tandai Lunas')
                         ->icon('heroicon-o-check-circle')
                         ->color('success')
-                        ->visible(fn(Bill $record): bool => $record->canBePaid())
+                        ->visible(
+                            fn(Bill $record): bool =>
+                            $record->canBePaid() && ($isCollector || !$isOperator)
+                        )
                         ->form([
                             Forms\Components\DatePicker::make('payment_date')
                                 ->label('Tanggal Pembayaran')
@@ -338,29 +387,28 @@ class BillResource extends Resource
                 ])
             ])
             ->headerActions([
-                // Simplified Export Actions - exports all data
-                ...static::getExportHeaderActions(),
+                // Export actions only for admin roles
+                ...($isCollector || $isOperator ? [] : static::getExportHeaderActions()),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+                    // Delete only for admin roles
+                    Tables\Actions\DeleteBulkAction::make()
+                        ->visible(fn() => !$isCollector && !$isOperator),
 
-                    // Bulk Print Action
+                    // Bulk Print - available for all roles
                     Tables\Actions\BulkAction::make('bulk_print')
                         ->label('Cetak Kwitansi Terpilih')
                         ->icon('heroicon-o-printer')
                         ->color('primary')
                         ->action(function ($records) {
-                            // Open multiple receipts in new tabs
                             $urls = $records->map(fn(Bill $bill) => route('bill.receipt', $bill))->toArray();
-
-                            // Return JavaScript to open multiple tabs
                             return redirect()->back()->with('openUrls', $urls);
                         })
                         ->deselectRecordsAfterCompletion(),
 
-                    // Simplified Bulk Export Actions - no filter processing
-                    ...static::getExportBulkActions(),
+                    // Export actions only for admin roles
+                    ...($isCollector || $isOperator ? [] : static::getExportBulkActions()),
                 ]),
             ])
             ->defaultSort('created_at', 'desc');

@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\Auth;
 
 class BillingPeriodResource extends Resource
 {
-    use ExportableResource; // Add this trait
+    use ExportableResource;
 
     protected static ?string $model = BillingPeriod::class;
     protected static ?string $navigationIcon = 'heroicon-o-calendar-days';
@@ -26,6 +26,57 @@ class BillingPeriodResource extends Resource
     protected static ?string $pluralModelLabel = 'Periode Tagihan';
     protected static ?int $navigationSort = 2;
     protected static ?string $navigationGroup = 'Manajemen Data';
+
+    // Role-based navigation visibility
+    public static function shouldRegisterNavigation(): bool
+    {
+        $user = Auth::user();
+        $user = User::find($user->id);
+
+        // Super admin and village admin have full access
+        if ($user?->isSuperAdmin() || $user?->role === 'village_admin') {
+            return true;
+        }
+
+        // Operators have read access (can see billing periods)
+        if ($user?->role === 'operator') {
+            return true;
+        }
+
+        // Collectors cannot access billing periods
+        return false;
+    }
+
+    // Role-based record access
+    public static function canCreate(): bool
+    {
+        $user = User::find(Auth::user()->id);
+
+        // Only super admin and village admin can create
+        return $user?->isSuperAdmin() || $user?->role === 'village_admin';
+    }
+
+    public static function canEdit(\Illuminate\Database\Eloquent\Model $record): bool
+    {
+        $user = User::find(Auth::user()->id);
+
+        // Only super admin and village admin can edit
+        return $user?->isSuperAdmin() || $user?->role === 'village_admin';
+    }
+
+    public static function canDelete(\Illuminate\Database\Eloquent\Model $record): bool
+    {
+        $user = User::find(Auth::user()->id);
+
+        // Only super admin and village admin can delete
+        return $user?->isSuperAdmin() || $user?->role === 'village_admin';
+    }
+
+    public static function canDeleteAny(): bool
+    {
+        $user = User::find(Auth::user()->id);
+        return $user?->isSuperAdmin() || $user?->role === 'village_admin';
+    }
 
     public static function getEloquentQuery(): Builder
     {
@@ -36,7 +87,7 @@ class BillingPeriodResource extends Resource
 
         if ($user?->isSuperAdmin() && $currentVillage) {
             $query->where('village_id', $currentVillage);
-        } elseif ($user?->isVillageAdmin()) {
+        } elseif ($user?->isVillageAdmin() || $user?->role === 'operator') {
             $accessibleVillages = $user->getAccessibleVillages()->pluck('id');
             $query->whereIn('village_id', $accessibleVillages);
         }
@@ -143,6 +194,7 @@ class BillingPeriodResource extends Resource
         $user = Auth::user();
         $user = User::find($user->id);
         $isSuperAdmin = $user?->isSuperAdmin();
+        $isOperator = $user?->role === 'operator';
 
         return $table
             ->columns([
@@ -184,7 +236,8 @@ class BillingPeriodResource extends Resource
                     ->money('IDR')
                     ->getStateUsing(function (BillingPeriod $record): float {
                         return $record->total_billed;
-                    }),
+                    })
+                    ->visible(!$isOperator), // Operators can't see financial data
 
                 Tables\Columns\TextColumn::make('collection_rate')
                     ->label('Tingkat Penagihan')
@@ -197,7 +250,8 @@ class BillingPeriodResource extends Resource
                         $record->collection_rate >= 75 => 'primary',
                         $record->collection_rate >= 50 => 'warning',
                         default => 'danger'
-                    }),
+                    })
+                    ->visible(!$isOperator), // Operators can't see financial data
 
                 Tables\Columns\TextColumn::make('billing_due_date')
                     ->label('Jatuh Tempo')
@@ -221,12 +275,14 @@ class BillingPeriodResource extends Resource
             ->actions([
                 Tables\Actions\ActionGroup::make([
                     Tables\Actions\ViewAction::make(),
-                    Tables\Actions\EditAction::make(),
+                    Tables\Actions\EditAction::make()
+                        ->visible(fn(): bool => static::canEdit(new BillingPeriod())),
                     Tables\Actions\Action::make('generate_bills')
                         ->label('Generate Tagihan')
                         ->icon('heroicon-o-document-plus')
                         ->color('success')
-                        ->visible(fn(BillingPeriod $record): bool => $record->status === 'active')
+                        ->visible(fn(BillingPeriod $record): bool =>
+                        $record->status === 'active' && static::canEdit($record))
                         ->action(function (BillingPeriod $record) {
                             $recorded = 0;
                             $record->waterUsages->each(function ($usage) use (&$recorded) {
@@ -236,7 +292,6 @@ class BillingPeriodResource extends Resource
                                         'admin_fee' => $village?->getDefaultAdminFee() ?? 5000,
                                         'maintenance_fee' => $village?->getDefaultMaintenanceFee() ?? 2000,
                                     ]);
-
                                     $recorded++;
                                 }
                             });
@@ -258,12 +313,15 @@ class BillingPeriodResource extends Resource
                 ])
             ])
             ->headerActions([
-                ...static::getExportHeaderActions(),
+                // Only admins can export
+                ...($isOperator ? [] : static::getExportHeaderActions()),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
-                    ...static::getExportBulkActions(),
+                    // Only admins can bulk delete
+                    ...($isOperator ? [] : [Tables\Actions\DeleteBulkAction::make()]),
+                    // Only admins can export
+                    ...($isOperator ? [] : static::getExportBulkActions()),
                 ]),
             ])
             ->defaultSort('year', 'desc')

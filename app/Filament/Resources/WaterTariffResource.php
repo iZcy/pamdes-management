@@ -19,7 +19,7 @@ use Illuminate\Support\Facades\Auth;
 
 class WaterTariffResource extends Resource
 {
-    use ExportableResource; // Add this trait
+    use ExportableResource;
 
     protected static ?string $model = WaterTariff::class;
     protected static ?string $navigationIcon = 'heroicon-o-currency-dollar';
@@ -28,6 +28,41 @@ class WaterTariffResource extends Resource
     protected static ?string $pluralModelLabel = 'Tarif Air';
     protected static ?int $navigationSort = 5;
     protected static ?string $navigationGroup = 'Pengaturan';
+
+    // Role-based navigation visibility
+    public static function shouldRegisterNavigation(): bool
+    {
+        $user = Auth::user();
+        $user = User::find($user->id);
+
+        // Only super admin and village admin can access tariff settings
+        return $user?->isSuperAdmin() || $user?->role === 'village_admin';
+    }
+
+    // Role-based record access
+    public static function canCreate(): bool
+    {
+        $user = User::find(Auth::user()->id);
+        return $user?->isSuperAdmin() || $user?->role === 'village_admin';
+    }
+
+    public static function canEdit(\Illuminate\Database\Eloquent\Model $record): bool
+    {
+        $user = User::find(Auth::user()->id);
+        return $user?->isSuperAdmin() || $user?->role === 'village_admin';
+    }
+
+    public static function canDelete(\Illuminate\Database\Eloquent\Model $record): bool
+    {
+        $user = User::find(Auth::user()->id);
+        return $user?->isSuperAdmin() || $user?->role === 'village_admin';
+    }
+
+    public static function canDeleteAny(): bool
+    {
+        $user = User::find(Auth::user()->id);
+        return $user?->isSuperAdmin() || $user?->role === 'village_admin';
+    }
 
     public static function getEloquentQuery(): Builder
     {
