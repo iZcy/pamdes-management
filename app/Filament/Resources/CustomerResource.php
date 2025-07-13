@@ -25,7 +25,7 @@ class CustomerResource extends Resource
     protected static ?string $navigationLabel = 'Pelanggan';
     protected static ?string $modelLabel = 'Pelanggan';
     protected static ?string $pluralModelLabel = 'Pelanggan';
-    protected static ?int $navigationSort = 1;
+    protected static ?int $navigationSort = 2;
     protected static ?string $navigationGroup = 'Manajemen Data';
 
     public static function getEloquentQuery(): Builder

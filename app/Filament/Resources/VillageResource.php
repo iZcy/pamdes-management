@@ -4,6 +4,7 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\VillageResource\Pages;
+use App\Models\User;
 use App\Models\Village;
 use App\Traits\ExportableResource;
 use Filament\Forms;
@@ -11,6 +12,7 @@ use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 
 class VillageResource extends Resource
@@ -19,11 +21,18 @@ class VillageResource extends Resource
 
     protected static ?string $model = Village::class;
     protected static ?string $navigationIcon = 'heroicon-o-map-pin';
-    protected static ?string $navigationLabel = 'Desa';
+    protected static ?string $navigationLabel = 'Kelola Desa';
     protected static ?string $modelLabel = 'Desa';
     protected static ?string $pluralModelLabel = 'Desa';
     protected static ?int $navigationSort = 0;
-    protected static ?string $navigationGroup = 'System';
+    protected static ?string $navigationGroup = 'Sistem';
+
+    public static function shouldRegisterNavigation(): bool
+    {
+        $user = Auth::user();
+        $user = User::find($user->id);
+        return $user && $user->isSuperAdmin() ?? false;
+    }
 
     public static function form(Form $form): Form
     {

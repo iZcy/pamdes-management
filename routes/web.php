@@ -240,7 +240,7 @@ Route::middleware(['auth'])->prefix('admin')->group(function () {
         // Log the download
         Log::info('Export file downloaded', [
             'filename' => $filename,
-            'user_id' => auth()->id(),
+            'user_id' => Auth::id(),
             'ip' => request()->ip(),
         ]);
 

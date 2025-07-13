@@ -26,7 +26,7 @@ class UserResource extends Resource
     protected static ?string $modelLabel = 'Admin';
     protected static ?string $pluralModelLabel = 'Admin';
     protected static ?int $navigationSort = 1;
-    protected static ?string $navigationGroup = 'Super Admin';
+    protected static ?string $navigationGroup = 'Sistem';
 
     public static function shouldRegisterNavigation(): bool
     {

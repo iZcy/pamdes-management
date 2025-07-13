@@ -50,7 +50,7 @@ class AutoLogoutOnAccessDenied
     protected function checkUserAccess(User $user, Request $request): bool
     {
         $currentVillageId = config('pamdes.current_village_id');
-        $isSuperAdminDomain = config('pamdes.is_super_admin_domain', false);
+        $isSuperAdminDomain = $request->getHost() === config('pamdes.domains.super_admin', env('PAMDES_SUPER_ADMIN_DOMAIN'));
         $isAdminRoute = $request->is('admin') || $request->is('admin/*');
 
         // For admin routes, use Filament's access check
@@ -69,7 +69,12 @@ class AutoLogoutOnAccessDenied
 
         // For super admin users
         if ($user->isSuperAdmin()) {
-            return true; // Super admins can access everything
+            // if domain is not super admin, redirect
+            if (!$isSuperAdminDomain) {
+                return false;
+            }
+
+            return true;
         }
 
         // For village admin users
