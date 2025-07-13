@@ -46,16 +46,16 @@ class UserSeeder extends Seeder
         // Get all villages to create village-specific admins
         $villages = Village::all();
 
+        $baseDomain = preg_replace('/^[^.]+\./', '', $domain);
         foreach ($villages as $village) {
             // Remove "pamdes-" from the slug (if present)
             $slugCleaned = str_replace('pamdes-', '', $village->slug);
-            $domainCleaned = str_replace('pamdes.', '', $domain);
 
             $this->command->info("Creating users for village: {$village->name} (slug: {$slugCleaned})");
 
             // Create primary village admin
             $villageAdmin = User::firstOrCreate(
-                ['email' => 'admin@' . $slugCleaned . '.' . $domainCleaned],
+                ['email' => 'admin@' . $slugCleaned . '.' . $baseDomain],
                 [
                     'name' => 'Admin PAMDes ' . $village->name,
                     'password' => Hash::make('password'),
