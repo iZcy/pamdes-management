@@ -1,5 +1,5 @@
 <?php
-// database/seeders/CustomerSeeder.php - Fixed to use existing villages
+// database/seeders/CustomerSeeder.php - Fixed to only use village_id
 
 namespace Database\Seeders;
 
@@ -34,8 +34,7 @@ class CustomerSeeder extends Seeder
                     'address' => fake()->address(),
                     'rt' => str_pad(fake()->numberBetween(1, 15), 2, '0', STR_PAD_LEFT),
                     'rw' => str_pad(fake()->numberBetween(1, 8), 2, '0', STR_PAD_LEFT),
-                    'village' => $village->name,
-                    'village_id' => $village->id,
+                    'village_id' => $village->id, // Only store village_id, not village name
                 ]);
             }
 

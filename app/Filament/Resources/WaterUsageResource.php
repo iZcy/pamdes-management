@@ -347,10 +347,9 @@ class WaterUsageResource extends Resource
                             $record->bill === null && !$isCollector && !$isOperator
                         )
                         ->action(function (WaterUsage $record) {
-                            $village = \App\Models\Village::find($record->customer->village_id);
                             $record->generateBill([
-                                'admin_fee' => $village?->getDefaultAdminFee() ?? 5000,
-                                'maintenance_fee' => $village?->getDefaultMaintenanceFee() ?? 2000,
+                                'admin_fee' => $record->customer->village?->getDefaultAdminFee() ?? 5000,
+                                'maintenance_fee' => $record->customer->village?->getDefaultMaintenanceFee() ?? 2000,
                             ]);
                         }),
                 ])

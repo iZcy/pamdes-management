@@ -21,7 +21,7 @@ class WaterUsage extends Model
         'final_meter',
         'total_usage_m3',
         'usage_date',
-        'reader_name',
+        'reader_id', // Changed from reader_name to reader_id
         'notes',
     ];
 
@@ -45,6 +45,12 @@ class WaterUsage extends Model
         return $this->hasOne(Bill::class, 'usage_id', 'usage_id');
     }
 
+    // New relationship for reader (user)
+    public function reader(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reader_id', 'id');
+    }
+
     // Mutators
     public function setFinalMeterAttribute($value)
     {
@@ -58,6 +64,12 @@ class WaterUsage extends Model
         return number_format($this->total_usage_m3) . ' m³';
     }
 
+    public function getReaderNameAttribute(): string
+    {
+        // Accessor for backward compatibility and display
+        return $this->reader?->name ?? 'Unknown Reader';
+    }
+
     // Scopes
     public function scopeForCustomer($query, $customerId)
     {
@@ -67,6 +79,18 @@ class WaterUsage extends Model
     public function scopeForPeriod($query, $periodId)
     {
         return $query->where('period_id', $periodId);
+    }
+
+    public function scopeByReader($query, $readerId)
+    {
+        return $query->where('reader_id', $readerId);
+    }
+
+    public function scopeByVillage($query, $villageId)
+    {
+        return $query->whereHas('customer', function ($q) use ($villageId) {
+            $q->where('village_id', $villageId);
+        });
     }
 
     // Helper methods
@@ -84,7 +108,7 @@ class WaterUsage extends Model
 
         return Bill::create([
             'usage_id' => $this->usage_id,
-            'tariff_id' => null, // Could be set to specific tariff if needed
+            'tariff_id' => null,
             'water_charge' => $waterCharge,
             'admin_fee' => $adminFee,
             'maintenance_fee' => $maintenanceFee,

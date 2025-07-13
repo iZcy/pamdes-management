@@ -126,7 +126,7 @@ class BillResource extends Resource
                             ->label('Desa')
                             ->content(function (?Bill $record) {
                                 if ($record && $record->waterUsage?->customer?->village) {
-                                    return $record->waterUsage->customer->village;
+                                    return $record->waterUsage->customer->village->name;
                                 }
                                 $user = User::find(Auth::user()->id);
                                 $currentVillage = $user?->getCurrentVillageContext();

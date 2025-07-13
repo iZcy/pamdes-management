@@ -150,6 +150,11 @@ class User extends Authenticatable implements FilamentUser
         return $this->hasMany(Payment::class, 'collector_id');
     }
 
+    public function waterUsageReadings()
+    {
+        return $this->hasMany(WaterUsage::class, 'reader_id');
+    }
+
     // Scopes
     public function scopeActive($query)
     {

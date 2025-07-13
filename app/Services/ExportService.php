@@ -315,7 +315,8 @@ class ExportService
     {
         $usages = $query->with([
             'customer.village',
-            'billingPeriod'
+            'billingPeriod',
+            'reader'
         ])->get();
 
         $columns = [
@@ -340,7 +341,7 @@ class ExportService
                 'initial_meter' => number_format($usage->initial_meter ?? 0),
                 'final_meter' => number_format($usage->final_meter ?? 0),
                 'total_usage_m3' => $usage->total_usage_m3 ?? 0,
-                'reader_name' => $usage->reader_name ?? '',
+                'reader_name' => $usage->reader?->name ?? 'Unknown Reader',
             ];
         })->toArray();
 

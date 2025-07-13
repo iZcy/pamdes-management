@@ -286,11 +286,10 @@ class BillingPeriodResource extends Resource
                         ->action(function (BillingPeriod $record) {
                             $recorded = 0;
                             $record->waterUsages->each(function ($usage) use (&$recorded) {
-                                $village = \App\Models\Village::find($usage->customer->village_id);
                                 if (!$usage->bill()->exists()) {
                                     $usage->generateBill([
-                                        'admin_fee' => $village?->getDefaultAdminFee() ?? 5000,
-                                        'maintenance_fee' => $village?->getDefaultMaintenanceFee() ?? 2000,
+                                        'admin_fee' => $usage->customer->village?->getDefaultAdminFee() ?? 5000,
+                                        'maintenance_fee' => $usage->customer->village?->getDefaultMaintenanceFee() ?? 2000,
                                     ]);
                                     $recorded++;
                                 }

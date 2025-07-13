@@ -18,8 +18,7 @@ return new class extends Migration
             $table->text('address')->nullable();
             $table->string('rt')->nullable();
             $table->string('rw')->nullable();
-            $table->string('village')->nullable();
-            $table->string('village_id')->nullable(); // Link to main village system
+            $table->string('village_id')->nullable();
             $table->timestamps();
 
             $table->index(['village_id', 'status']);

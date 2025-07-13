@@ -141,8 +141,7 @@ class PaymentResource extends Resource
                             ->label('Desa')
                             ->content(function (?Payment $record) {
                                 if ($record && $record->bill?->waterUsage?->customer?->village) {
-                                    $village = Village::find($record->bill->waterUsage->customer->village_id);
-                                    return $village?->name ?? 'Unknown Village';
+                                    return $record->bill->waterUsage->customer->village->name;
                                 }
                                 $user = User::find(Auth::user()->id);
                                 $currentVillage = $user?->getCurrentVillageContext();

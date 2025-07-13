@@ -7,6 +7,7 @@ use Illuminate\Database\Seeder;
 use App\Models\WaterUsage;
 use App\Models\Customer;
 use App\Models\BillingPeriod;
+use App\Models\User;
 use App\Models\Village;
 
 class WaterUsageSeeder extends Seeder
@@ -63,6 +64,14 @@ class WaterUsageSeeder extends Seeder
                     $initialMeter = $lastMeterReading;
                     $finalMeter = $initialMeter + $usage;
 
+                    // Get available readers (operators) for this village
+                    $readers = User::whereHas('villages', function ($q) use ($village) {
+                        $q->where('villages.id', $village->id);
+                    })
+                        ->whereIn('role', ['operator', 'village_admin'])
+                        ->where('is_active', true)
+                        ->get();
+
                     // Random date within the reading period
                     $usageDate = $period->reading_start_date
                         ? $period->reading_start_date->copy()->addDays(rand(1, 15))
@@ -75,7 +84,7 @@ class WaterUsageSeeder extends Seeder
                         'final_meter' => $finalMeter,
                         'total_usage_m3' => $usage,
                         'usage_date' => $usageDate,
-                        'reader_name' => fake()->name(),
+                        'reader_id' => $readers->isNotEmpty() ? $readers->random()->id : null,
                         'notes' => fake()->optional(0.3)->sentence(),
                     ]);
 

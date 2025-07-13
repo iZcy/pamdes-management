@@ -1,5 +1,5 @@
 <?php
-// app/Models/Customer.php - Updated with proper village relationship
+// app/Models/Customer.php - Fixed with proper village relationship
 
 namespace App\Models;
 
@@ -23,15 +23,14 @@ class Customer extends Model
         'address',
         'rt',
         'rw',
-        'village',
-        'village_id',
+        'village_id', // Only this field for village relationship
     ];
 
     protected $casts = [
         'status' => 'string',
     ];
 
-    // Relationships
+    // Fixed: Proper village relationship
     public function village(): BelongsTo
     {
         return $this->belongsTo(Village::class, 'village_id', 'id');
@@ -84,15 +83,10 @@ class Customer extends Model
             $this->address,
             $this->rt ? "RT {$this->rt}" : null,
             $this->rw ? "RW {$this->rw}" : null,
-            $this->village,
+            $this->village?->name, // Now properly gets village name from relationship
         ]);
 
         return implode(', ', $parts);
-    }
-
-    public function getVillageNameAttribute(): string
-    {
-        return $this->village?->name ?? 'Unknown Village';
     }
 
     // Helper methods

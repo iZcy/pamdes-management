@@ -1,23 +1,4 @@
 {{-- resources/views/receipts/bill.blade.php --}}
-@php
-  // Parse village data from Village model at the beginning
-  $villageModel = \App\Models\Village::find($bill->waterUsage->customer->village_id);
-  $villageName = $villageModel?->name ?? 'Desa';
-  $villageSlug = $villageModel?->slug ?? 'unknown';
-  $villagePhone = $villageModel?->phone_number ?? null;
-  $villageEmail = $villageModel?->email ?? null;
-  $villageAddress = $villageModel?->address ?? null;
-
-  // Get current village from config as fallback
-  $currentVillage = config('pamdes.current_village');
-  if (!$villageSlug && $currentVillage) {
-      $villageSlug = $currentVillage['slug'] ?? 'unknown';
-  }
-  if (!$villageName && $currentVillage) {
-      $villageName = $currentVillage['name'] ?? 'Desa';
-  }
-@endphp
-
 <!DOCTYPE html>
 <html lang="id">
 
@@ -271,12 +252,12 @@
   {{-- Document Header --}}
   <div class="header">
     <h2>{{ $bill->status === 'paid' ? 'KWITANSI PEMBAYARAN AIR' : 'TAGIHAN AIR' }}</h2>
-    <h3>PAMDes {{ $villageName ?? 'Desa' }}</h3>
-    @if ($villageAddress)
-      <p>{{ $villageAddress }}</p>
+    <h3>PAMDes {{ $$village->name ?? 'Desa' }}</h3>
+    @if ($$village->address)
+      <p>{{ $$village->address }}</p>
     @endif
-    @if ($villagePhone)
-      <p>Telp: {{ $villagePhone }}</p>
+    @if ($$village->phone_number)
+      <p>Telp: {{ $$village->phone_number }}</p>
     @endif
   </div>
 
@@ -473,8 +454,8 @@
             Scan QR Code di bawah atau kunjungi link berikut untuk pembayaran digital:
           </p>
           @php
-            $villageSlug = $villageSlug;
-            $paymentUrl = route('tripay.form', ['village' => $villageSlug, 'bill' => $bill->bill_id]);
+            $$village->slug = $$village->slug;
+            $paymentUrl = route('tripay.form', ['village' => $$village->slug, 'bill' => $bill->bill_id]);
           @endphp
           <p style="margin: 5px 0; font-size: 10px; word-break: break-all;">
             {{ $paymentUrl }}
@@ -512,7 +493,7 @@
       </p>
     @endif
     <p>Dokumen ini dicetak secara otomatis dan sah tanpa tanda tangan.</p>
-    <p>Untuk informasi lebih lanjut, hubungi kantor PAMDes {{ $villageName }}.</p>
+    <p>Untuk informasi lebih lanjut, hubungi kantor PAMDes {{ $$village->name }}.</p>
   </div>
 </body>
 
