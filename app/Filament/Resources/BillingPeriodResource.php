@@ -75,6 +75,7 @@ class BillingPeriodResource extends Resource
                                 }
                                 return 'No Village Selected';
                             })
+                            ->columnSpanFull(fn() => !$user?->isSuperAdmin())
                             ->visible(fn() => !$user?->isSuperAdmin()),
 
                         Forms\Components\Hidden::make('village_id')

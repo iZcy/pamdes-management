@@ -62,7 +62,7 @@ class CustomerResource extends Resource
                             ->label('Desa')
                             ->relationship('village', 'name')
                             ->default($currentVillageId)
-                            ->disabled() // Read-only to prevent moving customers between villages
+                            ->disabled()
                             ->dehydrated()
                             ->required()
                             ->visible(fn() => $user?->isSuperAdmin()),
@@ -79,6 +79,7 @@ class CustomerResource extends Resource
                                 }
                                 return 'No Village Selected';
                             })
+                            ->columnSpanFull(fn() => !$user?->isSuperAdmin())
                             ->visible(fn() => !$user?->isSuperAdmin()),
 
                         Forms\Components\Hidden::make('village_id')
