@@ -132,10 +132,16 @@ class UserResource extends Resource
                     ->colors([
                         'danger' => 'super_admin',
                         'primary' => 'village_admin',
+                        'warning' => 'collector',
+                        'info' => 'operator',
                     ])
+                    ->badge()
                     ->formatStateUsing(fn(string $state): string => match ($state) {
                         'super_admin' => 'Super Admin',
                         'village_admin' => 'Village Admin',
+                        'collector' => 'Penagih',
+                        'operator' => 'Operator',
+                        default => $state
                     }),
 
                 Tables\Columns\TextColumn::make('villages_list')
