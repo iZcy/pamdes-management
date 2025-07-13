@@ -45,7 +45,6 @@ class WaterUsage extends Model
         return $this->hasOne(Bill::class, 'usage_id', 'usage_id');
     }
 
-    // New relationship for reader (user)
     public function reader(): BelongsTo
     {
         return $this->belongsTo(User::class, 'reader_id', 'id');

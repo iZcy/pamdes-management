@@ -5,6 +5,7 @@ namespace App\Providers\Filament;
 
 use App\Http\Middleware\RequireSuperAdmin;
 use App\Http\Middleware\SetVillageContext;
+use App\Models\Village;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -31,18 +32,19 @@ class AdminPanelProvider extends PanelProvider
             ->path('admin')
             ->login()
             ->brandName(function () {
-                // Dynamic brand name based on tenant
-                $tenantContext = config('pamdes.tenant');
+                // Get subdomain
+                $subdomain = request()->getHost();
 
-                if ($tenantContext && $tenantContext['is_super_admin']) {
-                    return 'PAMDes Super Admin';
+                // Parse "pamdes-{village}" from subdomain
+                $villageSlug = explode('.', preg_replace('/^pamdes-/', '', $subdomain))[0];
+                // Find village by slug
+                $village = Village::where('slug', $villageSlug)->first();
+
+                if ($village) {
+                    return 'PAMDes ' . $village->name . ' Admin';
                 }
 
-                if ($tenantContext && $tenantContext['type'] === 'village_website' && $tenantContext['village']) {
-                    return 'PAMDes ' . $tenantContext['village']['name'];
-                }
-
-                return 'PAMDes Management';
+                return 'PAMDes Super Admin';
             })
             // ->brandLogo(asset('images/logo.png'))
             ->favicon(asset('favicon.ico'))

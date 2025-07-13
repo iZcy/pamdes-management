@@ -17,7 +17,7 @@ return new class extends Migration
             $table->integer('final_meter');
             $table->integer('total_usage_m3')->nullable();
             $table->date('usage_date');
-            $table->foreignId('reader_id')->constrained('users', 'id')->nullOnDelete();
+            $table->foreignId('reader_id')->constrained('users', 'id')->onDelete('cascade');
             $table->text('notes')->nullable();
             $table->timestamps();
 
