@@ -5,7 +5,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{ $bill->status === 'paid' ? 'Kwitansi Pembayaran' : 'Tagihan Air' }}</title>
+  <title>{{ $payment->bill->status === 'paid' ? 'Kwitansi Pembayaran' : 'Tagihan Air' }}</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -251,19 +251,21 @@
 
   {{-- Document Header --}}
   <div class="header">
-    <h2>{{ $bill->status === 'paid' ? 'KWITANSI PEMBAYARAN AIR' : 'TAGIHAN AIR' }}</h2>
-    <h3>PAMDes {{ $bill->waterUsage->customer->village->name ?? 'Desa' }}</h3>
-    @if ($bill->waterUsage->customer->village->address)
-      <p>{{ $bill->waterUsage->customer->village->address }}</p>
+    <h2>{{ $payment->bill->status === 'paid' ? 'KWITANSI PEMBAYARAN AIR' : 'TAGIHAN AIR' }}</h2>
+    <h3>PAMDes {{ $payment->bill->waterUsage->customer->village->name ?? 'Desa' }}</h3>
+    @if ($payment->bill->waterUsage->customer->village->address)
+      <p>{{ $payment->bill->waterUsage->customer->village->address }}</p>
     @endif
-    @if ($bill->waterUsage->customer->village->phone_number)
-      <p>Telp: {{ $bill->waterUsage->customer->village->phone_number }}</p>
+    @if ($payment->bill->waterUsage->customer->village->phone_number)
+      <p>Telp: {{ $payment->bill->waterUsage->customer->village->phone_number }}</p>
     @endif
   </div>
 
   {{-- Document Number --}}
   <div class="document-info">
-    <p>No. {{ $bill->status === 'paid' ? 'KWT' : 'TAG' }}-{{ str_pad($bill->bill_id, 8, '0', STR_PAD_LEFT) }}</p>
+    <p>No.
+      {{ $payment->bill->status === 'paid' ? 'KWT' : 'TAG' }}-{{ str_pad($payment->bill->bill_id, 8, '0', STR_PAD_LEFT) }}
+    </p>
     <p>Tanggal: {{ now()->format('d/m/Y') }}</p>
   </div>
 
@@ -273,20 +275,20 @@
       <h4>INFORMASI PELANGGAN</h4>
       <div class="row">
         <span class="label">Nama Pelanggan:</span>
-        <span class="value">{{ $bill->waterUsage->customer->name }}</span>
+        <span class="value">{{ $payment->bill->waterUsage->customer->name }}</span>
       </div>
       <div class="row">
         <span class="label">Kode Pelanggan:</span>
-        <span class="value">{{ $bill->waterUsage->customer->customer_code }}</span>
+        <span class="value">{{ $payment->bill->waterUsage->customer->customer_code }}</span>
       </div>
       <div class="row">
         <span class="label">Alamat:</span>
-        <span class="value">{{ $bill->waterUsage->customer->full_address }}</span>
+        <span class="value">{{ $payment->bill->waterUsage->customer->full_address }}</span>
       </div>
-      @if ($bill->waterUsage->customer->phone_number)
+      @if ($payment->bill->waterUsage->customer->phone_number)
         <div class="row">
           <span class="label">Telepon:</span>
-          <span class="value">{{ $bill->waterUsage->customer->phone_number }}</span>
+          <span class="value">{{ $payment->bill->waterUsage->customer->phone_number }}</span>
         </div>
       @endif
     </div>
@@ -296,16 +298,16 @@
       <h4>INFORMASI PERIODE</h4>
       <div class="row">
         <span class="label">Periode Tagihan:</span>
-        <span class="value">{{ $bill->waterUsage->billingPeriod->period_name }}</span>
+        <span class="value">{{ $payment->bill->waterUsage->billingPeriod->period_name }}</span>
       </div>
       <div class="row">
         <span class="label">Tanggal Baca:</span>
-        <span class="value">{{ $bill->waterUsage->usage_date->format('d/m/Y') }}</span>
+        <span class="value">{{ $payment->bill->waterUsage->usage_date->format('d/m/Y') }}</span>
       </div>
-      @if ($bill->waterUsage->reader_name)
+      @if ($payment->bill->waterUsage->reader_name)
         <div class="row">
           <span class="label">Petugas Baca:</span>
-          <span class="value">{{ $bill->waterUsage->reader_name }}</span>
+          <span class="value">{{ $payment->bill->waterUsage->reader_name }}</span>
         </div>
       @endif
     </div>
@@ -315,23 +317,23 @@
       <h4>PEMAKAIAN AIR</h4>
       <div class="row">
         <span class="label">Meter Awal:</span>
-        <span class="value">{{ number_format($bill->waterUsage->initial_meter) }}</span>
+        <span class="value">{{ number_format($payment->bill->waterUsage->initial_meter) }}</span>
       </div>
       <div class="row">
         <span class="label">Meter Akhir:</span>
-        <span class="value">{{ number_format($bill->waterUsage->final_meter) }}</span>
+        <span class="value">{{ number_format($payment->bill->waterUsage->final_meter) }}</span>
       </div>
       <div class="row">
         <span class="label">Total Pemakaian:</span>
-        <span class="value">{{ $bill->waterUsage->total_usage_m3 }} m³</span>
+        <span class="value">{{ $payment->bill->waterUsage->total_usage_m3 }} m³</span>
       </div>
 
       {{-- Usage Breakdown --}}
       @php
         try {
             $breakdown = \App\Models\WaterTariff::calculateBill(
-                $bill->waterUsage->total_usage_m3,
-                $bill->waterUsage->customer->village_id,
+                $payment->bill->waterUsage->total_usage_m3,
+                $payment->bill->waterUsage->customer->village_id,
             );
         } catch (\Exception $e) {
             $breakdown = ['breakdown' => []];
@@ -355,95 +357,98 @@
     <div class="bill-summary">
       <div class="row">
         <span class="label">Biaya Air:</span>
-        <span class="value">Rp {{ number_format($bill->water_charge) }}</span>
+        <span class="value">Rp {{ number_format($payment->bill->water_charge) }}</span>
       </div>
       <div class="row">
         <span class="label">Biaya Admin:</span>
-        <span class="value">Rp {{ number_format($bill->admin_fee) }}</span>
+        <span class="value">Rp {{ number_format($payment->bill->admin_fee) }}</span>
       </div>
       <div class="row">
         <span class="label">Biaya Pemeliharaan:</span>
-        <span class="value">Rp {{ number_format($bill->maintenance_fee) }}</span>
+        <span class="value">Rp {{ number_format($payment->bill->maintenance_fee) }}</span>
       </div>
       <div class="row total-row">
         <span class="label">TOTAL TAGIHAN:</span>
-        <span class="value">Rp {{ number_format($bill->total_amount) }}</span>
+        <span class="value">Rp {{ number_format($payment->bill->total_amount) }}</span>
       </div>
     </div>
 
     {{-- Status Section --}}
     <div
-      class="status-section {{ $bill->status === 'paid'
+      class="status-section {{ $payment->bill->status === 'paid'
           ? 'status-paid'
-          : ($bill->status === 'overdue'
+          : ($payment->bill->status === 'overdue'
               ? 'status-overdue'
               : 'status-unpaid') }}">
       <h4 style="margin: 0 0 5px 0;">
         STATUS:
-        {{ $bill->status === 'paid'
+        {{ $payment->bill->status === 'paid'
             ? 'LUNAS'
-            : ($bill->status === 'overdue'
+            : ($payment->bill->status === 'overdue'
                 ? 'TERLAMBAT'
-                : ($bill->status === 'pending'
+                : ($payment->bill->status === 'pending'
                     ? 'MENUNGGU PEMBAYARAN'
                     : 'BELUM BAYAR')) }}
       </h4>
 
-      @if ($bill->status === 'paid' && $bill->payment_date)
-        <p style="margin: 0;">Dibayar pada: {{ $bill->payment_date->format('d/m/Y') }}</p>
-        @if ($bill->latestPayment)
+      @if ($payment->bill->status === 'paid' && $payment->bill->payment_date)
+        <p style="margin: 0;">Dibayar pada: {{ $payment->bill->payment_date->format('d/m/Y') }}</p>
+        @if ($payment->bill->latestPayment)
           <p style="margin: 0; font-size: 10px;">
-            Metode: {{ $bill->latestPayment->getPaymentMethodLabel() }}
-            @if ($bill->latestPayment->payment_reference)
-              | Ref: {{ $bill->latestPayment->payment_reference }}
+            Metode: {{ $payment->bill->latestPayment->getPaymentMethodLabel() }}
+            @if ($payment->bill->latestPayment->payment_reference)
+              | Ref: {{ $payment->bill->latestPayment->payment_reference }}
             @endif
           </p>
         @endif
-      @elseif($bill->due_date)
-        <p style="margin: 0;">Jatuh Tempo: {{ $bill->due_date->format('d F Y') }}</p>
-        @if ($bill->is_overdue)
-          <p style="margin: 0; font-weight: bold;">Terlambat {{ $bill->days_overdue }} hari!</p>
+      @elseif($payment->bill->due_date)
+        <p style="margin: 0;">Jatuh Tempo: {{ $payment->bill->due_date->format('d F Y') }}</p>
+        @if ($payment->bill->is_overdue)
+          <p style="margin: 0; font-weight: bold;">Terlambat {{ $payment->bill->days_overdue }} hari!</p>
         @endif
       @endif
     </div>
 
     {{-- Payment Information for Paid Bills --}}
-    @if ($bill->status === 'paid' && $bill->latestPayment)
+    @if ($payment->bill->status === 'paid' && $payment->bill->latestPayment)
       <div class="payment-info">
         <h4 style="margin: 0 0 8px 0;">INFORMASI PEMBAYARAN</h4>
         <div class="row">
           <span class="label">Tanggal Bayar:</span>
-          <span class="value">{{ $bill->latestPayment->payment_date->format('d/m/Y H:i') }}</span>
+          <span class="value">{{ $payment->bill->latestPayment->payment_date->format('d/m/Y H:i') }}</span>
         </div>
         <div class="row">
           <span class="label">Jumlah Bayar:</span>
-          <span class="value">Rp {{ number_format($bill->latestPayment->amount_paid) }}</span>
+          <span class="value">Rp {{ number_format($payment->bill->latestPayment->amount_paid) }}</span>
         </div>
-        @if ($bill->latestPayment->change_given > 0)
+        @if ($payment->bill->latestPayment->change_given > 0)
           <div class="row">
             <span class="label">Kembalian:</span>
-            <span class="value">Rp {{ number_format($bill->latestPayment->change_given) }}</span>
+            <span class="value">Rp {{ number_format($payment->bill->latestPayment->change_given) }}</span>
           </div>
         @endif
-        @if ($bill->latestPayment->collector)
+        @if ($payment->bill->latestPayment->collector)
           <div class="row">
             <span class="label">Petugas:</span>
-            <span class="value">{{ $bill->latestPayment->collector->name }}</span>
+            <span class="value">{{ $payment->bill->latestPayment->collector->name }}</span>
           </div>
         @endif
-        @if ($bill->latestPayment->notes)
+        @if ($payment->bill->latestPayment->notes)
           <div class="row">
             <span class="label">Catatan:</span>
-            <span class="value">{{ $bill->latestPayment->notes }}</span>
+            <span class="value">{{ $payment->bill->latestPayment->notes }}</span>
           </div>
         @endif
       </div>
     @endif
 
     {{-- QR Code Section for Unpaid Bills --}}
-    @if ($bill->status !== 'paid')
+    @if ($payment->bill->status !== 'paid')
       @php
-        $variable = \App\Models\Variable::where('village_id', $bill->waterUsage->customer->village_id)->first();
+        $variable = \App\Models\Variable::where(
+            'village_id',
+            $payment->bill->waterUsage->customer->village_id,
+        )->first();
         $tripayConfigured = $variable && ($variable->tripay_use_main || $variable->isConfigured());
       @endphp
 
@@ -454,10 +459,10 @@
             Scan QR Code di bawah atau kunjungi link berikut untuk pembayaran digital:
           </p>
           @php
-            $bill->waterUsage->customer->village->slug = $bill->waterUsage->customer->village->slug;
+            $payment->bill->waterUsage->customer->village->slug = $payment->bill->waterUsage->customer->village->slug;
             $paymentUrl = route('tripay.form', [
-                'village' => $bill->waterUsage->customer->village->slug,
-                'bill' => $bill->bill_id,
+                'village' => $payment->bill->waterUsage->customer->village->slug,
+                'bill' => $payment->bill->bill_id,
             ]);
           @endphp
           <p style="margin: 5px 0; font-size: 10px; word-break: break-all;">
@@ -472,7 +477,7 @@
   </div>
 
   {{-- Signature Section --}}
-  @if ($bill->status === 'paid')
+  @if ($payment->bill->status === 'paid')
     <div class="signature-section">
       <div class="signature-box">
         <p>Mengetahui,</p>
@@ -482,7 +487,7 @@
       <div class="signature-box">
         <p>Petugas PAMDes,</p>
         <div class="signature-line"></div>
-        <p><strong>{{ $bill->latestPayment->collector->name ?? 'Petugas' }}</strong></p>
+        <p><strong>{{ $payment->bill->latestPayment->collector->name ?? 'Petugas' }}</strong></p>
       </div>
     </div>
   @endif
@@ -490,13 +495,14 @@
   {{-- Footer --}}
   <div class="footer">
     <p>Dicetak pada: {{ now()->format('d/m/Y H:i:s') }}</p>
-    @if ($bill->status !== 'paid')
+    @if ($payment->bill->status !== 'paid')
       <p style="font-weight: bold; color: #f57c00;">
         ⚠️ Harap membayar tepat waktu untuk menghindari pemutusan layanan.
       </p>
     @endif
     <p>Dokumen ini dicetak secara otomatis dan sah tanpa tanda tangan.</p>
-    <p>Untuk informasi lebih lanjut, hubungi kantor PAMDes {{ $bill->waterUsage->customer->village->name }}.</p>
+    <p>Untuk informasi lebih lanjut, hubungi kantor PAMDes {{ $payment->bill->waterUsage->customer->village->name }}.
+    </p>
   </div>
 </body>
 
