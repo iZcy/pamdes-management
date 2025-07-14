@@ -201,7 +201,10 @@ class CustomerResource extends Resource
                             ->default('active')
                             ->required(),
                     ])
-                    ->columns(2),
+                    ->columns([
+                        'default' => 1,
+                        'md' => 2,
+                    ]),
 
                 Forms\Components\Section::make('Alamat')
                     ->schema([
@@ -222,7 +225,11 @@ class CustomerResource extends Resource
                             ->label('Desa/Kelurahan')
                             ->maxLength(100),
                     ])
-                    ->columns(3),
+                    ->columns([
+                        'default' => 1,
+                        'sm' => 2,
+                        'lg' => 3,
+                    ]),
             ]);
     }
 

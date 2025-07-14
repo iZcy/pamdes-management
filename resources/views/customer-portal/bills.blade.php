@@ -139,6 +139,29 @@
         transform: scale(1.1) rotate(5deg);
       }
     }
+
+    /* New styles for due date header */
+    .due-date-header {
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.15) 0%, rgba(255, 255, 255, 0.05) 100%);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .pulse-warning {
+      animation: pulseWarning 2s ease-in-out infinite;
+    }
+
+    @keyframes pulseWarning {
+
+      0%,
+      100% {
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+      }
+
+      50% {
+        box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+      }
+    }
   </style>
 </head>
 
@@ -245,10 +268,12 @@
               @foreach ($bills as $index => $bill)
                 <div class="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden card-hover"
                   style="animation-delay: {{ $index * 0.1 }}s">
-                  <!-- Bill Header -->
+
+                  <!-- New Bill Header with Due Date Information -->
                   <div class="bg-gradient-to-r from-gray-50 to-blue-50 px-6 py-4 border-b border-gray-100">
-                    <div class="flex flex-col md:flex-row md:items-center md:justify-between">
-                      <div>
+                    <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                      <!-- Bill Title and Usage -->
+                      <div class="flex-1">
                         <h4 class="text-lg font-bold text-gray-800 mb-1">
                           {{ $bill->waterUsage->billingPeriod->period_name }}
                         </h4>
@@ -258,10 +283,47 @@
                           {{ number_format($bill->waterUsage->final_meter) }})
                         </p>
                       </div>
-                      <div class="mt-3 md:mt-0">
-                        <div class="text-right">
+
+                      <!-- Due Date Information in Header -->
+                      <div class="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                        <div
+                          class="due-date-header rounded-xl px-4 py-3 text-center min-w-[180px] {{ $bill->is_overdue ? 'pulse-warning' : '' }}">
+                          <div class="flex items-center justify-center mb-1">
+                            <svg
+                              class="w-4 h-4 mr-2 {{ $bill->due_date->isPast() ? 'text-red-600' : 'text-orange-600' }}"
+                              fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            <span
+                              class="text-xs {{ $bill->due_date->isPast() ? 'text-red-600' : 'text-orange-600' }} font-medium">
+                              JATUH TEMPO
+                            </span>
+                          </div>
+                          <p
+                            class="text-sm font-bold {{ $bill->due_date->isPast() ? 'text-red-700' : 'text-gray-800' }}">
+                            {{ $bill->due_date->format('d M Y') }}
+                          </p>
+                          @if ($bill->is_overdue)
+                            <div class="mt-1 px-2 py-1 bg-red-100 text-red-800 rounded-full text-xs font-medium">
+                              ⚠️ {{ $bill->days_overdue }} hari
+                            </div>
+                          @else
+                            @php
+                              $daysUntilDue = now()->diffInDays($bill->due_date, false);
+                            @endphp
+                            @if ($daysUntilDue >= 0)
+                              <div class="mt-1 px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
+                                {{ $daysUntilDue }} hari lagi
+                              </div>
+                            @endif
+                          @endif
+                        </div>
+
+                        <!-- Amount and Status -->
+                        <div class="text-center sm:text-right">
                           <p class="text-2xl font-bold text-blue-600">Rp {{ number_format($bill->total_amount) }}</p>
-                          <div class="flex items-center justify-end mt-1">
+                          <div class="flex items-center justify-center sm:justify-end mt-1">
                             <span
                               class="px-3 py-1 rounded-full text-xs font-medium {{ $bill->status === 'overdue' ? 'bg-red-100 text-red-800' : ($bill->status === 'pending' ? 'bg-purple-100 text-purple-800' : 'bg-yellow-100 text-yellow-800') }}">
                               {{ match ($bill->status) {
@@ -276,10 +338,10 @@
                     </div>
                   </div>
 
-                  <!-- Bill Details -->
+                  <!-- Bill Details - Now Single Column for Usage Breakdown -->
                   <div class="p-6">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                      <!-- Usage Breakdown -->
+                    <div class="mb-6">
+                      <!-- Usage Breakdown - Full Width -->
                       <div>
                         <h5 class="font-semibold text-gray-800 mb-3 flex items-center">
                           <svg class="w-5 h-5 mr-2 text-blue-500" fill="none" stroke="currentColor"
@@ -291,95 +353,82 @@
                           Rincian Biaya
                         </h5>
 
-                        @php
-                          $breakdown = \App\Models\WaterTariff::calculateBill(
-                              $bill->waterUsage->total_usage_m3,
-                              $bill->waterUsage->customer->village_id,
-                          );
-                        @endphp
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                          <div>
+                            @php
+                              $breakdown = \App\Models\WaterTariff::calculateBill(
+                                  $bill->waterUsage->total_usage_m3,
+                                  $bill->waterUsage->customer->village_id,
+                              );
+                            @endphp
 
-                        @if (count($breakdown['breakdown']) > 1)
-                          <div class="tier-breakdown p-4 rounded-lg mb-4">
-                            <h6 class="text-sm font-medium text-blue-800 mb-2">Perhitungan Tarif Progresif:</h6>
-                            @foreach ($breakdown['breakdown'] as $tier)
-                              <div class="flex justify-between text-sm text-blue-700 mb-1">
-                                <span>{{ $tier['usage'] }}m³ × Rp{{ number_format($tier['rate']) }}</span>
-                                <span class="font-medium">Rp{{ number_format($tier['charge']) }}</span>
+                            @if (count($breakdown['breakdown']) > 1)
+                              <div class="tier-breakdown p-4 rounded-lg mb-4">
+                                <h6 class="text-sm font-medium text-blue-800 mb-2">Perhitungan Tarif Progresif:</h6>
+                                @foreach ($breakdown['breakdown'] as $tier)
+                                  <div class="flex justify-between text-sm text-blue-700 mb-1">
+                                    <span>{{ $tier['usage'] }}m³ × Rp{{ number_format($tier['rate']) }}</span>
+                                    <span class="font-medium">Rp{{ number_format($tier['charge']) }}</span>
+                                  </div>
+                                @endforeach
                               </div>
-                            @endforeach
-                          </div>
-                        @endif
-
-                        <div class="space-y-2">
-                          <div class="flex justify-between items-center py-2 border-b border-gray-100">
-                            <span class="text-gray-600">Biaya Air</span>
-                            <span class="font-semibold">Rp {{ number_format($bill->water_charge) }}</span>
-                          </div>
-                          <div class="flex justify-between items-center py-2 border-b border-gray-100">
-                            <span class="text-gray-600">Biaya Admin</span>
-                            <span class="font-semibold">Rp {{ number_format($bill->admin_fee) }}</span>
-                          </div>
-                          <div class="flex justify-between items-center py-2 border-b border-gray-100">
-                            <span class="text-gray-600">Biaya Pemeliharaan</span>
-                            <span class="font-semibold">Rp {{ number_format($bill->maintenance_fee) }}</span>
-                          </div>
-                          <div class="flex justify-between items-center py-3 bg-blue-50 px-3 rounded-lg">
-                            <span class="font-bold text-blue-800">Total Tagihan</span>
-                            <span class="font-bold text-blue-800 text-lg">Rp
-                              {{ number_format($bill->total_amount) }}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <!-- Due Date & Status -->
-                      <div>
-                        <h5 class="font-semibold text-gray-800 mb-3 flex items-center">
-                          <svg class="w-5 h-5 mr-2 text-orange-500" fill="none" stroke="currentColor"
-                            viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                          </svg>
-                          Informasi Jatuh Tempo
-                        </h5>
-
-                        <div class="bg-gray-50 p-4 rounded-lg">
-                          <div class="text-center mb-4">
-                            <p class="text-sm text-gray-600 mb-1">Jatuh Tempo</p>
-                            <p
-                              class="text-xl font-bold {{ $bill->due_date->isPast() ? 'text-red-600' : 'text-gray-800' }}">
-                              {{ $bill->due_date->format('d F Y') }}
-                            </p>
-                            @if ($bill->is_overdue)
-                              <div class="mt-2 px-3 py-1 bg-red-100 text-red-800 rounded-full text-sm font-medium">
-                                ⚠️ Terlambat {{ $bill->days_overdue }} hari
-                              </div>
-                            @else
-                              @php
-                                $daysUntilDue = now()->diffInDays($bill->due_date, false);
-                              @endphp
-                              @if ($daysUntilDue >= 0)
-                                <div class="mt-2 px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
-                                  {{ $daysUntilDue }} hari lagi
-                                </div>
-                              @endif
                             @endif
-                          </div>
 
-                          @if ($bill->status === 'pending')
-                            <div class="bg-purple-50 border border-purple-200 rounded-lg p-3">
-                              <div class="flex items-center text-purple-800">
-                                <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fill-rule="evenodd"
-                                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z"
-                                    clip-rule="evenodd"></path>
-                                </svg>
-                                <div>
-                                  <p class="font-medium">Pembayaran Sedang Diproses</p>
-                                  <p class="text-sm text-purple-600">Silakan selesaikan pembayaran</p>
-                                </div>
+                            <div class="space-y-2">
+                              <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                <span class="text-gray-600">Biaya Air</span>
+                                <span class="font-semibold">Rp {{ number_format($bill->water_charge) }}</span>
+                              </div>
+                              <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                <span class="text-gray-600">Biaya Admin</span>
+                                <span class="font-semibold">Rp {{ number_format($bill->admin_fee) }}</span>
+                              </div>
+                              <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                                <span class="text-gray-600">Biaya Pemeliharaan</span>
+                                <span class="font-semibold">Rp {{ number_format($bill->maintenance_fee) }}</span>
+                              </div>
+                              <div class="flex justify-between items-center py-3 bg-blue-50 px-3 rounded-lg">
+                                <span class="font-bold text-blue-800">Total Tagihan</span>
+                                <span class="font-bold text-blue-800 text-lg">Rp
+                                  {{ number_format($bill->total_amount) }}</span>
                               </div>
                             </div>
-                          @endif
+                          </div>
+
+                          <!-- Payment Status Info -->
+                          <div>
+                            @if ($bill->status === 'pending')
+                              <div class="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                                <div class="flex items-center text-purple-800 mb-3">
+                                  <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd"
+                                      d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z"
+                                      clip-rule="evenodd"></path>
+                                  </svg>
+                                  <div>
+                                    <p class="font-medium">Pembayaran Sedang Diproses</p>
+                                    <p class="text-sm text-purple-600">Silakan selesaikan pembayaran</p>
+                                  </div>
+                                </div>
+                              </div>
+                            @else
+                              <div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                                <h6 class="font-semibold text-orange-800 mb-2 flex items-center">
+                                  <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor"
+                                    viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                  </svg>
+                                  Informasi Pembayaran
+                                </h6>
+                                <div class="text-sm text-orange-700 space-y-1">
+                                  <p>• Bayar sebelum tanggal jatuh tempo</p>
+                                  <p>• Gunakan QRIS untuk pembayaran digital</p>
+                                  <p>• Atau hubungi petugas untuk pembayaran tunai</p>
+                                </div>
+                              </div>
+                            @endif
+                          </div>
                         </div>
                       </div>
                     </div>

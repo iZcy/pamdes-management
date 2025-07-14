@@ -244,7 +244,11 @@ class PaymentResource extends Resource
                             ->rows(3)
                             ->columnSpanFull(),
                     ])
-                    ->columns(3),
+                    ->columns([
+                        'default' => 1,
+                        'md' => 2,
+                        'xl' => 3,
+                    ]),
             ]);
     }
 

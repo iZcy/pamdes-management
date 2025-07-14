@@ -297,7 +297,10 @@ class WaterTariffResource extends Resource
                                 })
                                 ->helperText('Harga dapat selalu diubah'),
                         ])->columnSpan(2),
-                    ])->columns(2),
+                    ])->columns([
+                        'default' => 1,
+                        'lg' => 2,
+                    ]),
 
                 // Show existing tariffs for context
                 Forms\Components\Section::make('Tarif Saat Ini')

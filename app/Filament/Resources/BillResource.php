@@ -221,7 +221,11 @@ class BillResource extends Resource
                             ->label('Tanggal Pembayaran')
                             ->visible(fn(Forms\Get $get) => $get('status') === 'paid'),
                     ])
-                    ->columns(3),
+                    ->columns([
+                        'default' => 1,
+                        'md' => 2,
+                        'lg' => 3,
+                    ]),
             ]);
     }
 

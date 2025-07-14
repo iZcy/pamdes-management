@@ -261,16 +261,15 @@ class WaterUsageResource extends Resource
                                 $user = Auth::user();
                                 $user = User::find($user->id);
                                 $currentVillage = $user?->getCurrentVillageContext();
-
                                 if (!$currentVillage) {
                                     return [];
                                 }
 
-                                // Get users who can read meters (operators, village_admin, and collectors)
+                                // Get users who can read meters (ONLY operators)
                                 return User::whereHas('villages', function ($q) use ($currentVillage) {
                                     $q->where('villages.id', $currentVillage);
                                 })
-                                    ->whereIn('role', ['village_admin', 'operator', 'collector'])
+                                    ->where('role', 'operator') // Changed from whereIn to where for single role
                                     ->where('is_active', true)
                                     ->orderBy('name')
                                     ->get()
@@ -282,11 +281,10 @@ class WaterUsageResource extends Resource
                             })
                             ->searchable()
                             ->default(function () {
-                                // Auto-select current user if they are eligible
+                                // Auto-select current user if they are an operator
                                 $user = User::find(Auth::user()->id);
                                 $currentVillage = $user?->getCurrentVillageContext();
-
-                                if ($user && $currentVillage && in_array($user->role, ['village_admin', 'operator', 'collector'])) {
+                                if ($user && $currentVillage && $user->role === 'operator') { // Changed condition
                                     return $user->id;
                                 }
                                 return null;
@@ -300,7 +298,11 @@ class WaterUsageResource extends Resource
                             ->placeholder('Catatan tambahan tentang pembacaan meter (opsional)')
                             ->helperText('Misalnya: kondisi meter, kesulitan pembacaan, dll.'),
                     ])
-                    ->columns(3),
+                    ->columns([
+                        'default' => 1,
+                        'md' => 2,
+                        'xl' => 3,
+                    ]),
             ]);
     }
 

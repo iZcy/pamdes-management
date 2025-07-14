@@ -222,7 +222,10 @@ class UserResource extends Resource
                             ->label('Aktif')
                             ->default(true),
                     ])
-                    ->columns(2),
+                    ->columns([
+                        'default' => 1,
+                        'md' => 2,
+                    ]),
 
                 Forms\Components\Section::make('Penugasan Desa')
                     ->schema([

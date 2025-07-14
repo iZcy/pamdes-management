@@ -196,7 +196,11 @@ class VariableResource extends Resource
                             ->helperText('Kode merchant dari dashboard Tripay produksi'),
                     ])
                     ->visible(fn(Forms\Get $get) => !$get('tripay_use_main'))
-                    ->columns(3),
+                    ->columns([
+                        'default' => 1,
+                        'lg' => 2,
+                        'xl' => 3,
+                    ]),
 
                 Forms\Components\Section::make('Kredensial Sandbox/Testing')
                     ->description('Kredensial untuk testing (tidak ada transaksi real)')
@@ -221,7 +225,11 @@ class VariableResource extends Resource
                             ->helperText('Kode merchant dari dashboard Tripay sandbox'),
                     ])
                     ->visible(fn(Forms\Get $get) => !$get('tripay_use_main'))
-                    ->columns(3),
+                    ->columns([
+                        'default' => 1,
+                        'lg' => 2,
+                        'xl' => 3,
+                    ]),
 
                 Forms\Components\Section::make('URL Konfigurasi')
                     ->description('URL untuk callback dan return dari Tripay')
