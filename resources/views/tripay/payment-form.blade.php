@@ -138,7 +138,8 @@
           </button>
         @else
           <!-- Payment Form -->
-          <form action="{{ route('tripay.create', ['village' => $village->slug, 'bill' => $bill->bill_id]) }}"
+          <form
+            action="{{ route('tripay.create', ['village' => $village->slug, 'bill' => $bill->bill_id, 'return' => route('portal.bills', $bill->waterUsage->customer->customer_code)]) }}"
             method="POST" class="space-y-4">
             @csrf
 
@@ -380,9 +381,9 @@
 
             if (data.success && data.status === 'paid') {
               // Show success message and reload page
-              createAlert('success', 'Pembayaran berhasil! Halaman akan dimuat ulang...', 2000);
+              createAlert('success', 'Pembayaran berhasil! Halaman akan dikembalikan...', 2000);
               setTimeout(() => {
-                location.reload();
+                window.location.href = `{{ route('portal.bills', $bill->waterUsage->customer->customer_code) }}`;
               }, 2000);
             } else {
               // Reset button

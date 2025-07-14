@@ -79,7 +79,7 @@ return Application::configure(basePath: dirname(__DIR__))
                     ], 401);
                 }
 
-                return redirect()->route('home')
+                return redirect(filament()->getLoginUrl())
                     ->with('error', 'Your session has expired. Please log in again.');
             }
 
@@ -93,7 +93,7 @@ return Application::configure(basePath: dirname(__DIR__))
                     ], 403);
                 }
 
-                return redirect()->route('home')
+                return redirect(filament()->getLoginUrl())
                     ->with('error', 'Access denied. Please log in with appropriate permissions.');
             }
 

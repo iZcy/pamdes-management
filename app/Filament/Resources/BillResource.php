@@ -158,6 +158,7 @@ class BillResource extends Resource
                                         ];
                                     });
                             })
+                            ->disabledOn('edit')
                             ->searchable()
                             ->required(),
 
@@ -165,7 +166,19 @@ class BillResource extends Resource
                             ->label('Biaya Air')
                             ->required()
                             ->numeric()
-                            ->prefix('Rp'),
+                            ->prefix('Rp')
+                            ->live()
+                            ->afterStateUpdated(function (Forms\Set $set, Forms\Get $get, $state) {
+                                // Convert non-numeric input to 0
+                                $water = is_numeric($state) ? (float) $state : 0;
+                                if (!is_numeric($state)) {
+                                    $set('water_charge', 0);
+                                }
+
+                                $admin = is_numeric($get('admin_fee')) ? (float) $get('admin_fee') : 0;
+                                $maintenance = is_numeric($get('maintenance_fee')) ? (float) $get('maintenance_fee') : 0;
+                                $set('total_amount', $water + $admin + $maintenance);
+                            }),
 
                         Forms\Components\TextInput::make('admin_fee')
                             ->label('Biaya Admin')
@@ -176,6 +189,18 @@ class BillResource extends Resource
                                 $user = User::find(Auth::user()->id);
                                 $village = \App\Models\Village::find($user?->getCurrentVillageContext());
                                 return $village?->getDefaultAdminFee() ?? 5000;
+                            })
+                            ->live()
+                            ->afterStateUpdated(function (Forms\Set $set, Forms\Get $get, $state) {
+                                // Convert non-numeric input to 0
+                                $admin = is_numeric($state) ? (float) $state : 0;
+                                if (!is_numeric($state)) {
+                                    $set('admin_fee', 0);
+                                }
+
+                                $water = is_numeric($get('water_charge')) ? (float) $get('water_charge') : 0;
+                                $maintenance = is_numeric($get('maintenance_fee')) ? (float) $get('maintenance_fee') : 0;
+                                $set('total_amount', $water + $admin + $maintenance);
                             }),
 
                         Forms\Components\TextInput::make('maintenance_fee')
@@ -187,6 +212,18 @@ class BillResource extends Resource
                                 $user = User::find(Auth::user()->id);
                                 $village = \App\Models\Village::find($user?->getCurrentVillageContext());
                                 return $village?->getDefaultMaintenanceFee() ?? 2000;
+                            })
+                            ->live()
+                            ->afterStateUpdated(function (Forms\Set $set, Forms\Get $get, $state) {
+                                // Convert non-numeric input to 0
+                                $maintenance = is_numeric($state) ? (float) $state : 0;
+                                if (!is_numeric($state)) {
+                                    $set('maintenance_fee', 0);
+                                }
+
+                                $water = is_numeric($get('water_charge')) ? (float) $get('water_charge') : 0;
+                                $admin = is_numeric($get('admin_fee')) ? (float) $get('admin_fee') : 0;
+                                $set('total_amount', $water + $admin + $maintenance);
                             }),
 
                         Forms\Components\TextInput::make('total_amount')
@@ -194,12 +231,29 @@ class BillResource extends Resource
                             ->required()
                             ->numeric()
                             ->prefix('Rp')
+                            ->disabled(function ($operation) {
+                                // Disable in edit mode, enable in create mode
+                                return $operation === 'edit';
+                            })
+                            ->dehydrated(function ($operation) {
+                                // Always save the value, even when disabled
+                                return true;
+                            })
                             ->live()
-                            ->afterStateUpdated(function (Forms\Set $set, Forms\Get $get) {
-                                $water = $get('water_charge') ?? 0;
-                                $admin = $get('admin_fee') ?? 0;
-                                $maintenance = $get('maintenance_fee') ?? 0;
-                                $set('total_amount', $water + $admin + $maintenance);
+                            ->afterStateHydrated(function (Forms\Set $set, Forms\Get $get, $operation) {
+                                // Auto-calculate total when form is loaded in edit mode
+                                if ($operation === 'edit') {
+                                    $water = is_numeric($get('water_charge')) ? (float) $get('water_charge') : 0;
+                                    $admin = is_numeric($get('admin_fee')) ? (float) $get('admin_fee') : 0;
+                                    $maintenance = is_numeric($get('maintenance_fee')) ? (float) $get('maintenance_fee') : 0;
+                                    $set('total_amount', $water + $admin + $maintenance);
+                                }
+                            })
+                            ->afterStateUpdated(function (Forms\Set $set, Forms\Get $get, $state) {
+                                // Convert non-numeric input to 0 if user somehow manages to edit total_amount
+                                if (!is_numeric($state)) {
+                                    $set('total_amount', 0);
+                                }
                             }),
 
                         Forms\Components\Select::make('status')

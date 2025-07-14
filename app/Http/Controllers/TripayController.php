@@ -69,7 +69,7 @@ class TripayController extends Controller
             ];
 
             // Create payment
-            $paymentResult = $tripayService->createPayment($bill, $customerData);
+            $paymentResult = $tripayService->createPayment($bill, $customerData, $request->query('return'));
             // Save billref
             $bill->bill_ref = $paymentResult['data']['reference'];
             $bill->save();
@@ -222,11 +222,11 @@ class TripayController extends Controller
                 })
                 ->firstOrFail();
 
-            // Change bill status to unpaid if no payment reference found
-            $bill->status = 'unpaid';
-            $bill->save();
-
             if (!$bill->bill_ref) {
+                // Change bill status to unpaid if no payment reference found
+                $bill->status = 'unpaid';
+                $bill->save();
+
                 return response()->json([
                     'success' => false,
                     'message' => 'No payment reference found'
@@ -238,14 +238,21 @@ class TripayController extends Controller
 
             // Check payment status
             $statusResult = $tripayService->checkTransactionStatus($bill->bill_ref);
-            if ($statusResult['success']) {
-                // Update bill status based on Tripay response
-                $bill->status = $statusResult['data']['status'];
-                $bill->save();
+            $retrieveSignature = $tripayService->generateSignature($bill->bill_ref, $statusResult['amount'] ?? null);
+
+            if ($statusResult['status']) {
+                // Update bill status based on payment status
+                $finalBill = $tripayService->processCallback([
+                    'merchant_ref' => $bill->bill_ref,
+                    'status' => $statusResult['status'],
+                    'signature' => $retrieveSignature ?? null,
+                    'amount' => $statusResult['amount'] ?? null,
+                    'data' => $statusResult['data'] ?? [],
+                ]);
 
                 return response()->json([
                     'success' => true,
-                    'status' => $bill->status,
+                    'status' => $finalBill->status,
                     'message' => 'Payment status checked successfully'
                 ]);
             } else {
@@ -263,7 +270,7 @@ class TripayController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to check payment status'
+                'message' => 'Failed to check payment status ' . $e->getMessage()
             ], 500);
         }
     }

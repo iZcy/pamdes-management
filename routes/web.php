@@ -13,6 +13,10 @@ use Illuminate\Support\Facades\Storage;
 // Apply village context middleware to all routes
 Route::middleware(['village.context'])->group(function () {
     Route::get('/', function () {
+        if (!config('pamdes.is_super_admin_domain')) {
+            return redirect()->route('portal.index');
+        }
+
         return redirect(filament()->getLoginUrl());
     })->name('home');
 
@@ -164,6 +168,10 @@ Route::middleware(['village.context'])->group(function () {
     });
 
     Route::fallback(function () {
+        if (!config('pamdes.is_super_admin_domain')) {
+            return redirect()->route('portal.index');
+        }
+
         return redirect(filament()->getLoginUrl());
     });
 });

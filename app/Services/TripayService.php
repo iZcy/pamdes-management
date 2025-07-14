@@ -81,10 +81,28 @@ class TripayService
     }
 
     /**
+     * Signature Generator
+     */
+    public function generateSignature($merchantRef, $amount)
+    {
+        if (!$this->privateKey) {
+            throw new \Exception('Private key is not set for signature generation');
+        }
+
+        return hash_hmac('sha256', $this->merchantCode . $merchantRef . (int) $amount, $this->privateKey);
+    }
+
+    /**
      * Create QRIS payment for bill
      */
-    public function createPayment(Bill $bill, array $customerData)
+    public function createPayment(Bill $bill, array $customerData, string $return)
     {
+        // If pending transaction for the bill exists, reject
+        if ($bill->status === 'pending' && $bill->bill_ref) {
+            Log::warning('Payment already pending for bill', ['bill_id' => $bill->bill_id]);
+            throw new \Exception('Payment is already pending for this bill. Please complete or cancel the existing payment first.');
+        }
+
         try {
             // Generate unique merchant reference
             $village = Village::find($bill->waterUsage->customer->village_id);
@@ -108,7 +126,7 @@ class TripayService
             ]];
 
             // Generate signature
-            $signature = hash_hmac('sha256', $this->merchantCode . $merchantRef . (int) $bill->total_amount, $this->privateKey);
+            $signature = $this->generateSignature($merchantRef, $bill->total_amount);
 
             // Prepare payload
             $payload = [
@@ -119,7 +137,7 @@ class TripayService
                 "customer_email" => $customerData['email'],
                 "customer_phone" => $customerData['phone'] ?? '',
                 "order_items" => $orderItems,
-                "return_url" => route('tripay.return'),
+                "return_url" => $return,
                 "expired_time" => $timeout,
                 "signature" => $signature,
             ];
@@ -228,16 +246,15 @@ class TripayService
      */
     public function validateCallbackSignature($callbackData)
     {
-        $callbackSignature = $callbackData['signature'] ?? '';
+        if (!$this->privateKey) {
+            throw new \Exception('Private key is not set for signature validation');
+        }
 
-        $rawCallbackData = $callbackData;
-        unset($rawCallbackData['signature']);
+        // Recreate the signature using the callback data
+        $expectedSignature = hash_hmac('sha256', $this->merchantCode . $callbackData['merchant_ref'] . $callbackData['amount'], $this->privateKey);
 
-        ksort($rawCallbackData);
-        $callbackString = http_build_query($rawCallbackData);
-        $calculatedSignature = hash_hmac('sha256', $callbackString, $this->privateKey);
-
-        return hash_equals($calculatedSignature, $callbackSignature);
+        // Compare signatures
+        return hash_equals($expectedSignature, $callbackData['signature']);
     }
 
     /**
@@ -272,7 +289,7 @@ class TripayService
                     'amount_paid' => $bill->total_amount,
                     'change_given' => 0,
                     'payment_method' => 'qris',
-                    'payment_reference' => $callbackData['reference'] ?? null,
+                    'payment_reference' => $merchantRef ?? null,
                     'collector_id' => null, // System payment
                     'notes' => 'Pembayaran QRIS melalui Tripay',
                 ]);
