@@ -53,9 +53,7 @@ class User extends Authenticatable implements FilamentUser
         });
     }
 
-    /**
-     * Simplified access check - super admins only on main domain
-     */
+    /* Simplified access check - super admins only on main domain */
     protected function performAccessCheck(): bool
     {
         Log::info("Access check for user", [
@@ -64,6 +62,8 @@ class User extends Authenticatable implements FilamentUser
             'is_active' => $this->is_active,
             'current_village_id' => config('pamdes.current_village_id'),
             'is_super_admin_domain' => config('pamdes.is_super_admin_domain'),
+            'host' => request()->getHost(),
+            'tenant' => config('pamdes.tenant'),
         ]);
 
         // First check if user is active
@@ -76,15 +76,31 @@ class User extends Authenticatable implements FilamentUser
         if ($this->isSuperAdmin()) {
             $isSuperAdminDomain = config('pamdes.is_super_admin_domain', false);
             $currentVillageId = config('pamdes.current_village_id');
+            $tenant = config('pamdes.tenant');
 
-            // Super admin can only access main domain or when no village context
-            if ($isSuperAdminDomain || !$currentVillageId) {
-                Log::info("Access granted: Super admin on main domain", ['user_id' => $this->id]);
+            Log::info("Super admin access check", [
+                'user_id' => $this->id,
+                'is_super_admin_domain' => $isSuperAdminDomain,
+                'current_village_id' => $currentVillageId,
+                'tenant_type' => $tenant['type'] ?? 'unknown',
+                'host' => request()->getHost(),
+            ]);
+
+            // Super admin can access if:
+            // 1. On super admin domain, OR
+            // 2. Tenant type is super_admin, OR
+            // 3. No village context
+            if (
+                $isSuperAdminDomain ||
+                ($tenant && $tenant['type'] === 'super_admin') ||
+                !$currentVillageId
+            ) {
                 return true;
             } else {
                 Log::info("Access denied: Super admin on village domain", [
                     'user_id' => $this->id,
-                    'village_id' => $currentVillageId
+                    'village_id' => $currentVillageId,
+                    'host' => request()->getHost(),
                 ]);
                 return false;
             }
@@ -95,7 +111,7 @@ class User extends Authenticatable implements FilamentUser
             return $this->checkVillageAdminAccess();
         }
 
-        Log::info("Access denied: Unknown role", [
+        Log::info("Access denied: Unknown role or conditions not met", [
             'user_id' => $this->id,
             'role' => $this->role,
         ]);

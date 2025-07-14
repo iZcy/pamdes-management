@@ -26,7 +26,7 @@ class SetVillageContext
 
         Log::info("SetVillageContext: Processing host: {$host}");
 
-        // Check if this is super admin domain
+        // Get domain configurations
         $superAdminDomain = config('pamdes.domains.super_admin', env('PAMDES_SUPER_ADMIN_DOMAIN'));
         $mainDomain = config('pamdes.domains.main', env('PAMDES_MAIN_DOMAIN'));
 
@@ -34,12 +34,21 @@ class SetVillageContext
         $superAdminDomain = str_replace(['http://', 'https://'], '', $superAdminDomain);
         $mainDomain = str_replace(['http://', 'https://'], '', $mainDomain);
 
-        if ($host === $superAdminDomain || $host === $mainDomain) {
+        Log::info("SetVillageContext: Domain comparison", [
+            'host' => $host,
+            'super_admin_domain' => $superAdminDomain,
+            'main_domain' => $mainDomain
+        ]);
+
+        // Check if this is super admin domain
+        if (
+            $host === $superAdminDomain || $host === $mainDomain ||
+            ($superAdminDomain && str_contains($host, $superAdminDomain))
+        ) {
             $isSuperAdmin = true;
             Log::info("SetVillageContext: Super admin domain detected", [
                 'host' => $host,
-                'super_admin_domain' => $superAdminDomain,
-                'main_domain' => $mainDomain
+                'matched_domain' => $superAdminDomain ?: $mainDomain
             ]);
         } else {
             // Extract village from domain pattern
@@ -85,6 +94,7 @@ class SetVillageContext
             'village_id' => $villageId,
             'village_name' => $village['name'] ?? 'None',
             'is_super_admin' => $isSuperAdmin,
+            'config_check' => config('pamdes.is_super_admin_domain'),
         ]);
 
         return $next($request);
