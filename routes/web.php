@@ -183,7 +183,14 @@ Route::prefix('tripay')->group(function () {
 Route::middleware(['auth'])->prefix('admin')->group(function () {
     // Payment receipt (existing)
     Route::get('payments/{payment}/receipt', function (\App\Models\Payment $payment) {
-        return view('receipts.bill', compact('payment'));
+        // Load bill
+        $bill = $payment->bill()->with([
+            'waterUsage.customer.village',
+            'waterUsage.billingPeriod',
+            'latestPayment.collector'
+        ])->firstOrFail();
+
+        return view('receipts.bill', compact('bill'));
     })->name('payment.receipt');
 
     // Bill receipt/invoice (admin access)
