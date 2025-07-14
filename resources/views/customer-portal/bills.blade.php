@@ -387,7 +387,7 @@
                     <!-- Action Buttons -->
                     <div class="flex flex-col sm:flex-row gap-3">
                       @if ($bill->status === 'pending')
-                        <a href="{{ route('tripay.form', ['village' => $$village->slug ?? 'default', 'bill' => $bill->bill_id]) }}"
+                        <a href="{{ route('tripay.form', ['village' => $customer->village->slug ?? 'default', 'bill' => $bill->bill_id]) }}"
                           class="btn-primary text-white py-3 px-6 rounded-xl font-semibold flex items-center justify-center text-center">
                           <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -402,7 +402,7 @@
                         @endphp
 
                         @if ($tripayConfigured)
-                          <a href="{{ route('tripay.form', ['village' => $$village->slug, 'bill' => $bill->bill_id]) }}"
+                          <a href="{{ route('tripay.form', ['village' => $customer->village->slug, 'bill' => $bill->bill_id]) }}"
                             class="btn-success text-white py-3 px-6 rounded-xl font-semibold flex items-center justify-center">
                             <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -547,7 +547,7 @@
         <div class="bg-gradient-to-r from-blue-500 to-cyan-500 px-6 py-4 text-white">
           <div class="flex items-center justify-between">
             <div>
-              <h3 class="text-xl font-bold mb-1">Tarif Air {{ $$village->name ?? 'Desa' }}</h3>
+              <h3 class="text-xl font-bold mb-1">Tarif Air {{ $customer->village->name ?? 'Desa' }}</h3>
               <p class="text-blue-100">Struktur tarif air berdasarkan pemakaian per bulan</p>
             </div>
             <div class="w-12 h-12 bg-white bg-opacity-20 rounded-xl flex items-center justify-center">

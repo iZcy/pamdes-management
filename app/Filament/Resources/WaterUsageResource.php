@@ -338,9 +338,9 @@ class WaterUsageResource extends Resource
 
                 Tables\Columns\TextColumn::make('billingPeriod.period_name')
                     ->label('Periode')
-                    ->sortable()
                     ->badge()
-                    ->color('info'),
+                    ->color('info')
+                    ->sortable(['year', 'month']),
 
                 Tables\Columns\TextColumn::make('initial_meter')
                     ->label('Meter Awal')

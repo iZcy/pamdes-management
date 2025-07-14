@@ -210,7 +210,10 @@ class VillageResource extends Resource
                 ]),
             ])->headerActions([
                 ...static::getExportHeaderActions(),
-            ]);
+            ])->defaultSort(
+                'created_at',
+                'desc'
+            );
     }
 
     public static function getPages(): array

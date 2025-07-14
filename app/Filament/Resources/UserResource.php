@@ -385,7 +385,10 @@ class UserResource extends Resource
                     Tables\Actions\DeleteBulkAction::make(),
                     ...static::getExportBulkActions(),
                 ]),
-            ]);
+            ])->defaultSort(
+                'created_at',
+                'desc'
+            );
     }
 
     public static function getPages(): array

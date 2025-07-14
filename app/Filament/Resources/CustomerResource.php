@@ -155,11 +155,11 @@ class CustomerResource extends Resource
                             ->required()
                             ->visible(fn() => $user?->isSuperAdmin()),
 
-                        Forms\Components\Placeholder::make('village_display')
+                        Forms\Components\Placeholder::make('village_name')
                             ->label('Desa')
                             ->content(function (?Customer $record) use ($currentVillageId) {
                                 if ($record && $record->village) {
-                                    return $record->village;
+                                    return $record->village->name;
                                 }
                                 if ($currentVillageId) {
                                     $village = Village::find($currentVillageId);
@@ -312,7 +312,11 @@ class CustomerResource extends Resource
                     // Export actions only for admin and operator roles
                     ...($isCollector ? [] : static::getExportBulkActions()),
                 ]),
-            ]);
+            ])
+            ->defaultSort(
+                'created_at',
+                'desc'
+            );
     }
 
     public static function getPages(): array

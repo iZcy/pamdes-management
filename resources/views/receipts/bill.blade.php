@@ -252,12 +252,12 @@
   {{-- Document Header --}}
   <div class="header">
     <h2>{{ $bill->status === 'paid' ? 'KWITANSI PEMBAYARAN AIR' : 'TAGIHAN AIR' }}</h2>
-    <h3>PAMDes {{ $$village->name ?? 'Desa' }}</h3>
-    @if ($$village->address)
-      <p>{{ $$village->address }}</p>
+    <h3>PAMDes {{ $bill->waterUsage->customer->village->name ?? 'Desa' }}</h3>
+    @if ($bill->waterUsage->customer->village->address)
+      <p>{{ $bill->waterUsage->customer->village->address }}</p>
     @endif
-    @if ($$village->phone_number)
-      <p>Telp: {{ $$village->phone_number }}</p>
+    @if ($bill->waterUsage->customer->village->phone_number)
+      <p>Telp: {{ $bill->waterUsage->customer->village->phone_number }}</p>
     @endif
   </div>
 
@@ -454,8 +454,11 @@
             Scan QR Code di bawah atau kunjungi link berikut untuk pembayaran digital:
           </p>
           @php
-            $$village->slug = $$village->slug;
-            $paymentUrl = route('tripay.form', ['village' => $$village->slug, 'bill' => $bill->bill_id]);
+            $bill->waterUsage->customer->village->slug = $bill->waterUsage->customer->village->slug;
+            $paymentUrl = route('tripay.form', [
+                'village' => $bill->waterUsage->customer->village->slug,
+                'bill' => $bill->bill_id,
+            ]);
           @endphp
           <p style="margin: 5px 0; font-size: 10px; word-break: break-all;">
             {{ $paymentUrl }}
@@ -493,7 +496,7 @@
       </p>
     @endif
     <p>Dokumen ini dicetak secara otomatis dan sah tanpa tanda tangan.</p>
-    <p>Untuk informasi lebih lanjut, hubungi kantor PAMDes {{ $$village->name }}.</p>
+    <p>Untuk informasi lebih lanjut, hubungi kantor PAMDes {{ $bill->waterUsage->customer->village->name }}.</p>
   </div>
 </body>
 

@@ -23,7 +23,7 @@ class Customer extends Model
         'address',
         'rt',
         'rw',
-        'village_id', // Only this field for village relationship
+        'village_id',
     ];
 
     protected $casts = [
