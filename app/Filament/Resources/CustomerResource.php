@@ -1,5 +1,5 @@
 <?php
-// app/Filament/Resources/CustomerResource.php - Updated with operator access
+// app/Filament/Resources/CustomerResource.php - Fixed village context for operators
 
 namespace App\Filament\Resources;
 
@@ -16,6 +16,7 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 
 class CustomerResource extends Resource
 {
@@ -70,6 +71,88 @@ class CustomerResource extends Resource
         return $user && in_array($user->role, ['super_admin', 'village_admin', 'collector', 'operator']);
     }
 
+    /**
+     * Get the current village ID with better fallback logic for operators
+     */
+    protected static function getCurrentVillageId(): ?string
+    {
+        $user = User::find(Auth::user()->id);
+
+        if (!$user) {
+            return null;
+        }
+
+        // For super admins, use village context if available
+        if ($user->isSuperAdmin()) {
+            return $user->getCurrentVillageContext();
+        }
+
+        // For village users (admin, collector, operator), try multiple approaches
+        $villageId = $user->getCurrentVillageContext();
+
+        // Log for debugging
+        Log::info("Getting village context for user", [
+            'user_id' => $user->id,
+            'role' => $user->role,
+            'village_context' => $villageId,
+            'config_village_id' => config('pamdes.current_village_id'),
+            'tenant' => config('pamdes.tenant'),
+            'user_villages' => $user->villages->pluck('id', 'name')->toArray(),
+            'primary_village' => $user->getPrimaryVillageId(),
+        ]);
+
+        // If still no village, try direct fallbacks
+        if (!$villageId) {
+            // Try config directly
+            $villageId = config('pamdes.current_village_id');
+
+            if (!$villageId) {
+                // Try primary village
+                $villageId = $user->getPrimaryVillageId();
+            }
+
+            if (!$villageId) {
+                // Try first accessible village
+                $firstVillage = $user->getAccessibleVillages()->first();
+                $villageId = $firstVillage?->id;
+            }
+        }
+
+        // Verify user has access to this village
+        if ($villageId && !$user->hasAccessToVillage($villageId)) {
+            Log::warning("User does not have access to village", [
+                'user_id' => $user->id,
+                'village_id' => $villageId,
+            ]);
+
+            // Fall back to first accessible village
+            $firstVillage = $user->getAccessibleVillages()->first();
+            $villageId = $firstVillage?->id;
+        }
+
+        return $villageId;
+    }
+
+    /**
+     * Get village name for display
+     */
+    protected static function getVillageName(?string $villageId): string
+    {
+        if (!$villageId) {
+            return 'No Village Selected';
+        }
+
+        // Try to get from config cache first
+        $currentVillage = config('pamdes.current_village');
+        if ($currentVillage && $currentVillage['id'] === $villageId) {
+            return $currentVillage['name'];
+        }
+
+        // Fallback to database
+        $village = Village::find($villageId);
+        return $village?->name ?? 'Unknown Village';
+    }
+
     public static function getEloquentQuery(): Builder
     {
         $query = parent::getEloquentQuery()->with('village');
@@ -77,7 +160,7 @@ class CustomerResource extends Resource
         // For super admin, show all customers or filter by current village context
         $user = User::find(Auth::user()->id);
         if ($user?->isSuperAdmin()) {
-            $currentVillage = $user->getCurrentVillageContext();
+            $currentVillage = static::getCurrentVillageId();
             if ($currentVillage) {
                 $query->byVillage($currentVillage);
             }
@@ -94,8 +177,18 @@ class CustomerResource extends Resource
     {
         $user = Auth::user();
         $user = User::find($user->id);
-        $currentVillageId = $user?->getCurrentVillageContext();
+        $currentVillageId = static::getCurrentVillageId();
+        $villageName = static::getVillageName($currentVillageId);
         $isCollector = $user?->isCollector();
+
+        // Debug logging
+        Log::info("CustomerResource form - Village context", [
+            'user_id' => $user?->id,
+            'role' => $user?->role,
+            'current_village_id' => $currentVillageId,
+            'village_name' => $villageName,
+            'is_collector' => $isCollector,
+        ]);
 
         // Collectors get a read-only view
         if ($isCollector) {
@@ -106,15 +199,11 @@ class CustomerResource extends Resource
                         ->schema([
                             Forms\Components\Placeholder::make('village_display')
                                 ->label('Desa')
-                                ->content(function (?Customer $record) use ($currentVillageId) {
+                                ->content(function (?Customer $record) use ($currentVillageId, $villageName) {
                                     if ($record && $record->village) {
                                         return $record->village->name;
                                     }
-                                    if ($currentVillageId) {
-                                        $village = Village::find($currentVillageId);
-                                        return $village?->name ?? 'Unknown Village';
-                                    }
-                                    return 'No Village Selected';
+                                    return $villageName;
                                 }),
 
                             Forms\Components\Placeholder::make('customer_code')
@@ -157,21 +246,13 @@ class CustomerResource extends Resource
 
                         Forms\Components\Placeholder::make('village_name')
                             ->label('Desa')
-                            ->content(function (?Customer $record) use ($currentVillageId) {
-                                if ($record && $record->village) {
-                                    return $record->village->name;
-                                }
-                                if ($currentVillageId) {
-                                    $village = Village::find($currentVillageId);
-                                    return $village?->name ?? 'Unknown Village';
-                                }
-                                return 'No Village Selected';
-                            })
+                            ->content($villageName)
                             ->columnSpanFull(fn() => !$user?->isSuperAdmin())
                             ->visible(fn() => !$user?->isSuperAdmin()),
 
                         Forms\Components\Hidden::make('village_id')
                             ->default($currentVillageId)
+                            ->required()
                             ->visible(fn() => !$user?->isSuperAdmin()),
 
                         Forms\Components\TextInput::make('customer_code')

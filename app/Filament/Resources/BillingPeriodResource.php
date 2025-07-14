@@ -34,7 +34,7 @@ class BillingPeriodResource extends Resource
         $user = User::find($user->id);
 
         // Super admin and village admin have full access
-        if ($user?->isSuperAdmin() || $user?->role === 'village_admin') {
+        if ($user?->isSuperAdmin() || $user?->role === 'village_admin' || $user?->isCollector()) {
             return true;
         }
 
@@ -43,7 +43,6 @@ class BillingPeriodResource extends Resource
             return true;
         }
 
-        // Collectors cannot access billing periods
         return false;
     }
 
@@ -61,7 +60,7 @@ class BillingPeriodResource extends Resource
         $user = User::find(Auth::user()->id);
 
         // Only super admin and village admin can edit
-        return $user?->isSuperAdmin() || $user?->role === 'village_admin';
+        return $user?->isSuperAdmin() || $user?->role === 'village_admin' || $user?->isCollector();
     }
 
     public static function canDelete(\Illuminate\Database\Eloquent\Model $record): bool

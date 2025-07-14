@@ -1,5 +1,5 @@
 <?php
-// app/Models/User.php - Simplified version
+// app/Models/User.php - Updated version with slug-based village context
 
 namespace App\Models;
 
@@ -196,7 +196,7 @@ class User extends Authenticatable implements FilamentUser
 
     public function isOperator(): bool
     {
-        return in_array($this->role, ['collector', 'operator']);
+        return $this->role === 'operator';
     }
 
     public function getDisplayRoleAttribute(): string
@@ -236,9 +236,8 @@ class User extends Authenticatable implements FilamentUser
     }
 
     /**
-     * SIMPLIFIED: Get current village context
-     * - Super admin: always null (sees all villages from main domain)
-     * - Village admin: current village context from subdomain
+     * Get current village context from slug-based domain
+     * Uses the village information set by SetVillageContext middleware
      */
     public function getCurrentVillageContext(): ?string
     {
@@ -247,21 +246,111 @@ class User extends Authenticatable implements FilamentUser
             return null;
         }
 
-        // For village admins, use the current village context
-        $tenantContext = config('pamdes.tenant');
+        // Get village context from middleware (slug-based)
         $currentVillageId = config('pamdes.current_village_id');
+        $tenant = config('pamdes.tenant');
 
-        if ($tenantContext && $tenantContext['type'] === 'village_website') {
-            return $tenantContext['village_id'];
-        }
+        // If we have a village context from the slug-based domain
+        if ($currentVillageId && $tenant && $tenant['type'] === 'village_website') {
+            // Verify user has access to this village
+            if ($this->hasAccessToVillage($currentVillageId)) {
+                return $currentVillageId;
+            }
 
-        // Fallback to current village ID from middleware
-        if ($currentVillageId) {
-            return $currentVillageId;
+            Log::warning("User does not have access to village from slug", [
+                'user_id' => $this->id,
+                'village_id' => $currentVillageId,
+                'user_villages' => $this->villages->pluck('id')->toArray()
+            ]);
         }
 
         // Final fallback to primary village
         return $this->getPrimaryVillageId();
+    }
+
+    /**
+     * Get current village object from slug-based domain
+     */
+    public function getCurrentVillage(): ?object
+    {
+        $villageId = $this->getCurrentVillageContext();
+
+        if (!$villageId) {
+            return null;
+        }
+
+        // Try to get from config first (cached from middleware)
+        $currentVillage = config('pamdes.current_village');
+        if ($currentVillage && $currentVillage['id'] === $villageId) {
+            return (object) $currentVillage;
+        }
+
+        // Fallback to database query
+        return Village::find($villageId);
+    }
+
+    /**
+     * Get village slug from current domain
+     */
+    public function getCurrentVillageSlug(): ?string
+    {
+        $tenant = config('pamdes.tenant');
+        $currentVillage = config('pamdes.current_village');
+
+        if ($tenant && $tenant['type'] === 'village_website' && $currentVillage) {
+            return $currentVillage['slug'] ?? null;
+        }
+
+        return null;
+    }
+
+    /**
+     * Check if user is accessing from their assigned village domain
+     */
+    public function isOnAssignedVillageDomain(): bool
+    {
+        $currentVillageId = config('pamdes.current_village_id');
+        $isSuperAdminDomain = config('pamdes.is_super_admin_domain', false);
+
+        // Super admins should only be on super admin domain
+        if ($this->isSuperAdmin()) {
+            return $isSuperAdminDomain;
+        }
+
+        // Village admins should be on a village domain they have access to
+        if ($this->isVillageAdmin()) {
+            return !$isSuperAdminDomain &&
+                $currentVillageId &&
+                $this->hasAccessToVillage($currentVillageId);
+        }
+
+        return false;
+    }
+
+    /**
+     * Get the appropriate redirect URL based on user role and current context
+     */
+    public function getAppropriateRedirectUrl(): ?string
+    {
+        // Super admins go to main domain
+        if ($this->isSuperAdmin()) {
+            $mainDomain = config('pamdes.domains.main', env('PAMDES_MAIN_DOMAIN'));
+            return "https://{$mainDomain}";
+        }
+
+        // Village admins go to their primary village domain
+        if ($this->isVillageAdmin()) {
+            $primaryVillage = $this->primaryVillage();
+            if ($primaryVillage && $primaryVillage->slug) {
+                $pattern = config('pamdes.domains.village_pattern', env('PAMDES_VILLAGE_DOMAIN_PATTERN'));
+                if ($pattern) {
+                    $domain = str_replace('{village}', $primaryVillage->slug, $pattern);
+                    return "https://{$domain}";
+                }
+            }
+        }
+
+        return null;
     }
 
     public function assignToVillage(string $villageId, bool $isPrimary = false): void
@@ -294,6 +383,12 @@ class User extends Authenticatable implements FilamentUser
     public function clearAccessCache(): void
     {
         Cache::forget("user_panel_access_{$this->id}");
+
+        // Clear any village-specific cache as well
+        $villageId = config('pamdes.current_village_id');
+        if ($villageId) {
+            Cache::forget("user_panel_access_{$this->id}_{$villageId}");
+        }
     }
 
     /**

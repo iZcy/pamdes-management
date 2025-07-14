@@ -1,5 +1,5 @@
 <?php
-// app/Filament/Resources/WaterUsageResource.php - Fixed with proper reader functionality
+// app/Filament/Resources/WaterUsageResource.php - Fixed with proper village context
 
 namespace App\Filament\Resources;
 
@@ -8,6 +8,7 @@ use App\Models\WaterUsage;
 use App\Models\Customer;
 use App\Models\BillingPeriod;
 use App\Models\User;
+use App\Models\Village;
 use App\Traits\ExportableResource;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -17,6 +18,7 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 
 class WaterUsageResource extends Resource
 {
@@ -71,13 +73,94 @@ class WaterUsageResource extends Resource
         return $user && in_array($user->role, ['super_admin', 'village_admin', 'collector', 'operator']);
     }
 
+    /**
+     * Get the current village ID with better fallback logic
+     */
+    protected static function getCurrentVillageId(): ?string
+    {
+        $user = User::find(Auth::user()->id);
+
+        if (!$user) {
+            return null;
+        }
+
+        // For super admins, use village context if available
+        if ($user->isSuperAdmin()) {
+            return $user->getCurrentVillageContext();
+        }
+
+        // For village users (admin, collector, operator), try multiple approaches
+        $villageId = $user->getCurrentVillageContext();
+
+        // Log for debugging
+        Log::info("WaterUsageResource: Getting village context for user", [
+            'user_id' => $user->id,
+            'role' => $user->role,
+            'village_context' => $villageId,
+            'config_village_id' => config('pamdes.current_village_id'),
+            'tenant' => config('pamdes.tenant'),
+            'user_villages' => $user->villages->pluck('id', 'name')->toArray(),
+            'primary_village' => $user->getPrimaryVillageId(),
+        ]);
+
+        // If still no village, try direct fallbacks
+        if (!$villageId) {
+            // Try config directly
+            $villageId = config('pamdes.current_village_id');
+
+            if (!$villageId) {
+                // Try primary village
+                $villageId = $user->getPrimaryVillageId();
+            }
+
+            if (!$villageId) {
+                // Try first accessible village
+                $firstVillage = $user->getAccessibleVillages()->first();
+                $villageId = $firstVillage?->id;
+            }
+        }
+
+        // Verify user has access to this village
+        if ($villageId && !$user->hasAccessToVillage($villageId)) {
+            Log::warning("WaterUsageResource: User does not have access to village", [
+                'user_id' => $user->id,
+                'village_id' => $villageId,
+            ]);
+
+            // Fall back to first accessible village
+            $firstVillage = $user->getAccessibleVillages()->first();
+            $villageId = $firstVillage?->id;
+        }
+
+        return $villageId;
+    }
+
+    /**
+     * Get village name for display
+     */
+    protected static function getVillageName(?string $villageId): string
+    {
+        if (!$villageId) {
+            return 'No Village Selected';
+        }
+
+        // Try to get from config cache first
+        $currentVillage = config('pamdes.current_village');
+        if ($currentVillage && $currentVillage['id'] === $villageId) {
+            return $currentVillage['name'];
+        }
+
+        // Fallback to database
+        $village = Village::find($villageId);
+        return $village?->name ?? 'Unknown Village';
+    }
+
     public static function getEloquentQuery(): Builder
     {
         $query = parent::getEloquentQuery()->with(['customer.village', 'billingPeriod', 'reader']);
 
-        $user = Auth::user();
-        $user = User::find($user->id);
-        $currentVillage = $user?->getCurrentVillageContext();
+        $user = User::find(Auth::user()->id);
+        $currentVillage = static::getCurrentVillageId();
 
         if ($user?->isSuperAdmin() && $currentVillage) {
             $query->whereHas('customer', function ($q) use ($currentVillage) {
@@ -95,9 +178,19 @@ class WaterUsageResource extends Resource
 
     public static function form(Form $form): Form
     {
-        $user = Auth::user();
-        $user = User::find($user->id);
+        $user = User::find(Auth::user()->id);
+        $currentVillageId = static::getCurrentVillageId();
+        $villageName = static::getVillageName($currentVillageId);
         $isCollector = $user?->isCollector();
+
+        // Debug logging
+        Log::info("WaterUsageResource form - Village context", [
+            'user_id' => $user?->id,
+            'role' => $user?->role,
+            'current_village_id' => $currentVillageId,
+            'village_name' => $villageName,
+            'is_collector' => $isCollector,
+        ]);
 
         // Collectors get a read-only view
         if ($isCollector) {
@@ -108,17 +201,11 @@ class WaterUsageResource extends Resource
                         ->schema([
                             Forms\Components\Placeholder::make('village_info')
                                 ->label('Desa')
-                                ->content(function (?WaterUsage $record) {
+                                ->content(function (?WaterUsage $record) use ($villageName) {
                                     if ($record && $record->customer?->village) {
                                         return $record->customer->village->name;
                                     }
-                                    $user = User::find(Auth::user()->id);
-                                    $currentVillage = $user?->getCurrentVillageContext();
-                                    if ($currentVillage) {
-                                        $village = \App\Models\Village::find($currentVillage);
-                                        return $village?->name ?? 'Unknown Village';
-                                    }
-                                    return 'No Village Context';
+                                    return $villageName;
                                 }),
 
                             Forms\Components\Placeholder::make('customer_info')
@@ -170,32 +257,17 @@ class WaterUsageResource extends Resource
                     ->schema([
                         Forms\Components\Placeholder::make('village_info')
                             ->label('Desa')
-                            ->content(function (?WaterUsage $record) {
-                                if ($record && $record->customer?->village) {
-                                    return $record->customer->village->name;
-                                }
-                                $user = User::find(Auth::user()->id);
-                                $currentVillage = $user?->getCurrentVillageContext();
-                                if ($currentVillage) {
-                                    $village = \App\Models\Village::find($currentVillage);
-                                    return $village?->name ?? 'Unknown Village';
-                                }
-                                return 'No Village Context';
-                            })
+                            ->content($villageName)
                             ->columnSpanFull(),
 
                         Forms\Components\Select::make('customer_id')
                             ->label('Pelanggan')
-                            ->options(function () {
-                                $user = Auth::user();
-                                $user = User::find($user->id);
-                                $currentVillage = $user?->getCurrentVillageContext();
-
-                                if (!$currentVillage) {
+                            ->options(function () use ($currentVillageId) {
+                                if (!$currentVillageId) {
                                     return [];
                                 }
 
-                                return Customer::where('village_id', $currentVillage)
+                                return Customer::where('village_id', $currentVillageId)
                                     ->where('status', 'active')
                                     ->get()
                                     ->mapWithKeys(function ($customer) {
@@ -205,43 +277,47 @@ class WaterUsageResource extends Resource
                                     });
                             })
                             ->searchable()
-                            ->required(),
+                            ->required()
+                            ->helperText($currentVillageId ? 'Pilih pelanggan dari desa yang sedang aktif' : 'Tidak ada desa yang tersedia'),
 
                         Forms\Components\Select::make('period_id')
                             ->label('Periode Tagihan')
-                            ->options(function () {
-                                $user = Auth::user();
-                                $user = User::find($user->id);
-                                $currentVillage = $user?->getCurrentVillageContext();
+                            ->options(function () use ($currentVillageId) {
+                                if (!$currentVillageId) {
+                                    return [];
+                                }
 
-                                return BillingPeriod::where('village_id', $currentVillage)
+                                return BillingPeriod::where('village_id', $currentVillageId)
                                     ->orderBy('year', 'desc')
                                     ->orderBy('month', 'desc')
                                     ->get()
                                     ->pluck('period_name', 'period_id');
                             })
                             ->searchable()
-                            ->required(),
-
-                        Forms\Components\TextInput::make('initial_meter')
-                            ->label('Meter Awal')
                             ->required()
-                            ->numeric()
-                            ->default(0)
-                            ->helperText('Angka meter pada awal periode'),
+                            ->helperText($currentVillageId ? 'Pilih periode tagihan yang sesuai' : 'Tidak ada periode yang tersedia'),
 
-                        Forms\Components\TextInput::make('final_meter')
-                            ->label('Meter Akhir')
-                            ->required()
-                            ->numeric()
-                            ->live()
-                            ->afterStateUpdated(function (Forms\Set $set, $state, Forms\Get $get) {
-                                $initial = $get('initial_meter') ?? 0;
-                                $final = $state ?? 0;
-                                $usage = max(0, $final - $initial);
-                                $set('total_usage_m3', $usage);
-                            })
-                            ->helperText('Angka meter pada akhir periode'),
+                        Forms\Components\Group::make([
+                            Forms\Components\TextInput::make('initial_meter')
+                                ->label('Meter Awal')
+                                ->required()
+                                ->numeric()
+                                ->default(0)
+                                ->helperText('Angka meter pada awal periode'),
+
+                            Forms\Components\TextInput::make('final_meter')
+                                ->label('Meter Akhir')
+                                ->required()
+                                ->numeric()
+                                ->live()
+                                ->afterStateUpdated(function (Forms\Set $set, $state, Forms\Get $get) {
+                                    $initial = $get('initial_meter') ?? 0;
+                                    $final = $state ?? 0;
+                                    $usage = max(0, $final - $initial);
+                                    $set('total_usage_m3', $usage);
+                                })
+                                ->helperText('Angka meter pada akhir periode'),
+                        ])->columnSpanFull()->columns(2),
 
                         Forms\Components\TextInput::make('total_usage_m3')
                             ->label('Total Pemakaian (m³)')
@@ -257,19 +333,16 @@ class WaterUsageResource extends Resource
 
                         Forms\Components\Select::make('reader_id')
                             ->label('Petugas Baca')
-                            ->options(function () {
-                                $user = Auth::user();
-                                $user = User::find($user->id);
-                                $currentVillage = $user?->getCurrentVillageContext();
-                                if (!$currentVillage) {
+                            ->options(function () use ($currentVillageId) {
+                                if (!$currentVillageId) {
                                     return [];
                                 }
 
                                 // Get users who can read meters (ONLY operators)
-                                return User::whereHas('villages', function ($q) use ($currentVillage) {
-                                    $q->where('villages.id', $currentVillage);
+                                return User::whereHas('villages', function ($q) use ($currentVillageId) {
+                                    $q->where('villages.id', $currentVillageId);
                                 })
-                                    ->where('role', 'operator') // Changed from whereIn to where for single role
+                                    ->where('role', 'operator')
                                     ->where('is_active', true)
                                     ->orderBy('name')
                                     ->get()
@@ -280,16 +353,15 @@ class WaterUsageResource extends Resource
                                     });
                             })
                             ->searchable()
-                            ->default(function () {
+                            ->default(function () use ($currentVillageId) {
                                 // Auto-select current user if they are an operator
                                 $user = User::find(Auth::user()->id);
-                                $currentVillage = $user?->getCurrentVillageContext();
-                                if ($user && $currentVillage && $user->role === 'operator') { // Changed condition
+                                if ($user && $currentVillageId && $user->role === 'operator') {
                                     return $user->id;
                                 }
                                 return null;
                             })
-                            ->helperText('Pilih petugas yang melakukan pembacaan meter'),
+                            ->helperText($currentVillageId ? 'Pilih petugas yang melakukan pembacaan meter' : 'Tidak ada operator yang tersedia'),
 
                         Forms\Components\Textarea::make('notes')
                             ->label('Catatan')
@@ -308,8 +380,7 @@ class WaterUsageResource extends Resource
 
     public static function table(Table $table): Table
     {
-        $user = Auth::user();
-        $user = User::find($user->id);
+        $user = User::find(Auth::user()->id);
         $isSuperAdmin = $user?->isSuperAdmin();
         $isCollector = $user?->isCollector();
         $isOperator = $user?->role === 'operator';
@@ -451,14 +522,14 @@ class WaterUsageResource extends Resource
                     Tables\Actions\EditAction::make()
                         ->visible(fn() => !$isCollector),
 
-                    // Generate bill action - only for admin roles and when no bill exists
+                    // Generate bill action - only for admin roles and collector and when no bill exists
                     Tables\Actions\Action::make('generate_bill')
                         ->label('Buat Tagihan')
                         ->icon('heroicon-o-document-plus')
                         ->color('success')
                         ->visible(
                             fn(WaterUsage $record): bool =>
-                            $record->bill === null && !$isCollector && !$isOperator
+                            $record->bill === null && !$isOperator
                         )
                         ->action(function (WaterUsage $record) {
                             try {
@@ -549,8 +620,7 @@ class WaterUsageResource extends Resource
 
     public static function getNavigationBadge(): ?string
     {
-        $user = User::find(Auth::user()->id);
-        $currentVillage = $user?->getCurrentVillageContext();
+        $currentVillage = static::getCurrentVillageId();
 
         if (!$currentVillage) {
             return null;
