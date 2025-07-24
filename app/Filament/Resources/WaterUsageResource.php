@@ -255,19 +255,44 @@ class WaterUsageResource extends Resource
             ->schema([
                 Forms\Components\Section::make('Pembacaan Meter Air')
                     ->schema([
-                        Forms\Components\Placeholder::make('village_info')
-                            ->label('Desa')
-                            ->content($villageName)
-                            ->columnSpanFull(),
+                        // Village selector for super admin, info for others  
+                        $user?->isSuperAdmin() 
+                            ? Forms\Components\Select::make('village_id')
+                                ->label('Pilih Desa')
+                                ->options(function () {
+                                    return Village::where('is_active', true)
+                                        ->orderBy('name')
+                                        ->pluck('name', 'id');
+                                })
+                                ->searchable()
+                                ->required()
+                                ->live()
+                                ->afterStateUpdated(function (Forms\Set $set, $state) {
+                                    // Reset dependent fields when village changes
+                                    $set('customer_id', null);
+                                    $set('period_id', null);
+                                    $set('initial_meter', 0);
+                                    $set('final_meter', null);
+                                    $set('total_usage_m3', 0);
+                                })
+                                ->helperText('Pilih desa untuk membuat pembacaan meter')
+                                ->columnSpanFull()
+                            : Forms\Components\Placeholder::make('village_info')
+                                ->label('Desa')
+                                ->content($villageName)
+                                ->columnSpanFull(),
 
                         Forms\Components\Select::make('customer_id')
                             ->label('Pelanggan')
-                            ->options(function () use ($currentVillageId) {
-                                if (!$currentVillageId) {
+                            ->options(function (Forms\Get $get) use ($currentVillageId, $user) {
+                                // For super admin, use selected village_id from form
+                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : $currentVillageId;
+                                
+                                if (!$villageId) {
                                     return [];
                                 }
 
-                                return Customer::where('village_id', $currentVillageId)
+                                return Customer::where('village_id', $villageId)
                                     ->where('status', 'active')
                                     ->get()
                                     ->mapWithKeys(function ($customer) {
@@ -278,16 +303,44 @@ class WaterUsageResource extends Resource
                             })
                             ->searchable()
                             ->required()
-                            ->helperText($currentVillageId ? 'Pilih pelanggan dari desa yang sedang aktif' : 'Tidak ada desa yang tersedia'),
+                            ->live()
+                            ->afterStateUpdated(function (Forms\Set $set, $state, Forms\Get $get) use ($currentVillageId, $user) {
+                                $periodId = $get('period_id');
+                                // For super admin, use selected village_id from form
+                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : $currentVillageId;
+                                
+                                if ($state && $periodId && $villageId) {
+                                    $previousFinalMeter = WaterUsage::getPreviousMonthFinalMeter(
+                                        $state, 
+                                        $periodId, 
+                                        $villageId
+                                    );
+                                    
+                                    $set('initial_meter', $previousFinalMeter ?? 0);
+                                    
+                                    // Recalculate usage if final meter is already set
+                                    $final = $get('final_meter') ?? 0;
+                                    $initial = $previousFinalMeter ?? 0;
+                                    $usage = max(0, $final - $initial);
+                                    $set('total_usage_m3', $usage);
+                                }
+                            })
+                            ->helperText(function (Forms\Get $get) use ($currentVillageId, $user) {
+                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : $currentVillageId;
+                                return $villageId ? 'Pilih pelanggan dari desa yang sedang aktif' : ($user?->isSuperAdmin() ? 'Pilih desa terlebih dahulu' : 'Tidak ada desa yang tersedia');
+                            }),
 
                         Forms\Components\Select::make('period_id')
                             ->label('Periode Tagihan')
-                            ->options(function () use ($currentVillageId) {
-                                if (!$currentVillageId) {
+                            ->options(function (Forms\Get $get) use ($currentVillageId, $user) {
+                                // For super admin, use selected village_id from form
+                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : $currentVillageId;
+                                
+                                if (!$villageId) {
                                     return [];
                                 }
 
-                                return BillingPeriod::where('village_id', $currentVillageId)
+                                return BillingPeriod::where('village_id', $villageId)
                                     ->orderBy('year', 'desc')
                                     ->orderBy('month', 'desc')
                                     ->get()
@@ -295,15 +348,64 @@ class WaterUsageResource extends Resource
                             })
                             ->searchable()
                             ->required()
-                            ->helperText($currentVillageId ? 'Pilih periode tagihan yang sesuai' : 'Tidak ada periode yang tersedia'),
+                            ->live()
+                            ->afterStateUpdated(function (Forms\Set $set, $state, Forms\Get $get) use ($currentVillageId, $user) {
+                                $customerId = $get('customer_id');
+                                // For super admin, use selected village_id from form
+                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : $currentVillageId;
+                                
+                                if ($state && $customerId && $villageId) {
+                                    $previousFinalMeter = WaterUsage::getPreviousMonthFinalMeter(
+                                        $customerId, 
+                                        $state, 
+                                        $villageId
+                                    );
+                                    
+                                    $set('initial_meter', $previousFinalMeter ?? 0);
+                                    
+                                    // Recalculate usage if final meter is already set
+                                    $final = $get('final_meter') ?? 0;
+                                    $initial = $previousFinalMeter ?? 0;
+                                    $usage = max(0, $final - $initial);
+                                    $set('total_usage_m3', $usage);
+                                }
+                            })
+                            ->helperText(function (Forms\Get $get) use ($currentVillageId, $user) {
+                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : $currentVillageId;
+                                return $villageId ? 'Pilih periode tagihan yang sesuai' : ($user?->isSuperAdmin() ? 'Pilih desa terlebih dahulu' : 'Tidak ada periode yang tersedia');
+                            }),
 
                         Forms\Components\Group::make([
                             Forms\Components\TextInput::make('initial_meter')
                                 ->label('Meter Awal')
                                 ->required()
                                 ->numeric()
-                                ->default(0)
-                                ->helperText('Angka meter pada awal periode'),
+                                ->default(function (Forms\Get $get) use ($currentVillageId, $user) {
+                                    $customerId = $get('customer_id');
+                                    $periodId = $get('period_id');
+                                    // For super admin, use selected village_id from form
+                                    $villageId = $user?->isSuperAdmin() ? $get('village_id') : $currentVillageId;
+                                    
+                                    if ($customerId && $periodId && $villageId) {
+                                        $previousFinalMeter = WaterUsage::getPreviousMonthFinalMeter(
+                                            $customerId, 
+                                            $periodId, 
+                                            $villageId
+                                        );
+                                        
+                                        return $previousFinalMeter ?? 0;
+                                    }
+                                    
+                                    return 0;
+                                })
+                                ->live()
+                                ->afterStateUpdated(function (Forms\Set $set, $state, Forms\Get $get) {
+                                    $final = $get('final_meter') ?? 0;
+                                    $initial = $state ?? 0;
+                                    $usage = max(0, $final - $initial);
+                                    $set('total_usage_m3', $usage);
+                                })
+                                ->helperText('Angka meter pada awal periode (otomatis diisi dari meter akhir bulan sebelumnya)'),
 
                             Forms\Components\TextInput::make('final_meter')
                                 ->label('Meter Akhir')
@@ -316,6 +418,16 @@ class WaterUsageResource extends Resource
                                     $usage = max(0, $final - $initial);
                                     $set('total_usage_m3', $usage);
                                 })
+                                ->rules([
+                                    function (Forms\Get $get) {
+                                        return function (string $attribute, $value, \Closure $fail) use ($get) {
+                                            $initialMeter = $get('initial_meter') ?? 0;
+                                            if ($value < $initialMeter) {
+                                                $fail('Meter akhir tidak boleh lebih kecil dari meter awal (' . number_format($initialMeter) . ').');
+                                            }
+                                        };
+                                    },
+                                ])
                                 ->helperText('Angka meter pada akhir periode'),
                         ])->columnSpanFull()->columns(2),
 
@@ -333,14 +445,17 @@ class WaterUsageResource extends Resource
 
                         Forms\Components\Select::make('reader_id')
                             ->label('Petugas Baca')
-                            ->options(function () use ($currentVillageId) {
-                                if (!$currentVillageId) {
+                            ->options(function (Forms\Get $get) use ($currentVillageId, $user) {
+                                // For super admin, use selected village_id from form
+                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : $currentVillageId;
+                                
+                                if (!$villageId) {
                                     return [];
                                 }
 
                                 // Get users who can read meters (ONLY operators)
-                                return User::whereHas('villages', function ($q) use ($currentVillageId) {
-                                    $q->where('villages.id', $currentVillageId);
+                                return User::whereHas('villages', function ($q) use ($villageId) {
+                                    $q->where('villages.id', $villageId);
                                 })
                                     ->where('role', 'operator')
                                     ->where('is_active', true)
@@ -353,15 +468,20 @@ class WaterUsageResource extends Resource
                                     });
                             })
                             ->searchable()
-                            ->default(function () use ($currentVillageId) {
+                            ->default(function (Forms\Get $get) use ($currentVillageId, $user) {
+                                // For super admin, use selected village_id from form
+                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : $currentVillageId;
+                                
                                 // Auto-select current user if they are an operator
-                                $user = User::find(Auth::user()->id);
-                                if ($user && $currentVillageId && $user->role === 'operator') {
+                                if ($user && $villageId && $user->role === 'operator') {
                                     return $user->id;
                                 }
                                 return null;
                             })
-                            ->helperText($currentVillageId ? 'Pilih petugas yang melakukan pembacaan meter' : 'Tidak ada operator yang tersedia'),
+                            ->helperText(function (Forms\Get $get) use ($currentVillageId, $user) {
+                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : $currentVillageId;
+                                return $villageId ? 'Pilih petugas yang melakukan pembacaan meter' : ($user?->isSuperAdmin() ? 'Pilih desa terlebih dahulu' : 'Tidak ada operator yang tersedia');
+                            }),
 
                         Forms\Components\Textarea::make('notes')
                             ->label('Catatan')

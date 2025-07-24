@@ -92,7 +92,7 @@ class SetVillageContext
 
         Log::info("SetVillageContext: Context set", [
             'village_id' => $villageId,
-            'village_name' => $village['name'] ?? 'None',
+            'village_name' => $village ? ($village['name'] ?? 'None') : 'None',
             'is_super_admin' => $isSuperAdmin,
             'config_check' => config('pamdes.is_super_admin_domain'),
         ]);

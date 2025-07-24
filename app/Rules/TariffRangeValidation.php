@@ -50,14 +50,27 @@ class TariffRangeValidation implements ValidationRule
             ->orderBy('usage_min')
             ->get();
 
-        // Check for conflicts
-        foreach ($existingTariffs as $tariff) {
-            if ($value >= $tariff->usage_min && ($tariff->usage_max === null || $value <= $tariff->usage_max)) {
-                $maxDisplay = $tariff->usage_max ? $tariff->usage_max : 'inf';
-                $fail("Value {$value} conflicts with existing range {$tariff->usage_min}-{$maxDisplay}.");
-                return;
-            }
+        // Check for exact duplicate minimum
+        if ($existingTariffs->where('usage_min', $value)->count() > 0) {
+            $fail("A tariff range already starts at {$value} m³.");
+            return;
         }
+
+        // Allow creation - the system will handle auto-adjustments and range splitting
+        // Only check for truly invalid scenarios
+
+        // Check if value is negative
+        if ($value < 0) {
+            $fail("Range minimum cannot be negative.");
+            return;
+        }
+
+        // The system will automatically:
+        // 1. Split existing ranges if the new minimum falls within them
+        // 2. Adjust adjacent ranges to maintain proper gaps
+        // 3. Handle all edge cases with proper gap enforcement
+        
+        // No additional validation needed - let the service handle the smart insertion
     }
 
     protected function validateUpdate(TariffRangeService $service, int $value, Closure $fail): void
@@ -80,22 +93,34 @@ class TariffRangeValidation implements ValidationRule
             ->get();
 
         if ($this->field === 'min') {
-            // Validate minimum update
+            // Validate minimum update - must maintain gap
             $previousTariff = $existingTariffs->where('usage_min', '<', $this->currentRecord->usage_min)->last();
 
-            if ($previousTariff && $value <= $previousTariff->usage_max) {
-                $fail("Minimum {$value} would conflict with previous range ending at {$previousTariff->usage_max}.");
+            if ($previousTariff) {
+                $requiredMin = $previousTariff->usage_max + 1;
+                if ($value < $requiredMin) {
+                    $fail("Minimum must be at least {$requiredMin} m³ to maintain gap from previous range ending at {$previousTariff->usage_max} m³.");
+                    return;
+                }
+            }
+            
+            // Check for duplicate minimum
+            if ($existingTariffs->where('usage_min', $value)->count() > 0) {
+                $fail("A tariff range already starts at {$value} m³.");
                 return;
             }
         }
 
         if ($this->field === 'max') {
-            // Validate maximum update
+            // Validate maximum update - must maintain gap
             $nextTariff = $existingTariffs->where('usage_min', '>', $this->currentRecord->usage_min)->first();
 
-            if ($nextTariff && $value >= $nextTariff->usage_min) {
-                $fail("Maximum {$value} would conflict with next range starting at {$nextTariff->usage_min}.");
-                return;
+            if ($nextTariff) {
+                $maxAllowed = $nextTariff->usage_min - 1;
+                if ($value > $maxAllowed) {
+                    $fail("Maximum cannot exceed {$maxAllowed} m³ to maintain gap from next range starting at {$nextTariff->usage_min} m³.");
+                    return;
+                }
             }
 
             if ($value < $this->currentRecord->usage_min) {

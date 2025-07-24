@@ -65,6 +65,11 @@ class Customer extends Model
         )->through('waterUsages');
     }
 
+    public function bundlePayments(): HasMany
+    {
+        return $this->hasMany(BundlePayment::class, 'customer_id', 'customer_id');
+    }
+
     // Scopes
     public function scopeActive($query)
     {

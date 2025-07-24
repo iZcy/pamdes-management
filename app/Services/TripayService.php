@@ -349,6 +349,129 @@ class TripayService
     }
 
     /**
+     * Create transaction for bundle payments
+     */
+    public function createTransaction(Village $village, array $paymentData)
+    {
+        try {
+            // Generate unique merchant reference
+            $merchantRef = $paymentData['merchant_ref'];
+            $amount = $paymentData['amount'];
+
+            // Generate signature
+            $signature = $this->generateSignature($merchantRef, $amount);
+
+            // Prepare payload
+            $payload = [
+                "method" => $paymentData['method'] ?? "QRIS",
+                "merchant_ref" => $merchantRef,
+                "amount" => (int) $amount,
+                "customer_name" => $paymentData['customer_name'],
+                "customer_email" => $paymentData['customer_email'],
+                "customer_phone" => $paymentData['customer_phone'] ?? '',
+                "order_items" => $paymentData['order_items'],
+                "return_url" => $paymentData['return_url'],
+                "expired_time" => $paymentData['expired_time'],
+                "signature" => $signature,
+            ];
+
+            Log::info('Creating Tripay transaction for bundle', [
+                'merchant_ref' => $merchantRef,
+                'amount' => $amount,
+                'village_id' => $village->id,
+                'is_production' => $this->isProduction,
+            ]);
+
+            // Send request to Tripay
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $this->apiKey,
+            ])->post($this->baseUrl . '/transaction/create', $payload);
+
+            if (!$response->successful()) {
+                $errorMessage = $response->json()['message'] ?? 'Unknown error';
+                Log::error('Tripay transaction creation failed', [
+                    'error' => $errorMessage,
+                    'response' => $response->body(),
+                    'status' => $response->status(),
+                ]);
+                
+                return [
+                    'success' => false,
+                    'message' => $errorMessage,
+                ];
+            }
+
+            $responseData = $response->json()['data'];
+
+            Log::info('Tripay transaction created successfully', [
+                'merchant_ref' => $merchantRef,
+                'tripay_reference' => $responseData['reference'],
+                'checkout_url' => $responseData['checkout_url'],
+            ]);
+
+            return [
+                'success' => true,
+                'data' => $responseData,
+                'merchant_ref' => $merchantRef,
+            ];
+        } catch (\Exception $e) {
+            Log::error('Failed to create Tripay transaction', [
+                'merchant_ref' => $paymentData['merchant_ref'] ?? 'unknown',
+                'error' => $e->getMessage(),
+                'village_id' => $village->id,
+            ]);
+            
+            return [
+                'success' => false,
+                'message' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Get transaction status - compatible with bundle payment controller
+     */
+    public function getTransactionStatus(Village $village, $reference)
+    {
+        try {
+            $transactionData = $this->checkTransactionStatus($reference);
+            
+            return [
+                'success' => true,
+                'data' => $transactionData,
+            ];
+        } catch (\Exception $e) {
+            Log::error('Failed to get transaction status', [
+                'reference' => $reference,
+                'error' => $e->getMessage(),
+                'village_id' => $village->id,
+            ]);
+            
+            return [
+                'success' => false,
+                'message' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Validate callback for bundle payments
+     */
+    public function validateCallback(Village $village, $request)
+    {
+        try {
+            $callbackData = $request->all();
+            return $this->validateCallbackSignature($callbackData);
+        } catch (\Exception $e) {
+            Log::error('Failed to validate callback', [
+                'error' => $e->getMessage(),
+                'village_id' => $village->id,
+            ]);
+            return false;
+        }
+    }
+
+    /**
      * Test connection to Tripay
      */
     public function testConnection()

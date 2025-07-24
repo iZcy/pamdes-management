@@ -116,4 +116,44 @@ class WaterUsage extends Model
             'due_date' => $this->billingPeriod->billing_due_date,
         ]);
     }
+
+    /**
+     * Get the previous month's final meter reading for a specific customer and village
+     */
+    public static function getPreviousMonthFinalMeter($customerId, $currentPeriodId, $villageId): ?float
+    {
+        // Get the current period details
+        $currentPeriod = BillingPeriod::find($currentPeriodId);
+        if (!$currentPeriod) {
+            return null;
+        }
+
+        // Find the previous period for the same village
+        $previousPeriod = BillingPeriod::where('village_id', $villageId)
+            ->where(function ($query) use ($currentPeriod) {
+                $query->where(function ($subQuery) use ($currentPeriod) {
+                    // Previous year, December
+                    $subQuery->where('year', $currentPeriod->year - 1)
+                             ->where('month', 12);
+                })->orWhere(function ($subQuery) use ($currentPeriod) {
+                    // Same year, previous month
+                    $subQuery->where('year', $currentPeriod->year)
+                             ->where('month', $currentPeriod->month - 1);
+                });
+            })
+            ->orderBy('year', 'desc')
+            ->orderBy('month', 'desc')
+            ->first();
+
+        if (!$previousPeriod) {
+            return null;
+        }
+
+        // Get the water usage record for this customer in the previous period
+        $previousUsage = static::where('customer_id', $customerId)
+            ->where('period_id', $previousPeriod->period_id)
+            ->first();
+
+        return $previousUsage?->final_meter;
+    }
 }

@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test Checkbox Functionality</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .checkbox-custom {
+      position: relative;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .checkbox-custom:hover {
+      transform: scale(1.05);
+    }
+
+    .bill-checkbox:checked + .checkbox-custom {
+      background-color: #3b82f6 !important;
+      border-color: #3b82f6 !important;
+    }
+
+    .bill-checkbox:checked + .checkbox-custom .checkbox-tick {
+      display: flex !important;
+    }
+  </style>
+</head>
+<body class="bg-gray-100 p-8">
+  <div class="max-w-md mx-auto bg-white p-6 rounded-lg shadow">
+    <h2 class="text-xl font-bold mb-4">Test Custom Checkbox</h2>
+    
+    <div class="space-y-4">
+      <!-- Test Checkbox 1 -->
+      <div class="flex items-center gap-3">
+        <label class="flex items-center cursor-pointer">
+          <input type="checkbox" class="bill-checkbox sr-only" data-bill-id="1">
+          <div class="checkbox-custom w-5 h-5 border-2 border-gray-300 rounded bg-white flex items-center justify-center hover:border-blue-500 transition-colors">
+            <svg class="w-3 h-3 text-white hidden checkbox-tick" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+            </svg>
+          </div>
+        </label>
+        <span class="text-gray-800">Tagihan 1 - Rp 100,000</span>
+      </div>
+
+      <!-- Test Checkbox 2 -->
+      <div class="flex items-center gap-3">
+        <label class="flex items-center cursor-pointer">
+          <input type="checkbox" class="bill-checkbox sr-only" data-bill-id="2">
+          <div class="checkbox-custom w-5 h-5 border-2 border-gray-300 rounded bg-white flex items-center justify-center hover:border-blue-500 transition-colors">
+            <svg class="w-3 h-3 text-white hidden checkbox-tick" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+            </svg>
+          </div>
+        </label>
+        <span class="text-gray-800">Tagihan 2 - Rp 150,000</span>
+      </div>
+    </div>
+
+    <div class="mt-6">
+      <button id="selectAll" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+        Select All
+      </button>
+      <button id="clearAll" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 ml-2">
+        Clear All
+      </button>
+    </div>
+
+    <div id="status" class="mt-4 p-3 bg-gray-50 rounded">
+      <strong>Status:</strong> <span id="statusText">No items selected</span>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      const billCheckboxes = document.querySelectorAll('.bill-checkbox');
+      const selectAllBtn = document.getElementById('selectAll');
+      const clearAllBtn = document.getElementById('clearAll');
+      const statusText = document.getElementById('statusText');
+
+      let selectedBills = new Map();
+
+      // Initialize checkbox styles
+      function initializeCheckboxes() {
+        billCheckboxes.forEach(checkbox => {
+          const customCheckbox = checkbox.nextElementSibling;
+          const tick = customCheckbox.querySelector('.checkbox-tick');
+          
+          console.log('Initializing checkbox:', checkbox.dataset.billId);
+          
+          checkbox.addEventListener('change', function() {
+            console.log('Checkbox changed:', this.dataset.billId, 'checked:', this.checked);
+            
+            updateCheckboxAppearance(this, customCheckbox, tick);
+            
+            if (this.checked) {
+              selectedBills.set(this.dataset.billId, {
+                id: this.dataset.billId,
+                amount: this.dataset.billId === '1' ? 100000 : 150000
+              });
+            } else {
+              selectedBills.delete(this.dataset.billId);
+            }
+            
+            updateStatus();
+          });
+
+          // Also handle clicking on the custom checkbox
+          customCheckbox.addEventListener('click', function(e) {
+            e.preventDefault();
+            console.log('Custom checkbox clicked');
+            checkbox.checked = !checkbox.checked;
+            checkbox.dispatchEvent(new Event('change'));
+          });
+        });
+      }
+
+      // Update checkbox visual appearance
+      function updateCheckboxAppearance(checkbox, customCheckbox, tick) {
+        console.log('Updating appearance for:', checkbox.dataset.billId, 'checked:', checkbox.checked);
+        
+        if (checkbox.checked) {
+          customCheckbox.classList.remove('border-gray-300', 'bg-white');
+          customCheckbox.classList.add('border-blue-500', 'bg-blue-500');
+          tick.classList.remove('hidden');
+          tick.style.display = 'flex';
+        } else {
+          customCheckbox.classList.remove('border-blue-500', 'bg-blue-500');
+          customCheckbox.classList.add('border-gray-300', 'bg-white');
+          tick.classList.add('hidden');
+          tick.style.display = 'none';
+        }
+      }
+
+      function updateStatus() {
+        const count = selectedBills.size;
+        const total = Array.from(selectedBills.values()).reduce((sum, bill) => sum + bill.amount, 0);
+        
+        if (count === 0) {
+          statusText.textContent = 'No items selected';
+        } else {
+          statusText.textContent = `${count} items selected, total: Rp ${total.toLocaleString('id-ID')}`;
+        }
+      }
+
+      selectAllBtn.addEventListener('click', function() {
+        billCheckboxes.forEach(checkbox => {
+          checkbox.checked = true;
+          checkbox.dispatchEvent(new Event('change'));
+        });
+      });
+
+      clearAllBtn.addEventListener('click', function() {
+        billCheckboxes.forEach(checkbox => {
+          checkbox.checked = false;
+          checkbox.dispatchEvent(new Event('change'));
+        });
+      });
+
+      // Initialize
+      initializeCheckboxes();
+    });
+  </script>
+</body>
+</html>

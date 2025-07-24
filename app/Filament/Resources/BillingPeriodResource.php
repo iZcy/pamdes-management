@@ -106,30 +106,70 @@ class BillingPeriodResource extends Resource
                     ->schema([
                         Forms\Components\Select::make('village_id')
                             ->label('Desa')
-                            ->relationship('village', 'name')
-                            ->default($currentVillageId)
-                            ->disabled() // Read-only to prevent moving periods between villages
-                            ->dehydrated()
+                            ->options(function () {
+                                return \App\Models\Village::where('is_active', true)
+                                    ->orderBy('name')
+                                    ->pluck('name', 'id');
+                            })
+                            ->searchable()
                             ->required()
+                            ->live()
+                            ->afterStateUpdated(function (Forms\Set $set, $state, Forms\Get $get) {
+                                $year = $get('year') ?? now()->year;
+                                $month = $get('month') ?? now()->month;
+                                
+                                if ($state && $year && $month) {
+                                    $scheduleDates = BillingPeriod::getPreviousPeriodScheduleDates($state, $year, $month);
+                                    
+                                    if ($scheduleDates['reading_start_date']) {
+                                        $set('reading_start_date', $scheduleDates['reading_start_date']->format('Y-m-d'));
+                                    }
+                                    if ($scheduleDates['reading_end_date']) {
+                                        $set('reading_end_date', $scheduleDates['reading_end_date']->format('Y-m-d'));
+                                    }
+                                    if ($scheduleDates['billing_due_date']) {
+                                        $set('billing_due_date', $scheduleDates['billing_due_date']->format('Y-m-d'));
+                                    }
+                                }
+                            })
+                            ->helperText('Pilih desa untuk periode tagihan ini')
                             ->visible(fn() => $user?->isSuperAdmin()),
 
                         Forms\Components\Placeholder::make('village_display')
                             ->label('Desa')
-                            ->content(function (?BillingPeriod $record) use ($currentVillageId) {
+                            ->content(function (?BillingPeriod $record) use ($currentVillageId, $user) {
                                 if ($record && $record->village) {
                                     return $record->village->name;
                                 }
+                                
+                                // For create mode, determine village for non-super admin
                                 if ($currentVillageId) {
                                     $village = \App\Models\Village::find($currentVillageId);
                                     return $village?->name ?? 'Unknown Village';
                                 }
-                                return 'No Village Selected';
+                                
+                                // Fallback to first accessible village
+                                $firstVillage = $user?->getAccessibleVillages()->first();
+                                return $firstVillage?->name ?? 'No Village Available';
                             })
                             ->columnSpanFull(fn() => !$user?->isSuperAdmin())
                             ->visible(fn() => !$user?->isSuperAdmin()),
 
                         Forms\Components\Hidden::make('village_id')
-                            ->default($currentVillageId)
+                            ->default(function () use ($currentVillageId, $user) {
+                                if ($user?->isSuperAdmin()) {
+                                    return null; // Super admin selects manually
+                                }
+                                
+                                // For other roles, use current village context or fallback
+                                if ($currentVillageId) {
+                                    return $currentVillageId;
+                                }
+                                
+                                // Fallback to first accessible village for village admin/operator
+                                $firstVillage = $user?->getAccessibleVillages()->first();
+                                return $firstVillage?->id;
+                            })
                             ->visible(fn() => !$user?->isSuperAdmin()),
 
                         Forms\Components\Select::make('month')
@@ -150,7 +190,26 @@ class BillingPeriodResource extends Resource
                             ])
                             ->searchable()
                             ->required()
-                            ->default(now()->month),
+                            ->default(now()->month)
+                            ->live()
+                            ->afterStateUpdated(function (Forms\Set $set, $state, Forms\Get $get) use ($user) {
+                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : $get('village_id');
+                                $year = $get('year') ?? now()->year;
+                                
+                                if ($villageId && $state && $year) {
+                                    $scheduleDates = BillingPeriod::getPreviousPeriodScheduleDates($villageId, $year, $state);
+                                    
+                                    if ($scheduleDates['reading_start_date']) {
+                                        $set('reading_start_date', $scheduleDates['reading_start_date']->format('Y-m-d'));
+                                    }
+                                    if ($scheduleDates['reading_end_date']) {
+                                        $set('reading_end_date', $scheduleDates['reading_end_date']->format('Y-m-d'));
+                                    }
+                                    if ($scheduleDates['billing_due_date']) {
+                                        $set('billing_due_date', $scheduleDates['billing_due_date']->format('Y-m-d'));
+                                    }
+                                }
+                            }),
 
                         Forms\Components\TextInput::make('year')
                             ->label('Tahun')
@@ -158,7 +217,26 @@ class BillingPeriodResource extends Resource
                             ->numeric()
                             ->minValue(2020)
                             ->maxValue(2030)
-                            ->default(now()->year),
+                            ->default(now()->year)
+                            ->live()
+                            ->afterStateUpdated(function (Forms\Set $set, $state, Forms\Get $get) use ($user) {
+                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : $get('village_id');
+                                $month = $get('month') ?? now()->month;
+                                
+                                if ($villageId && $state && $month) {
+                                    $scheduleDates = BillingPeriod::getPreviousPeriodScheduleDates($villageId, $state, $month);
+                                    
+                                    if ($scheduleDates['reading_start_date']) {
+                                        $set('reading_start_date', $scheduleDates['reading_start_date']->format('Y-m-d'));
+                                    }
+                                    if ($scheduleDates['reading_end_date']) {
+                                        $set('reading_end_date', $scheduleDates['reading_end_date']->format('Y-m-d'));
+                                    }
+                                    if ($scheduleDates['billing_due_date']) {
+                                        $set('billing_due_date', $scheduleDates['billing_due_date']->format('Y-m-d'));
+                                    }
+                                }
+                            }),
 
                         Forms\Components\Select::make('status')
                             ->label('Status')
@@ -176,13 +254,49 @@ class BillingPeriodResource extends Resource
                 Forms\Components\Section::make('Jadwal')
                     ->schema([
                         Forms\Components\DatePicker::make('reading_start_date')
-                            ->label('Tanggal Mulai Baca Meter'),
+                            ->label('Tanggal Mulai Baca Meter')
+                            ->default(function (Forms\Get $get) use ($user, $currentVillageId) {
+                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : $currentVillageId;
+                                $year = $get('year') ?? now()->year;
+                                $month = $get('month') ?? now()->month;
+                                
+                                if ($villageId && $year && $month) {
+                                    $scheduleDates = BillingPeriod::getPreviousPeriodScheduleDates($villageId, $year, $month);
+                                    return $scheduleDates['reading_start_date']?->format('Y-m-d');
+                                }
+                                return null;
+                            })
+                            ->helperText('Tanggal mulai pembacaan meter untuk periode ini'),
 
                         Forms\Components\DatePicker::make('reading_end_date')
-                            ->label('Tanggal Selesai Baca Meter'),
+                            ->label('Tanggal Selesai Baca Meter')
+                            ->default(function (Forms\Get $get) use ($user, $currentVillageId) {
+                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : $currentVillageId;
+                                $year = $get('year') ?? now()->year;
+                                $month = $get('month') ?? now()->month;
+                                
+                                if ($villageId && $year && $month) {
+                                    $scheduleDates = BillingPeriod::getPreviousPeriodScheduleDates($villageId, $year, $month);
+                                    return $scheduleDates['reading_end_date']?->format('Y-m-d');
+                                }
+                                return null;
+                            })
+                            ->helperText('Tanggal akhir pembacaan meter untuk periode ini'),
 
                         Forms\Components\DatePicker::make('billing_due_date')
-                            ->label('Tanggal Jatuh Tempo'),
+                            ->label('Tanggal Jatuh Tempo')
+                            ->default(function (Forms\Get $get) use ($user, $currentVillageId) {
+                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : $currentVillageId;
+                                $year = $get('year') ?? now()->year;
+                                $month = $get('month') ?? now()->month;
+                                
+                                if ($villageId && $year && $month) {
+                                    $scheduleDates = BillingPeriod::getPreviousPeriodScheduleDates($villageId, $year, $month);
+                                    return $scheduleDates['billing_due_date']?->format('Y-m-d');
+                                }
+                                return null;
+                            })
+                            ->helperText('Tanggal jatuh tempo pembayaran tagihan'),
                     ])
                     ->columns(3),
             ]);

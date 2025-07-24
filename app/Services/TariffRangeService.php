@@ -72,7 +72,25 @@ class TariffRangeService
     {
         $originalMax = $existingRange->usage_max;
 
-        // Update the existing range to end at (newMin - 1)
+        // Ensure at least 1 unit gap - existing range must end at (newMin - 1)
+        if ($newMin <= $existingRange->usage_min) {
+            throw new \Exception("New minimum {$newMin} must be greater than existing minimum {$existingRange->usage_min}");
+        }
+
+        // Check if splitting would create ranges that are too small (less than 1 unit)
+        $firstPartSize = ($newMin - 1) - $existingRange->usage_min + 1;
+        if ($firstPartSize < 1) {
+            throw new \Exception("Cannot create range at {$newMin} - would make the first part of split range too small");
+        }
+
+        if ($originalMax !== null) {
+            $secondPartSize = $originalMax - $newMin + 1;
+            if ($secondPartSize < 1) {
+                throw new \Exception("Cannot create range at {$newMin} - would make the second part of split range too small");
+            }
+        }
+
+        // Update the existing range to end at (newMin - 1) - this ensures gap
         $existingRange->usage_max = $newMin - 1;
         $existingRange->save();
 
@@ -93,7 +111,7 @@ class TariffRangeService
     {
         $insertPosition = $this->findInsertPosition($existingTariffs, $newMin);
 
-        // Adjust the previous range if needed
+        // Adjust the previous range if needed (maintain gap)
         if ($insertPosition > 0) {
             $previousRange = $existingTariffs->get($insertPosition - 1);
             if ($previousRange && ($previousRange->usage_max === null || $previousRange->usage_max >= $newMin)) {
@@ -102,10 +120,18 @@ class TariffRangeService
             }
         }
 
-        // Determine the max for the new range
+        // Determine the max for the new range and adjust next range if needed
         $newMax = null;
         if ($insertPosition < $existingTariffs->count()) {
             $nextRange = $existingTariffs->get($insertPosition);
+            
+            // Check if we need to adjust the next range
+            if ($nextRange->usage_min <= $newMin) {
+                // Auto-adjust the next range to start after our new range
+                $nextRange->usage_min = $newMin + 1;
+                $nextRange->save();
+            }
+            
             $newMax = $nextRange->usage_min - 1;
         }
 
@@ -142,12 +168,14 @@ class TariffRangeService
                 throw new \Exception('Can only edit minimum value for the last (infinite) range');
             }
 
+            // Handle minimum update (only for last range)
             if ($isLastRange && $newMin !== null) {
                 $this->validateMinUpdate($existingTariffs, $tariff, $newMin);
                 $this->adjustRangesForMinUpdate($existingTariffs, $tariff, $newMin);
                 $tariff->usage_min = $newMin;
             }
 
+            // Handle maximum update (for any non-last range) - auto-adjust next range
             if (!$isLastRange && $newMax !== null) {
                 $this->validateMaxUpdate($existingTariffs, $tariff, $newMax);
                 $this->adjustRangesForMaxUpdate($existingTariffs, $tariff, $newMax);
@@ -191,12 +219,14 @@ class TariffRangeService
             ->get();
 
         $isLastRange = $this->isLastRange($tariff, $existingTariffs);
+        $isFirstRange = !$existingTariffs->where('usage_min', '<', $tariff->usage_min)->count();
 
         return [
-            'can_edit_min' => $isLastRange,
-            'can_edit_max' => !$isLastRange,
+            'can_edit_min' => $isLastRange, // Only last range can edit minimum
+            'can_edit_max' => !$isLastRange, // All non-last ranges can edit maximum (will auto-adjust next)
             'can_edit_price' => true,
             'is_last_range' => $isLastRange,
+            'is_first_range' => $isFirstRange,
         ];
     }
 
@@ -220,27 +250,51 @@ class TariffRangeService
 
     private function validateMaxUpdate($existingTariffs, WaterTariff $tariff, int $newMax): void
     {
-        // Find the next tariff
-        $nextTariff = $existingTariffs->where('usage_min', '>', $tariff->usage_min)->first();
-
-        if ($nextTariff && $newMax >= $nextTariff->usage_min) {
-            throw new \Exception("New maximum {$newMax} would conflict with next range starting at {$nextTariff->usage_min}");
-        }
-
         if ($newMax < $tariff->usage_min) {
             throw new \Exception("Maximum cannot be less than minimum {$tariff->usage_min}");
+        }
+
+        // Find all tariffs that would be affected by this change
+        $nextTariff = $existingTariffs->where('usage_min', '>', $tariff->usage_min)->first();
+        
+        if ($nextTariff) {
+            $requiredNextMin = $newMax + 1;
+            
+            // Check 1: Would this make the next range have less than 1 gap?
+            if ($nextTariff->usage_max !== null) {
+                $nextRangeSize = $nextTariff->usage_max - $requiredNextMin + 1;
+                if ($nextRangeSize < 1) {
+                    throw new \Exception("Cannot extend to {$newMax} - would make next range ({$nextTariff->usage_min}-{$nextTariff->usage_max}) have less than 1 unit");
+                }
+            }
+            
+            // Check 2: Would this affect more than one adjacent range?
+            $tariffAfterNext = $existingTariffs->where('usage_min', '>', $nextTariff->usage_min)->first();
+            
+            if ($tariffAfterNext) {
+                // If extending would force next range to collide with the range after it
+                if ($requiredNextMin >= $tariffAfterNext->usage_min) {
+                    throw new \Exception("Cannot extend to {$newMax} - would affect multiple adjacent ranges. Maximum allowed: " . ($tariffAfterNext->usage_min - 2));
+                }
+                
+                // Also check if next range would have at least 1 gap from the range after it
+                if ($nextTariff->usage_max !== null && $nextTariff->usage_max >= $tariffAfterNext->usage_min - 1) {
+                    throw new \Exception("Cannot extend to {$newMax} - would eliminate required gap between adjacent ranges");
+                }
+            }
+            
+            // Check 3: Ensure the adjusted next range maintains minimum size
+            if ($nextTariff->usage_max !== null) {
+                $adjustedRangeSize = $nextTariff->usage_max - $requiredNextMin + 1;
+                if ($adjustedRangeSize < 1) {
+                    throw new \Exception("Cannot extend to {$newMax} - would make next range too small (minimum 1 unit required)");
+                }
+            }
         }
     }
 
     private function validateMinUpdate($existingTariffs, WaterTariff $tariff, int $newMin): void
     {
-        // Find the previous tariff
-        $previousTariff = $existingTariffs->where('usage_min', '<', $tariff->usage_min)->last();
-
-        if ($previousTariff && $newMin <= $previousTariff->usage_max) {
-            throw new \Exception("New minimum {$newMin} would conflict with previous range ending at {$previousTariff->usage_max}");
-        }
-
         if ($newMin < 0) {
             throw new \Exception('Minimum usage cannot be negative');
         }
@@ -249,26 +303,75 @@ class TariffRangeService
         if ($existingTariffs->where('usage_min', $newMin)->count() > 0) {
             throw new \Exception("A tariff range already starts at {$newMin} m³");
         }
+
+        // Find the previous tariff that would be affected
+        $previousTariff = $existingTariffs->where('usage_min', '<', $tariff->usage_min)->last();
+
+        if ($previousTariff) {
+            $requiredPreviousMax = $newMin - 1;
+            
+            // Check 1: Would this make the previous range have less than 1 unit?
+            $previousRangeSize = $requiredPreviousMax - $previousTariff->usage_min + 1;
+            if ($previousRangeSize < 1) {
+                throw new \Exception("Cannot change minimum to {$newMin} - would make previous range ({$previousTariff->usage_min}-{$previousTariff->usage_max}) have less than 1 unit");
+            }
+            
+            // Check 2: Would this affect more than one adjacent range?
+            $tariffBeforePrevious = $existingTariffs->where('usage_min', '<', $previousTariff->usage_min)->last();
+            
+            if ($tariffBeforePrevious) {
+                // Check if adjusting previous range would affect the range before it
+                if ($requiredPreviousMax < $previousTariff->usage_min) {
+                    throw new \Exception("Cannot change minimum to {$newMin} - would affect multiple adjacent ranges");
+                }
+                
+                // Ensure there's still a gap between the range before previous and the adjusted previous range
+                if ($tariffBeforePrevious->usage_max !== null && $tariffBeforePrevious->usage_max >= $previousTariff->usage_min - 1) {
+                    throw new \Exception("Cannot change minimum to {$newMin} - would eliminate required gap between ranges");
+                }
+            }
+            
+            // Check 3: Basic conflict check
+            if ($newMin <= $previousTariff->usage_max) {
+                $maxAllowedMin = $previousTariff->usage_max + 1;
+                throw new \Exception("New minimum must be at least {$maxAllowedMin} to maintain gap from previous range ending at {$previousTariff->usage_max}");
+            }
+        }
     }
 
     private function adjustRangesForMaxUpdate($existingTariffs, WaterTariff $tariff, int $newMax): void
     {
-        // Find and update the next tariff's minimum
+        // Find and update the next tariff's minimum - ensure at least 1 unit gap
         $nextTariff = $existingTariffs->where('usage_min', '>', $tariff->usage_min)->first();
 
         if ($nextTariff) {
-            $nextTariff->usage_min = $newMax + 1;
+            $newNextMin = $newMax + 1;
+            
+            // Validate that this doesn't conflict with tariff after next
+            $tariffAfterNext = $existingTariffs->where('usage_min', '>', $nextTariff->usage_min)->first();
+            if ($tariffAfterNext && $newNextMin > $tariffAfterNext->usage_min) {
+                throw new \Exception("Updating maximum to {$newMax} would cause conflict with subsequent tariff");
+            }
+            
+            $nextTariff->usage_min = $newNextMin;
             $nextTariff->save();
         }
     }
 
     private function adjustRangesForMinUpdate($existingTariffs, WaterTariff $tariff, int $newMin): void
     {
-        // Find and update the previous tariff's maximum
+        // Find and update the previous tariff's maximum - ensure at least 1 unit gap
         $previousTariff = $existingTariffs->where('usage_min', '<', $tariff->usage_min)->last();
 
         if ($previousTariff) {
-            $previousTariff->usage_max = $newMin - 1;
+            $newPreviousMax = $newMin - 1;
+            
+            // Validate that this doesn't make previous range invalid (max < min)
+            if ($newPreviousMax < $previousTariff->usage_min) {
+                throw new \Exception("Updating minimum to {$newMin} would make previous range invalid");
+            }
+            
+            $previousTariff->usage_max = $newPreviousMax;
             $previousTariff->save();
         }
     }

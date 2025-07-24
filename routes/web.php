@@ -6,9 +6,11 @@ use App\Models\Customer;
 use App\Models\User;
 use App\Models\Bill;
 use App\Http\Controllers\TripayController;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Validator;
 
 // Apply village context middleware to all routes
 Route::middleware(['village.context'])->group(function () {
@@ -116,8 +118,41 @@ Route::middleware(['village.context'])->group(function () {
                 ->limit(10)
                 ->get();
 
-            return view('customer-portal.bills', compact('customer', 'bills', 'paidBills'));
+            // Get paid bundle payments (last 10 for history)
+            $paidBundles = \App\Models\BundlePayment::where('customer_id', $customer->customer_id)
+                ->where('status', 'paid')
+                ->with(['bills.waterUsage.billingPeriod'])
+                ->orderBy('paid_at', 'desc')
+                ->limit(10)
+                ->get();
+
+            return view('customer-portal.bills', compact('customer', 'bills', 'paidBills', 'paidBundles'));
         })->name('bills');
+    });
+
+    // Bundle Payment Routes
+    Route::prefix('bundle-payment')->name('bundle.payment.')->group(function () {
+        // Show bundle payment form (email selection) 
+        Route::post('/form/{customer_code}', [App\Http\Controllers\BundlePaymentController::class, 'showPaymentForm'])
+            ->name('form');
+        
+        // Create bundle payment and process
+        Route::post('/create/{customer_code}', [App\Http\Controllers\BundlePaymentController::class, 'create'])
+            ->name('create');
+        
+        // Process bundle payment directly (create bundle + process payment)
+        Route::post('/process-direct/{customer_code}', [App\Http\Controllers\BundlePaymentController::class, 'processDirectly'])
+            ->name('process.direct');
+        
+        // Existing bundle payment routes (for continuation)
+        Route::get('/payment/{customer_code}/{bundle_reference}', [App\Http\Controllers\BundlePaymentController::class, 'showForm'])
+            ->name('payment.form');
+        
+        Route::post('/process/{customer_code}/{bundle_reference}', [App\Http\Controllers\BundlePaymentController::class, 'processPayment'])
+            ->name('process');
+        
+        Route::get('/status/{customer_code}/{bundle_reference}', [App\Http\Controllers\BundlePaymentController::class, 'checkStatus'])
+            ->name('status');
     });
 
     // Public Bill Receipt Routes (no authentication required)
@@ -144,6 +179,72 @@ Route::middleware(['village.context'])->group(function () {
 
             return view('receipts.bill', compact('bill'));
         })->name('bill');
+
+        // Bundle receipt - accessible by anyone with the right bundle reference and customer code
+        Route::get('/bundle/{bundle_reference}/{customer_code}', function ($bundleReference, $customerCode) {
+            // Find the customer
+            $customer = Customer::where('customer_code', $customerCode)->firstOrFail();
+            
+            // Find the bundle payment
+            $bundlePayment = \App\Models\BundlePayment::where('bundle_reference', $bundleReference)
+                ->where('customer_id', $customer->customer_id)
+                ->where('status', 'paid')
+                ->with([
+                    'customer.village',
+                    'bills.waterUsage.billingPeriod'
+                ])
+                ->firstOrFail();
+
+            // Verify the bundle is for the current village context
+            $villageId = config('pamdes.current_village_id');
+            if ($villageId && $bundlePayment->customer->village_id !== $villageId) {
+                abort(404, 'Bundle payment not found');
+            }
+
+            return view('receipts.bundle', compact('bundlePayment'));
+        })->name('bundle');
+
+        // Multiple bills invoice - generate invoice for selected bills
+        Route::post('/invoice/{customer_code}', function ($customerCode, Request $request) {
+            $validator = Validator::make($request->all(), [
+                'bill_ids' => 'required|array|min:1',
+                'bill_ids.*' => 'required|exists:bills,bill_id',
+            ]);
+
+            if ($validator->fails()) {
+                abort(400, 'Invalid bill selection');
+            }
+
+            // Find the customer
+            $customer = Customer::where('customer_code', $customerCode)->firstOrFail();
+            
+            // Get bills and validate they belong to the customer
+            $bills = Bill::whereIn('bill_id', $request->bill_ids)
+                ->whereHas('waterUsage', function ($query) use ($customer) {
+                    $query->where('customer_id', $customer->customer_id);
+                })
+                ->with([
+                    'waterUsage.customer.village',
+                    'waterUsage.billingPeriod'
+                ])
+                ->get();
+
+            if ($bills->isEmpty()) {
+                abort(404, 'No valid bills found');
+            }
+
+            if ($bills->count() !== count($request->bill_ids)) {
+                abort(400, 'Some bills are invalid or not found');
+            }
+
+            // Verify the bills are for the current village context
+            $villageId = config('pamdes.current_village_id');
+            if ($villageId && $bills->first()->waterUsage->customer->village_id !== $villageId) {
+                abort(404, 'Bills not found');
+            }
+
+            return view('receipts.multiple-bills', compact('bills', 'customer'));
+        })->name('invoice.multiple');
     });
 
     // Tripay Payment Routes - Village-specific
@@ -181,6 +282,10 @@ Route::prefix('tripay')->group(function () {
     // Webhook callback from Tripay
     Route::post('/callback', [TripayController::class, 'handleCallback'])
         ->name('tripay.callback');
+
+    // Bundle payment callback
+    Route::post('/callback/bundle/{village}', [App\Http\Controllers\BundlePaymentController::class, 'handleCallback'])
+        ->name('tripay.callback.bundle');
 
     // Return URL after payment
     Route::get('/return', [TripayController::class, 'handleReturn'])

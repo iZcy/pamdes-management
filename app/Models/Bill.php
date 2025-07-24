@@ -6,6 +6,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
@@ -58,6 +59,13 @@ class Bill extends Model
             ->latest('payment_date');
     }
 
+    public function bundlePayments(): BelongsToMany
+    {
+        return $this->belongsToMany(BundlePayment::class, 'bundle_payment_bills', 'bill_id', 'bundle_payment_id')
+            ->withPivot('bill_amount')
+            ->withTimestamps();
+    }
+
     // Accessors
     public function getCustomerAttribute()
     {
@@ -81,13 +89,13 @@ class Bill extends Model
     public function getIsOverdueAttribute(): bool
     {
         return $this->status === 'unpaid' &&
-            $this->due_date &&
+            $this->due_date !== null &&
             $this->due_date->isPast();
     }
 
     public function getDaysOverdueAttribute(): int
     {
-        if (!$this->is_overdue) return 0;
+        if (!$this->is_overdue || $this->due_date === null) return 0;
         return $this->due_date->diffInDays(now());
     }
 

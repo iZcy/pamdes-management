@@ -237,11 +237,14 @@ class CustomerResource extends Resource
                     ->schema([
                         Forms\Components\Select::make('village_id')
                             ->label('Desa')
-                            ->relationship('village', 'name')
-                            ->default($currentVillageId)
-                            ->disabled()
-                            ->dehydrated()
+                            ->options(function () {
+                                return \App\Models\Village::where('is_active', true)
+                                    ->orderBy('name')
+                                    ->pluck('name', 'id');
+                            })
+                            ->searchable()
                             ->required()
+                            ->helperText('Pilih desa untuk pelanggan ini')
                             ->visible(fn() => $user?->isSuperAdmin()),
 
                         Forms\Components\Placeholder::make('village_name')
@@ -251,7 +254,20 @@ class CustomerResource extends Resource
                             ->visible(fn() => !$user?->isSuperAdmin()),
 
                         Forms\Components\Hidden::make('village_id')
-                            ->default($currentVillageId)
+                            ->default(function () use ($currentVillageId, $user) {
+                                if ($user?->isSuperAdmin()) {
+                                    return null; // Super admin selects manually
+                                }
+                                
+                                // For other roles, use current village context or fallback
+                                if ($currentVillageId) {
+                                    return $currentVillageId;
+                                }
+                                
+                                // Fallback to first accessible village for village admin/operator
+                                $firstVillage = $user?->getAccessibleVillages()->first();
+                                return $firstVillage?->id;
+                            })
                             ->required()
                             ->visible(fn() => !$user?->isSuperAdmin()),
 
@@ -259,7 +275,17 @@ class CustomerResource extends Resource
                             ->label('Kode Pelanggan')
                             ->required()
                             ->unique(ignoreRecord: true)
-                            ->default(fn() => Customer::generateCustomerCode($currentVillageId))
+                            ->default(function (Forms\Get $get) use ($currentVillageId, $user) {
+                                // For super admin, use selected village_id from form
+                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : $currentVillageId;
+                                
+                                // If no village yet, return empty and let it generate later
+                                if (!$villageId) {
+                                    return '';
+                                }
+                                
+                                return Customer::generateCustomerCode($villageId);
+                            })
                             ->maxLength(20),
 
                         Forms\Components\TextInput::make('name')

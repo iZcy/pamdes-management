@@ -69,11 +69,18 @@ class WaterTariff extends Model
         return $this->village?->name ?? 'Unknown Village';
     }
 
-    // Fixed calculation method
+    // Fixed calculation method with proper progressive tariff logic
     public static function calculateBill($usage, $villageId): array
     {
         if (!$villageId) {
             throw new \Exception('Village ID is required for tariff calculation');
+        }
+
+        if ($usage <= 0) {
+            return [
+                'total_charge' => 0,
+                'breakdown' => [],
+            ];
         }
 
         $tariffs = static::active()
@@ -87,54 +94,45 @@ class WaterTariff extends Model
 
         $totalCharge = 0;
         $breakdown = [];
-        $usedSoFar = 0;
+        $remainingUsage = $usage;
 
-        foreach ($tariffs as $index => $tariff) {
+        foreach ($tariffs as $tariff) {
+            if ($remainingUsage <= 0) break;
+
             $tierMin = $tariff->usage_min;
             $tierMax = $tariff->usage_max;
 
-            // Skip if we haven't reached this tier yet
-            if ($usedSoFar >= $tierMax && $tierMax !== null) continue;
+            // Skip if usage doesn't reach this tier
+            if ($usage < $tierMin) break;
 
-            // Calculate the actual start position for this tier
-            $actualStart = max($tierMin, $usedSoFar + 1);
+            // Calculate how much usage falls within this tier
+            $tierStart = $tierMin;
+            $tierEnd = $tierMax ?? $usage; // If unlimited tier, use total usage
 
-            // Skip if our total usage doesn't reach this tier
-            if ($usage < $actualStart) break;
+            // Only process usage that falls within [tierStart, tierEnd] range
+            $usageInThisTier = min($usage, $tierEnd) - max($tierStart - 1, 0);
+            
+            // Make sure we don't exceed remaining usage
+            $usageInThisTier = min($usageInThisTier, $remainingUsage);
 
-            // Check if this is the last tier (infinite tier)
-            $isLastTier = ($index === $tariffs->count() - 1) || ($tierMax === null);
-
-            // Calculate usage in this tier
-            if ($isLastTier) {
-                // Last tier covers all remaining usage
-                $tierUsage = $usage - $usedSoFar;
-            } else {
-                $tierUsage = min($usage, $tierMax) - max($usedSoFar, $tierMin - 1);
-            }
-
-            if ($tierUsage > 0) {
-                $charge = $tierUsage * $tariff->price_per_m3;
+            if ($usageInThisTier > 0) {
+                $charge = $usageInThisTier * $tariff->price_per_m3;
                 $totalCharge += $charge;
 
                 // Format range display
-                if ($isLastTier) {
-                    $rangeDisplay = "{$tierMin}+ m³";
-                } else {
-                    $rangeDisplay = "{$tierMin}-{$tierMax} m³";
-                }
+                $rangeDisplay = $tierMax === null ? "{$tierMin}+ m³" : "{$tierMin}-{$tierMax} m³";
 
                 $breakdown[] = [
                     'range' => $rangeDisplay,
-                    'usage' => $tierUsage,
+                    'usage' => $usageInThisTier,
                     'rate' => $tariff->price_per_m3,
                     'charge' => $charge,
                 ];
 
-                $usedSoFar += $tierUsage;
+                $remainingUsage -= $usageInThisTier;
 
-                // If this is the last tier, we're done
-                if ($isLastTier) break;
+                // If this is an unlimited tier (no max), we're done
+                if ($tierMax === null) break;
             }
         }
 

@@ -47,6 +47,13 @@ class BillingService
         $waterCharge = $calculation['total_charge'];
         $totalAmount = $waterCharge + $adminFee + $maintenanceFee;
 
+        // Ensure due_date is set - use billing period due date or calculate default
+        $dueDate = $usage->billingPeriod->billing_due_date;
+        if (!$dueDate) {
+            // If no due date in billing period, set default to end of next month
+            $dueDate = now()->addMonth()->endOfMonth();
+        }
+
         return Bill::create([
             'usage_id' => $usage->usage_id,
             'water_charge' => $waterCharge,
@@ -54,7 +61,7 @@ class BillingService
             'maintenance_fee' => $maintenanceFee,
             'total_amount' => $totalAmount,
             'status' => 'unpaid',
-            'due_date' => $usage->billingPeriod->billing_due_date,
+            'due_date' => $dueDate,
         ]);
     }
 

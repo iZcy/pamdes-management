@@ -162,6 +162,20 @@
         box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
       }
     }
+
+    /* Bundle Payment Checkbox Styles */
+    .checkbox-display {
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .checkbox-display:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+
+    .bill-card {
+      transition: all 0.3s ease;
+    }
   </style>
 </head>
 
@@ -245,8 +259,9 @@
       </div>
 
       @if ($bills->count() > 0)
-        <!-- Outstanding Bills Section -->
+        <!-- Outstanding Bills Section - Checkout Style Layout -->
         <div class="card-gradient rounded-2xl shadow-xl overflow-hidden mb-8 animate-slide-up">
+          <!-- Header -->
           <div class="bg-gradient-to-r from-orange-500 to-red-500 px-6 py-4 text-white">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between">
               <div class="mb-4 md:mb-0">
@@ -263,225 +278,261 @@
             </div>
           </div>
 
-          <div class="p-6">
-            <div class="space-y-6">
-              @foreach ($bills as $index => $bill)
-                <div class="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden card-hover"
-                  style="animation-delay: {{ $index * 0.1 }}s">
+          <!-- 2-Column Checkout Layout -->
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-0">
+            <style>
+              /* Mobile responsive adjustments */
+              @media (max-width: 1024px) {
+                .lg\\:col-span-2 {
+                  border-right: none !important;
+                  border-bottom: 1px solid #e5e7eb;
+                }
+                .lg\\:col-span-1 {
+                  background: white !important;
+                  border-top: 1px solid #e5e7eb;
+                }
+                .sticky {
+                  position: static !important;
+                }
+              }
+            </style>
+            <!-- Left Column: Bills List (2/3 width) -->
+            <div class="lg:col-span-2 p-6 border-r border-gray-200">
+              <!-- Payment Instructions -->
+              <div class="bg-gradient-to-r from-blue-500 to-purple-500 rounded-xl p-4 mb-6 text-white">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div class="flex-1">
+                    <div class="flex items-center mb-2">
+                      <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                      </svg>
+                      <h4 class="font-bold">Pembayaran QRIS</h4>
+                    </div>
+                    <p class="text-blue-100 text-sm">Pilih tagihan yang ingin dibayar, lalu klik tombol bayar</p>
+                  </div>
+                  <div class="flex flex-col sm:flex-row gap-2">
+                    <button id="selectAllBills" 
+                      class="bg-white bg-opacity-20 hover:bg-opacity-30 text-white py-2 px-3 rounded-lg text-sm font-medium transition-all duration-200 flex items-center justify-center">
+                      <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                      </svg>
+                      <span>Pilih Semua</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
 
-                  <!-- New Bill Header with Due Date Information -->
-                  <div class="bg-gradient-to-r from-gray-50 to-blue-50 px-6 py-4 border-b border-gray-100">
-                    <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                      <!-- Bill Title and Usage -->
-                      <div class="flex-1">
-                        <h4 class="text-lg font-bold text-gray-800 mb-1">
-                          {{ $bill->waterUsage->billingPeriod->period_name }}
-                        </h4>
-                        <p class="text-sm text-gray-600">
-                          Pemakaian: {{ $bill->waterUsage->total_usage_m3 }} m³
-                          ({{ number_format($bill->waterUsage->initial_meter) }} →
-                          {{ number_format($bill->waterUsage->final_meter) }})
-                        </p>
+              <!-- Bills List Header -->
+              <div class="flex items-center justify-between mb-4">
+                <h4 class="font-semibold text-gray-800 flex items-center">
+                  <svg class="w-5 h-5 mr-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                  </svg>
+                  Daftar Tagihan
+                </h4>
+                <span class="text-sm text-gray-500">{{ $bills->count() }} item</span>
+              </div>
+
+              <!-- Scrollable Bills Container -->
+              <div class="max-h-[600px] overflow-y-auto space-y-4 pr-2 scrollable-bills">
+                <style>
+                  .scrollable-bills::-webkit-scrollbar {
+                    width: 6px;
+                  }
+                  .scrollable-bills::-webkit-scrollbar-track {
+                    background: #f1f5f9;
+                    border-radius: 3px;
+                  }
+                  .scrollable-bills::-webkit-scrollbar-thumb {
+                    background: #cbd5e1;
+                    border-radius: 3px;
+                  }
+                  .scrollable-bills::-webkit-scrollbar-thumb:hover {
+                    background: #94a3b8;
+                  }
+                </style>
+              @foreach ($bills as $index => $bill)
+                <!-- Compact Bill Card for Checkout Style -->
+                <div class="bg-white rounded-lg border border-gray-200 p-4 bill-card"
+                  data-bill-id="{{ $bill->bill_id }}" data-bill-amount="{{ $bill->total_amount }}"
+                  data-bill-period="{{ $bill->waterUsage->billingPeriod->period_name }}">
+                  
+                  <div class="flex items-start gap-4">
+                    <!-- Payment Selection Checkbox -->
+                    <div class="flex items-center mt-1">
+                      <label class="inline-flex items-center cursor-pointer">
+                        <input type="checkbox" class="bill-checkbox hidden" data-bill-id="{{ $bill->bill_id }}">
+                        <div class="checkbox-display w-5 h-5 border-2 border-gray-300 rounded bg-white flex items-center justify-center hover:border-blue-500 transition-all duration-200">
+                          <svg class="checkmark w-3 h-3 text-white opacity-0 transition-opacity duration-200" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+                          </svg>
+                        </div>
+                      </label>
+                    </div>
+
+                    <!-- Bill Info -->
+                    <div class="flex-1">
+                      <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-semibold text-gray-800">{{ $bill->waterUsage->billingPeriod->period_name }}</h4>
+                        <span class="text-lg font-bold text-blue-600">Rp {{ number_format($bill->total_amount) }}</span>
+                      </div>
+                      
+                      <div class="flex items-center justify-between text-sm text-gray-600 mb-2">
+                        <span>{{ $bill->waterUsage->total_usage_m3 }} m³</span>
+                        <span class="px-2 py-1 rounded-full text-xs font-medium {{ $bill->status === 'overdue' ? 'bg-red-100 text-red-800' : ($bill->status === 'pending' ? 'bg-purple-100 text-purple-800' : 'bg-yellow-100 text-yellow-800') }}">
+                          {{ match ($bill->status) {
+                              'overdue' => 'Terlambat',
+                              'pending' => 'Menunggu Pembayaran',
+                              default => 'Belum Bayar',
+                          } }}
+                        </span>
                       </div>
 
-                      <!-- Due Date Information in Header -->
-                      <div class="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                        <div
-                          class="due-date-header rounded-xl px-4 py-3 text-center min-w-[180px] {{ $bill->is_overdue ? 'pulse-warning' : '' }}">
-                          <div class="flex items-center justify-center mb-1">
-                            <svg
-                              class="w-4 h-4 mr-2 {{ $bill->due_date->isPast() ? 'text-red-600' : 'text-orange-600' }}"
-                              fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                            </svg>
-                            <span
-                              class="text-xs {{ $bill->due_date->isPast() ? 'text-red-600' : 'text-orange-600' }} font-medium">
-                              JATUH TEMPO
-                            </span>
-                          </div>
-                          <p
-                            class="text-sm font-bold {{ $bill->due_date->isPast() ? 'text-red-700' : 'text-gray-800' }}">
-                            {{ $bill->due_date->format('d M Y') }}
-                          </p>
+                      <!-- Due Date -->
+                      @if ($bill->due_date)
+                        <div class="flex items-center text-xs text-gray-500">
+                          <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                          </svg>
+                          Jatuh tempo: {{ $bill->due_date->format('d M Y') }}
                           @if ($bill->is_overdue)
-                            <div class="mt-1 px-2 py-1 bg-red-100 text-red-800 rounded-full text-xs font-medium">
-                              ⚠️ {{ $bill->days_overdue }} hari
-                            </div>
+                            @php
+                              $daysOverdue = now()->startOfDay()->diffInDays($bill->due_date->startOfDay());
+                            @endphp
+                            <span class="text-red-600 font-medium ml-1">({{ $daysOverdue }} hari terlambat)</span>
                           @else
                             @php
-                              $daysUntilDue = now()->diffInDays($bill->due_date, false);
+                              $daysUntilDue = $bill->due_date->startOfDay()->diffInDays(now()->startOfDay());
                             @endphp
-                            @if ($daysUntilDue >= 0)
-                              <div class="mt-1 px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
-                                {{ $daysUntilDue }} hari lagi
-                              </div>
+                            @if ($daysUntilDue > 0)
+                              <span class="text-orange-600 font-medium ml-1">({{ $daysUntilDue }} hari lagi)</span>
                             @endif
                           @endif
                         </div>
-
-                        <!-- Amount and Status -->
-                        <div class="text-center sm:text-right">
-                          <p class="text-2xl font-bold text-blue-600">Rp {{ number_format($bill->total_amount) }}</p>
-                          <div class="flex items-center justify-center sm:justify-end mt-1">
-                            <span
-                              class="px-3 py-1 rounded-full text-xs font-medium {{ $bill->status === 'overdue' ? 'bg-red-100 text-red-800' : ($bill->status === 'pending' ? 'bg-purple-100 text-purple-800' : 'bg-yellow-100 text-yellow-800') }}">
-                              {{ match ($bill->status) {
-                                  'overdue' => 'Terlambat',
-                                  'pending' => 'Menunggu Pembayaran',
-                                  default => 'Belum Bayar',
-                              } }}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- Bill Details - Now Single Column for Usage Breakdown -->
-                  <div class="p-6">
-                    <div class="mb-6">
-                      <!-- Usage Breakdown - Full Width -->
-                      <div>
-                        <h5 class="font-semibold text-gray-800 mb-3 flex items-center">
-                          <svg class="w-5 h-5 mr-2 text-blue-500" fill="none" stroke="currentColor"
-                            viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                              d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z">
-                            </path>
-                          </svg>
-                          Rincian Biaya
-                        </h5>
-
-                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                          <div>
-                            @php
-                              $breakdown = \App\Models\WaterTariff::calculateBill(
-                                  $bill->waterUsage->total_usage_m3,
-                                  $bill->waterUsage->customer->village_id,
-                              );
-                            @endphp
-
-                            @if (count($breakdown['breakdown']) > 1)
-                              <div class="tier-breakdown p-4 rounded-lg mb-4">
-                                <h6 class="text-sm font-medium text-blue-800 mb-2">Perhitungan Tarif Progresif:</h6>
-                                @foreach ($breakdown['breakdown'] as $tier)
-                                  <div class="flex justify-between text-sm text-blue-700 mb-1">
-                                    <span>{{ $tier['usage'] }}m³ × Rp{{ number_format($tier['rate']) }}</span>
-                                    <span class="font-medium">Rp{{ number_format($tier['charge']) }}</span>
-                                  </div>
-                                @endforeach
-                              </div>
-                            @endif
-
-                            <div class="space-y-2">
-                              <div class="flex justify-between items-center py-2 border-b border-gray-100">
-                                <span class="text-gray-600">Biaya Air</span>
-                                <span class="font-semibold">Rp {{ number_format($bill->water_charge) }}</span>
-                              </div>
-                              <div class="flex justify-between items-center py-2 border-b border-gray-100">
-                                <span class="text-gray-600">Biaya Admin</span>
-                                <span class="font-semibold">Rp {{ number_format($bill->admin_fee) }}</span>
-                              </div>
-                              <div class="flex justify-between items-center py-2 border-b border-gray-100">
-                                <span class="text-gray-600">Biaya Pemeliharaan</span>
-                                <span class="font-semibold">Rp {{ number_format($bill->maintenance_fee) }}</span>
-                              </div>
-                              <div class="flex justify-between items-center py-3 bg-blue-50 px-3 rounded-lg">
-                                <span class="font-bold text-blue-800">Total Tagihan</span>
-                                <span class="font-bold text-blue-800 text-lg">Rp
-                                  {{ number_format($bill->total_amount) }}</span>
-                              </div>
-                            </div>
-                          </div>
-
-                          <!-- Payment Status Info -->
-                          <div>
-                            @if ($bill->status === 'pending')
-                              <div class="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                                <div class="flex items-center text-purple-800 mb-3">
-                                  <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fill-rule="evenodd"
-                                      d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z"
-                                      clip-rule="evenodd"></path>
-                                  </svg>
-                                  <div>
-                                    <p class="font-medium">Pembayaran Sedang Diproses</p>
-                                    <p class="text-sm text-purple-600">Silakan selesaikan pembayaran</p>
-                                  </div>
-                                </div>
-                              </div>
-                            @else
-                              <div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                                <h6 class="font-semibold text-orange-800 mb-2 flex items-center">
-                                  <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor"
-                                    viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                  </svg>
-                                  Informasi Pembayaran
-                                </h6>
-                                <div class="text-sm text-orange-700 space-y-1">
-                                  <p>• Bayar sebelum tanggal jatuh tempo</p>
-                                  <p>• Gunakan QRIS untuk pembayaran digital</p>
-                                  <p>• Atau hubungi petugas untuk pembayaran tunai</p>
-                                </div>
-                              </div>
-                            @endif
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- Action Buttons -->
-                    <div class="flex flex-col sm:flex-row gap-3">
-                      @if ($bill->status === 'pending')
-                        <a href="{{ route('tripay.form', ['village' => $customer->village->slug ?? 'default', 'bill' => $bill->bill_id]) }}"
-                          class="btn-primary text-white py-3 px-6 rounded-xl font-semibold flex items-center justify-center text-center">
-                          <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                              d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-                          </svg>
-                          Lanjutkan Pembayaran
-                        </a>
-                      @else
-                        @php
-                          $variable = \App\Models\Variable::where('village_id', $customer->village_id)->first();
-                          $tripayConfigured = $variable && ($variable->tripay_use_main || $variable->isConfigured());
-                        @endphp
-
-                        @if ($tripayConfigured)
-                          <a href="{{ route('tripay.form', ['village' => $customer->village->slug, 'bill' => $bill->bill_id]) }}"
-                            class="btn-success text-white py-3 px-6 rounded-xl font-semibold flex items-center justify-center">
-                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M12 4v1m6 11h2m-6 0h-2v4m-2 0h-2m2-4v-3m2 3V9l-6 6 2-2z"></path>
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M4 4h4v4H4V4zm8 0h4v4h-4V4zm-8 8h4v4H4v-4zm8 8h4v4h-4v-4z"></path>
-                            </svg>
-                            Bayar dengan QRIS
-                          </a>
-                        @else
-                          <div class="text-center p-3 bg-red-50 text-red-600 rounded-xl text-sm">
-                            Pembayaran QRIS tidak tersedia untuk desa ini
-                          </div>
-                        @endif
                       @endif
 
-                      <a href="{{ route('receipt.bill', ['bill' => $bill->bill_id, 'customer_code' => $customer->customer_code]) }}"
-                        target="_blank"
-                        class="btn-secondary text-white py-3 px-6 rounded-xl font-semibold flex items-center justify-center">
-                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
-                          </path>
-                        </svg>
-                        Lihat Tagihan
-                      </a>
+                      <!-- Expandable Details -->
+                      <div class="mt-3">
+                        <button class="text-blue-600 text-sm hover:text-blue-800 flex items-center bill-details-toggle" data-bill-id="{{ $bill->bill_id }}">
+                          <span>Lihat detail</span>
+                          <svg class="w-4 h-4 ml-1 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                          </svg>
+                        </button>
+                        
+                        <!-- Collapsible Details -->
+                        <div class="bill-details hidden mt-3 p-3 bg-gray-50 rounded-lg" id="details-{{ $bill->bill_id }}">
+                          <div class="grid grid-cols-2 gap-2 text-sm">
+                            <div class="flex justify-between">
+                              <span class="text-gray-600">Biaya Air:</span>
+                              <span class="font-medium">Rp {{ number_format($bill->water_charge) }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                              <span class="text-gray-600">Biaya Admin:</span>
+                              <span class="font-medium">Rp {{ number_format($bill->admin_fee) }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                              <span class="text-gray-600">Biaya Pemeliharaan:</span>
+                              <span class="font-medium">Rp {{ number_format($bill->maintenance_fee) }}</span>
+                            </div>
+                          </div>
+                          
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
               @endforeach
+              </div>
+            </div>
+
+            <!-- Right Column: Checkout Summary (1/3 width) -->
+            <div class="lg:col-span-1 p-6 bg-gray-50">
+              <div class="sticky top-6">
+                <!-- Order Summary -->
+                <h4 class="font-bold text-gray-800 mb-4 flex items-center">
+                  <svg class="w-5 h-5 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
+                  </svg>
+                  Ringkasan Tagihan
+                </h4>
+
+                <!-- Total Summary -->
+                <div class="bg-white rounded-lg p-4 mb-4">
+                  <div class="space-y-3">
+                    <div class="flex justify-between text-sm">
+                      <span class="text-gray-600">{{ $bills->count() }} Tagihan</span>
+                      <span class="font-medium">Rp {{ number_format($totalOutstanding) }}</span>
+                    </div>
+                    <div class="border-t pt-3">
+                      <div class="flex justify-between items-center">
+                        <span class="font-bold text-lg">Total</span>
+                        <span class="font-bold text-xl text-blue-600">Rp {{ number_format($totalOutstanding) }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Payment Summary -->
+                <div id="paymentSummary" class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4 hidden">
+                  <h5 class="font-medium text-blue-800 mb-3">Detail Pembayaran</h5>
+                  <div class="space-y-2 text-sm">
+                    <div class="flex justify-between">
+                      <span class="text-blue-600">Tagihan Terpilih:</span>
+                      <span class="font-medium" id="selectedCount">0</span>
+                    </div>
+                    <div class="flex justify-between">
+                      <span class="text-blue-600">Biaya Admin:</span>
+                      <span class="font-medium text-blue-800">1× per transaksi</span>
+                    </div>
+                    <div class="flex justify-between">
+                      <span class="text-blue-600">Biaya Pemeliharaan:</span>
+                      <span class="font-medium text-blue-800">Akumulatif</span>
+                    </div>
+                    <div class="border-t border-blue-300 pt-2 mt-2">
+                      <div class="flex justify-between">
+                        <span class="font-bold text-blue-800">Total Pembayaran:</span>
+                        <span class="font-bold text-blue-800" id="selectedTotal">Rp 0</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="space-y-3">
+                  <button id="paymentButton" 
+                    class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-lg font-medium transition-all duration-200 flex items-center justify-center opacity-50 cursor-not-allowed" 
+                    disabled>
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m-2 0h-2m2-4v-3m2 3V9l-6 6 2-2z"></path>
+                    </svg>
+                    <span id="paymentButtonText">Bayar dengan QRIS (0)</span>
+                  </button>
+                  
+                  <!-- Invoice Button -->
+                  <button id="invoiceButton" 
+                    class="w-full bg-gray-600 hover:bg-gray-700 text-white py-3 px-4 rounded-lg font-medium transition-all duration-200 flex items-center justify-center mb-3 opacity-50 cursor-not-allowed" 
+                    disabled>
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                    <span id="invoiceButtonText">Cetak Invoice (0)</span>
+                  </button>
+
+                  <!-- Quick Actions -->
+                  <div class="bg-white rounded-lg p-4">
+                    <h5 class="font-medium text-gray-800 mb-3">Aksi Cepat</h5>
+                    <div class="space-y-2">
+                      <a href="{{ route('portal.index') }}" class="w-full text-left text-sm text-gray-600 hover:text-gray-800 flex items-center py-2">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                        </svg>
+                        Kembali ke Portal
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -502,14 +553,14 @@
         </div>
       @endif
 
-      @if ($paidBills->count() > 0)
+      @if ($paidBills->count() > 0 || $paidBundles->count() > 0)
         <!-- Payment History Section -->
         <div class="card-gradient rounded-2xl shadow-xl overflow-hidden animate-slide-up">
           <div class="bg-gradient-to-r from-green-500 to-emerald-500 px-6 py-4 text-white">
             <div class="flex items-center justify-between">
               <div>
                 <h3 class="text-xl font-bold mb-1">Riwayat Pembayaran</h3>
-                <p class="text-green-100">{{ $paidBills->count() }} pembayaran terakhir</p>
+                <p class="text-green-100">{{ $paidBills->count() + $paidBundles->count() }} pembayaran terakhir</p>
               </div>
               <div class="w-12 h-12 bg-white bg-opacity-20 rounded-xl flex items-center justify-center">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -522,7 +573,35 @@
 
           <div class="p-6">
             <div class="space-y-4">
-              @foreach ($paidBills as $index => $bill)
+              @php
+                // Combine paid bills and bundle payments, then sort by payment date
+                $allPayments = collect();
+                
+                // Add individual bills
+                foreach ($paidBills as $bill) {
+                  $allPayments->push([
+                    'type' => 'bill',
+                    'data' => $bill,
+                    'date' => $bill->payment_date
+                  ]);
+                }
+                
+                // Add bundle payments
+                foreach ($paidBundles as $bundle) {
+                  $allPayments->push([
+                    'type' => 'bundle',
+                    'data' => $bundle,
+                    'date' => $bundle->paid_at
+                  ]);
+                }
+                
+                // Sort by payment date (newest first)
+                $allPayments = $allPayments->sortByDesc('date');
+              @endphp
+
+              @foreach ($allPayments as $index => $payment)
+                @if ($payment['type'] === 'bill')
+                  @php $bill = $payment['data']; @endphp
                 <div class="bg-white rounded-xl shadow-md border border-gray-100 p-6 card-hover"
                   style="animation-delay: {{ $index * 0.1 }}s">
                   <div class="flex flex-col md:flex-row md:items-center md:justify-between">
@@ -577,6 +656,62 @@
                     </div>
                   </div>
                 </div>
+                @elseif ($payment['type'] === 'bundle')
+                  @php $bundle = $payment['data']; @endphp
+                  <div class="bg-white rounded-xl shadow-md border border-gray-100 p-6 card-hover"
+                    style="animation-delay: {{ $index * 0.1 }}s">
+                    <div class="flex flex-col md:flex-row md:items-center md:justify-between">
+                      <div class="mb-4 md:mb-0">
+                        <div class="flex items-center mb-2">
+                          <div class="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center mr-3">
+                            <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor"
+                              viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 9a2 2 0 00-2 2m0 0V7a2 2 0 012-2h12a2 2 0 012 2v2M7 7V3a2 2 0 012-2h6a2 2 0 012 2v4"></path>
+                            </svg>
+                          </div>
+                          <div>
+                            <h4 class="font-bold text-gray-800 flex items-center">
+                              Bundle Payment
+                              <span class="ml-2 bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full font-medium">
+                                {{ $bundle->bill_count }} tagihan
+                              </span>
+                            </h4>
+                            <p class="text-sm text-gray-600">
+                              Dibayar {{ $bundle->paid_at->format('d/m/Y') }} • 
+                              @php
+                                $periods = $bundle->bills->pluck('waterUsage.billingPeriod.period_name')->unique();
+                              @endphp
+                              {{ $periods->implode(', ') }}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div class="flex items-center space-x-4 text-sm text-gray-600">
+                          <span>Rp {{ number_format($bundle->total_amount) }}</span>
+                          <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
+                            QRIS
+                          </span>
+                        </div>
+                      </div>
+
+                      <div class="flex items-center space-x-3">
+                        <span class="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
+                          ✓ Lunas
+                        </span>
+                        <a href="{{ route('receipt.bundle', ['bundle_reference' => $bundle->bundle_reference, 'customer_code' => $customer->customer_code]) }}"
+                          target="_blank"
+                          class="btn-secondary text-white py-2 px-4 rounded-lg text-sm font-medium flex items-center">
+                          <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z">
+                            </path>
+                          </svg>
+                          Kwitansi Bundle
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                @endif
               @endforeach
             </div>
 
@@ -926,6 +1061,291 @@
         }, duration);
       }
     }
+
+    // Bill Details Toggle Functionality
+    document.addEventListener('DOMContentLoaded', function() {
+      // Handle bill details toggle
+      document.querySelectorAll('.bill-details-toggle').forEach(button => {
+        button.addEventListener('click', function() {
+          const billId = this.dataset.billId;
+          const detailsDiv = document.getElementById(`details-${billId}`);
+          const icon = this.querySelector('svg');
+          
+          if (detailsDiv.classList.contains('hidden')) {
+            detailsDiv.classList.remove('hidden');
+            icon.style.transform = 'rotate(180deg)';
+            this.querySelector('span').textContent = 'Sembunyikan detail';
+          } else {
+            detailsDiv.classList.add('hidden');
+            icon.style.transform = 'rotate(0deg)';
+            this.querySelector('span').textContent = 'Lihat detail';
+          }
+        });
+      });
+    });
+
+    // Payment Functionality
+    document.addEventListener('DOMContentLoaded', function() {
+      const selectAllBtn = document.getElementById('selectAllBills');
+      const paymentBtn = document.getElementById('paymentButton');
+      const paymentBtnText = document.getElementById('paymentButtonText');
+      const paymentSummary = document.getElementById('paymentSummary');
+      const selectedCount = document.getElementById('selectedCount');
+      const selectedTotal = document.getElementById('selectedTotal');
+      const billCheckboxes = document.querySelectorAll('.bill-checkbox');
+      const billCards = document.querySelectorAll('.bill-card');
+
+      let selectedBills = new Map(); // Use Map instead of Set for better tracking
+
+      // Initialize checkbox styles
+      function initializeCheckboxes() {
+        billCheckboxes.forEach(checkbox => {
+          const label = checkbox.closest('label');
+          const checkboxDisplay = label.querySelector('.checkbox-display');
+          const checkmark = checkboxDisplay.querySelector('.checkmark');
+          
+          // Handle checkbox state change
+          checkbox.addEventListener('change', function() {
+            const billId = this.dataset.billId;
+            const billAmount = parseFloat(this.closest('.bill-card').dataset.billAmount);
+            const billPeriod = this.closest('.bill-card').dataset.billPeriod;
+            
+            console.log('Checkbox changed:', billId, 'checked:', this.checked);
+            
+            updateCheckboxAppearance(this, checkboxDisplay, checkmark);
+            
+            if (this.checked) {
+              selectedBills.set(billId, {
+                id: billId,
+                amount: billAmount,
+                period: billPeriod
+              });
+              
+              this.closest('.bill-card').classList.add('ring-2', 'ring-blue-500', 'ring-opacity-50');
+            } else {
+              selectedBills.delete(billId);
+              this.closest('.bill-card').classList.remove('ring-2', 'ring-blue-500', 'ring-opacity-50');
+            }
+            
+            updateBundleSummary();
+          });
+
+          // Handle clicking on the label/checkbox display
+          label.addEventListener('click', function(e) {
+            e.preventDefault();
+            console.log('Label clicked for bill:', checkbox.dataset.billId);
+            checkbox.checked = !checkbox.checked;
+            checkbox.dispatchEvent(new Event('change'));
+          });
+        });
+      }
+
+      // Update checkbox visual appearance
+      function updateCheckboxAppearance(checkbox, checkboxDisplay, checkmark) {
+        console.log('Updating appearance - checked:', checkbox.checked);
+        
+        if (checkbox.checked) {
+          checkboxDisplay.classList.remove('border-gray-300', 'bg-white');
+          checkboxDisplay.classList.add('border-blue-500', 'bg-blue-500');
+          checkmark.classList.remove('opacity-0');
+          checkmark.classList.add('opacity-100');
+        } else {
+          checkboxDisplay.classList.remove('border-blue-500', 'bg-blue-500');
+          checkboxDisplay.classList.add('border-gray-300', 'bg-white');
+          checkmark.classList.remove('opacity-100');
+          checkmark.classList.add('opacity-0');
+        }
+      }
+
+      // Update bundle summary with corrected cost calculation
+      function updateBundleSummary() {
+        const count = selectedBills.size;
+        const selectedBillsArray = Array.from(selectedBills.values());
+        
+        // Calculate corrected total for bundle payment
+        let totalWaterCharge = 0;
+        let totalMaintenanceFee = 0;
+        let singleAdminFee = 0;
+        
+        selectedBillsArray.forEach((bill, index) => {
+          // Extract costs from bill amount (approximate calculation)
+          // This is a simplified approach - in a real app you'd get detailed breakdown from server
+          const waterCharge = Math.floor(bill.amount * 0.85); // Approximate water charge
+          const adminFee = Math.floor(bill.amount * 0.10);   // Approximate admin fee  
+          const maintenanceFee = Math.floor(bill.amount * 0.05); // Approximate maintenance fee
+          
+          totalWaterCharge += waterCharge;
+          totalMaintenanceFee += maintenanceFee; // Accumulative
+          
+          // Only add admin fee once (from first bill)
+          if (index === 0) {
+            singleAdminFee = adminFee;
+          }
+        });
+        
+        const correctedTotal = totalWaterCharge + singleAdminFee + totalMaintenanceFee;
+        
+        selectedCount.textContent = `${count} tagihan`;
+        selectedTotal.textContent = `Rp ${new Intl.NumberFormat('id-ID').format(correctedTotal)}`;
+        paymentBtnText.textContent = `Bayar dengan QRIS (${count})`;
+        
+        // Update invoice button
+        const invoiceBtn = document.getElementById('invoiceButton');
+        const invoiceBtnText = document.getElementById('invoiceButtonText');
+        if (invoiceBtn && invoiceBtnText) {
+          invoiceBtnText.textContent = `Cetak Invoice (${count})`;
+        }
+        
+        if (count > 0) {
+          paymentSummary.classList.remove('hidden');
+          paymentBtn.disabled = false;
+          paymentBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+          paymentBtn.classList.add('hover:bg-blue-700');
+          
+          // Enable invoice button
+          if (invoiceBtn) {
+            invoiceBtn.disabled = false;
+            invoiceBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            invoiceBtn.classList.add('hover:bg-gray-700');
+          }
+        } else {
+          paymentSummary.classList.add('hidden');
+          paymentBtn.disabled = true;
+          paymentBtn.classList.add('opacity-50', 'cursor-not-allowed');
+          paymentBtn.classList.remove('hover:bg-blue-700');
+          
+          // Disable invoice button
+          if (invoiceBtn) {
+            invoiceBtn.disabled = true;
+            invoiceBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            invoiceBtn.classList.remove('hover:bg-gray-700');
+          }
+        }
+      }
+
+      // Select all functionality
+      selectAllBtn.addEventListener('click', function() {
+        const allChecked = Array.from(billCheckboxes).every(cb => cb.checked);
+        const newState = !allChecked;
+        
+        billCheckboxes.forEach(checkbox => {
+          if (checkbox.checked !== newState) {
+            checkbox.checked = newState;
+            checkbox.dispatchEvent(new Event('change'));
+          }
+        });
+        
+        // Update button text
+        const buttonText = selectAllBtn.querySelector('span') || selectAllBtn;
+        buttonText.textContent = newState ? 'Batal Pilih' : 'Pilih Semua';
+      });
+
+      // Payment button functionality
+      paymentBtn.addEventListener('click', function() {
+        if (selectedBills.size === 0) {
+          showAlert('warning', 'Pilih minimal satu tagihan untuk pembayaran');
+          return;
+        }
+
+        // Create form data for payment
+        const billIds = Array.from(selectedBills.keys());
+
+        // Show loading state
+        const originalText = this.innerHTML;
+        this.innerHTML = `
+          <svg class="animate-spin w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          Memproses...
+        `;
+        this.disabled = true;
+
+        // Create form and submit to bundle payment form (email selection)
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '{{ route("bundle.payment.form", ["customer_code" => $customer->customer_code]) }}';
+        
+        // Add CSRF token
+        const csrfToken = document.createElement('input');
+        csrfToken.type = 'hidden';
+        csrfToken.name = '_token';
+        csrfToken.value = '{{ csrf_token() }}';
+        form.appendChild(csrfToken);
+
+        // Add bill IDs
+        billIds.forEach(billId => {
+          const input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = 'bill_ids[]';
+          input.value = billId;
+          form.appendChild(input);
+        });
+
+        document.body.appendChild(form);
+        form.submit();
+      });
+
+      // Invoice button functionality
+      const invoiceBtn = document.getElementById('invoiceButton');
+      if (invoiceBtn) {
+        invoiceBtn.addEventListener('click', function() {
+          if (selectedBills.size === 0) {
+            showAlert('warning', 'Pilih minimal satu tagihan untuk cetak invoice');
+            return;
+          }
+
+          // Create form data for invoice
+          const billIds = Array.from(selectedBills.keys());
+
+          // Show loading state
+          const originalText = this.innerHTML;
+          this.innerHTML = `
+            <svg class="animate-spin w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Memproses...
+          `;
+          this.disabled = true;
+
+          // Create form and submit to invoice generation
+          const form = document.createElement('form');
+          form.method = 'POST';
+          form.action = '{{ route("receipt.invoice.multiple", ["customer_code" => $customer->customer_code]) }}';
+          form.target = '_blank'; // Open in new tab
+          
+          // Add CSRF token
+          const csrfToken = document.createElement('input');
+          csrfToken.type = 'hidden';
+          csrfToken.name = '_token';
+          csrfToken.value = '{{ csrf_token() }}';
+          form.appendChild(csrfToken);
+
+          // Add bill IDs
+          billIds.forEach(billId => {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'bill_ids[]';
+            input.value = billId;
+            form.appendChild(input);
+          });
+
+          document.body.appendChild(form);
+          form.submit();
+
+          // Reset button state after a short delay
+          setTimeout(() => {
+            this.innerHTML = originalText;
+            this.disabled = false;
+            updateBundleSummary(); // This will restore proper state
+          }, 1000);
+        });
+      }
+
+      // Initialize
+      initializeCheckboxes();
+    });
   </script>
 </body>
 

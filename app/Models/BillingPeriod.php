@@ -218,4 +218,65 @@ class BillingPeriod extends Model
             return 0;
         }
     }
+
+    /**
+     * Get schedule dates from the previous period for the same village
+     * Returns array with previous period's schedule dates adjusted to current year/month
+     */
+    public static function getPreviousPeriodScheduleDates($villageId, $year, $month): array
+    {
+        // Calculate previous month and year
+        $prevMonth = $month - 1;
+        $prevYear = $year;
+        
+        if ($prevMonth <= 0) {
+            $prevMonth = 12;
+            $prevYear = $year - 1;
+        }
+        
+        // Find the previous period for the same village
+        $previousPeriod = static::where('village_id', $villageId)
+            ->where('year', $prevYear)
+            ->where('month', $prevMonth)
+            ->first();
+        
+        $defaultDates = [
+            'reading_start_date' => null,
+            'reading_end_date' => null,
+            'billing_due_date' => null,
+        ];
+        
+        if (!$previousPeriod) {
+            return $defaultDates;
+        }
+        
+        // Extract day from previous period dates and apply to current period
+        $currentDatesCalculated = [];
+        
+        if ($previousPeriod->reading_start_date) {
+            $day = $previousPeriod->reading_start_date->day;
+            $currentDatesCalculated['reading_start_date'] = \Carbon\Carbon::create($year, $month, min($day, cal_days_in_month(CAL_GREGORIAN, $month, $year)));
+        }
+        
+        if ($previousPeriod->reading_end_date) {
+            $day = $previousPeriod->reading_end_date->day;
+            $currentDatesCalculated['reading_end_date'] = \Carbon\Carbon::create($year, $month, min($day, cal_days_in_month(CAL_GREGORIAN, $month, $year)));
+        }
+        
+        if ($previousPeriod->billing_due_date) {
+            $day = $previousPeriod->billing_due_date->day;
+            // Billing due date is typically in the next month
+            $dueDateMonth = $month + 1;
+            $dueDateYear = $year;
+            
+            if ($dueDateMonth > 12) {
+                $dueDateMonth = 1;
+                $dueDateYear = $year + 1;
+            }
+            
+            $currentDatesCalculated['billing_due_date'] = \Carbon\Carbon::create($dueDateYear, $dueDateMonth, min($day, cal_days_in_month(CAL_GREGORIAN, $dueDateMonth, $dueDateYear)));
+        }
+        
+        return array_merge($defaultDates, $currentDatesCalculated);
+    }
 }

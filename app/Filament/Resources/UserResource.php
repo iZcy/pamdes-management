@@ -13,9 +13,9 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\Auth;
 
 class UserResource extends Resource
 {
@@ -175,12 +175,117 @@ class UserResource extends Resource
                             ->required()
                             ->maxLength(255),
 
-                        Forms\Components\TextInput::make('email')
-                            ->label('Email')
-                            ->email()
-                            ->required()
-                            ->unique(ignoreRecord: true)
-                            ->maxLength(255),
+                        // Email Selection with Great UX
+                        Forms\Components\Section::make('Pengaturan Email')
+                            ->description('Pilih apakah akan menggunakan email desa atau email pribadi untuk menerima notifikasi dan komunikasi dari sistem PAMDes.')
+                            ->icon('heroicon-o-envelope')
+                            ->schema([
+                        
+                        Forms\Components\Group::make([
+                            Forms\Components\Radio::make('email_choice')
+                                ->label('Pilihan Email')
+                                ->options([
+                                    'village' => 'Gunakan Email Desa',
+                                    'own' => 'Gunakan Email Pribadi',
+                                ])
+                                ->descriptions([
+                                    'village' => 'Email desa akan digunakan untuk notifikasi',
+                                    'own' => 'Masukkan email pribadi Anda',
+                                ])
+                                ->default(function (?User $record) {
+                                    if (!$record) return 'village';
+                                    
+                                    // Check if current email matches village email
+                                    $primaryVillage = $record->getAccessibleVillages()->first();
+                                    if ($primaryVillage) {
+                                        $villageEmail = $primaryVillage->email ?: 'admin@' . $primaryVillage->slug . '.pamdes.id';
+                                        if ($record->email === $villageEmail) {
+                                            return 'village';
+                                        }
+                                    }
+                                    return 'own';
+                                })
+                                ->inline()
+                                ->live()
+                                ->afterStateUpdated(function ($state, Forms\Set $set, Forms\Get $get, ?User $record) {
+                                    if ($state === 'village') {
+                                        // Try to get village email from record's villages or current user's villages
+                                        $targetUser = $record ?: Auth::user();
+                                        $primaryVillage = null;
+                                        
+                                        if ($targetUser) {
+                                            $userModel = $record ?: User::find($targetUser->id);
+                                            $primaryVillage = $userModel->getAccessibleVillages()->first();
+                                        }
+                                        
+                                        // Fallback to any active village if no specific village found
+                                        if (!$primaryVillage) {
+                                            $primaryVillage = Village::where('is_active', true)->first();
+                                        }
+                                        
+                                        if ($primaryVillage) {
+                                            $villageEmail = $primaryVillage->email ?: 'admin@' . $primaryVillage->slug . '.pamdes.id';
+                                            $set('email', $villageEmail);
+                                        }
+                                    } else {
+                                        $set('email', '');
+                                    }
+                                })
+                                ->columnSpan(2),
+
+                            Forms\Components\Placeholder::make('village_email_info')
+                                ->label('Informasi Email Desa')
+                                ->content(function (Forms\Get $get, ?User $record) {
+                                    $targetUser = $record ?: Auth::user();
+                                    $primaryVillage = null;
+                                    
+                                    if ($targetUser) {
+                                        $userModel = $record ?: User::find($targetUser->id);
+                                        $primaryVillage = $userModel->getAccessibleVillages()->first();
+                                    }
+                                    
+                                    if (!$primaryVillage) {
+                                        $primaryVillage = Village::where('is_active', true)->first();
+                                    }
+                                    
+                                    if ($primaryVillage) {
+                                        $villageEmail = $primaryVillage->email ?: 'admin@' . $primaryVillage->slug . '.pamdes.id';
+                                        return "📧 **{$villageEmail}**\n🏘️ PAMDes {$primaryVillage->name}\n✅ Email ini akan digunakan untuk semua komunikasi resmi";
+                                    }
+                                    
+                                    return '⚠️ Email desa tidak tersedia';
+                                })
+                                ->visible(fn(Forms\Get $get) => $get('email_choice') === 'village')
+                                ->columnSpan(2),
+
+                            Forms\Components\TextInput::make('email')
+                                ->label(fn(Forms\Get $get) => $get('email_choice') === 'village' ? 'Email (Otomatis dari Desa)' : 'Email Pribadi')
+                                ->email()
+                                ->required()
+                                ->unique(ignoreRecord: true)
+                                ->maxLength(255)
+                                ->disabled(fn(Forms\Get $get) => $get('email_choice') === 'village')
+                                ->dehydrated()
+                                ->placeholder(function (Forms\Get $get) {
+                                    if ($get('email_choice') === 'village') {
+                                        return 'Email desa akan digunakan secara otomatis';
+                                    }
+                                    return 'Masukkan alamat email pribadi Anda';
+                                })
+                                ->helperText(function (Forms\Get $get) {
+                                    if ($get('email_choice') === 'village') {
+                                        return 'Email ini diambil dari pengaturan desa dan akan digunakan untuk semua komunikasi';
+                                    }
+                                    return 'Pastikan email pribadi ini aktif dan dapat menerima notifikasi';
+                                })
+                                ->columnSpan(2),
+                        ])
+                        ->columns(2)
+                        ->columnSpanFull(),
+                        
+                        ])
+                        ->collapsible()
+                        ->columnSpanFull(),
 
                         Forms\Components\TextInput::make('password')
                             ->label('Password')

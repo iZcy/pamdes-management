@@ -147,9 +147,32 @@ class WaterTariffResource extends Resource
                                     $editableFields = $service->getEditableFields($record);
                                     return !$editableFields['can_edit_min'];
                                 })
-                                ->afterStateUpdated(function (Forms\Set $set, $state, Forms\Get $get) {
-                                    // Live preview of what will happen
-                                    if ($state !== null && $state >= 0) {
+                                ->afterStateUpdated(function (Forms\Set $set, $state, Forms\Get $get, string $context, ?WaterTariff $record) {
+                                    $set('_refresh_trigger', now()->toString());
+                                    
+                                    // Live validation for minimum changes in edit mode
+                                    if ($context === 'edit' && $record && $state !== null && $state != $record->usage_min) {
+                                        try {
+                                            $service = app(\App\Services\TariffRangeService::class);
+                                            $existingTariffs = \App\Models\WaterTariff::where('village_id', $record->village_id)
+                                                ->where('tariff_id', '!=', $record->tariff_id)
+                                                ->orderBy('usage_min')
+                                                ->get();
+                                            
+                                            // Test validation without actually saving
+                                            $method = new \ReflectionMethod($service, 'validateMinUpdate');
+                                            $method->setAccessible(true);
+                                            $method->invoke($service, $existingTariffs, $record, (int)$state);
+                                            
+                                            $set('_preview_message', "✅ Dapat mengubah minimum ke {$state} m³");
+                                        } catch (\Exception $e) {
+                                            $set('_preview_message', "❌ {$e->getMessage()}");
+                                        }
+                                        return;
+                                    }
+                                    
+                                    // Live preview for creation mode
+                                    if ($context === 'create' && $state !== null && $state >= 0) {
                                         $villageId = $get('village_id') ?? config('pamdes.current_village_id');
                                         if ($villageId) {
                                             try {
@@ -169,7 +192,6 @@ class WaterTariffResource extends Resource
 
                                                         // Store preview message for helper text
                                                         $set('_preview_message', "Akan membagi rentang {$originalRange} menjadi [{$newRange1}] dan [{$newRange2}]");
-                                                        $set('_refresh_trigger', now()->toString());
                                                         return;
                                                     }
                                                 }
@@ -178,21 +200,17 @@ class WaterTariffResource extends Resource
                                                 foreach ($existingTariffs as $tariff) {
                                                     if ($tariff['usage_min'] == $state) {
                                                         $set('_preview_message', "⚠️ Rentang {$state} m³ sudah ada!");
-                                                        $set('_refresh_trigger', now()->toString());
                                                         return;
                                                     }
                                                 }
 
                                                 $set('_preview_message', "✅ Nilai {$state} m³ dapat ditambahkan");
-                                                $set('_refresh_trigger', now()->toString());
                                             } catch (\Exception $e) {
                                                 $set('_preview_message', "❌ Error: " . $e->getMessage());
-                                                $set('_refresh_trigger', now()->toString());
                                             }
                                         }
                                     } else {
                                         $set('_preview_message', '');
-                                        $set('_refresh_trigger', now()->toString());
                                     }
                                 })
                                 ->helperText(function (string $context, ?WaterTariff $record, Forms\Get $get) {
@@ -233,6 +251,9 @@ class WaterTariffResource extends Resource
 
                             // Hidden field to trigger refresh
                             Forms\Components\Hidden::make('_refresh_trigger'),
+                            
+                            // Hidden field to store validation errors
+                            Forms\Components\Hidden::make('_validation_error'),
 
                             Forms\Components\TextInput::make('usage_max')
                                 ->label('Pemakaian Maksimum (m³)')
@@ -248,10 +269,38 @@ class WaterTariffResource extends Resource
                                     return !$editableFields['can_edit_max'];
                                 })
                                 ->visible(fn(string $context) => $context === 'edit')
-                                ->afterStateUpdated(function (Forms\Set $set, $state) {
+                                ->afterStateUpdated(function (Forms\Set $set, $state, Forms\Get $get, ?WaterTariff $record) {
                                     $set('_refresh_trigger', now()->toString());
+                                    
+                                    // Live validation for maximum changes
+                                    if ($record && $state !== null && $state != $record->usage_max) {
+                                        try {
+                                            $service = app(\App\Services\TariffRangeService::class);
+                                            $existingTariffs = \App\Models\WaterTariff::where('village_id', $record->village_id)
+                                                ->where('tariff_id', '!=', $record->tariff_id)
+                                                ->orderBy('usage_min')
+                                                ->get();
+                                            
+                                            // Test validation without actually saving
+                                            $method = new \ReflectionMethod($service, 'validateMaxUpdate');
+                                            $method->setAccessible(true);
+                                            $method->invoke($service, $existingTariffs, $record, (int)$state);
+                                            
+                                            $set('_validation_error', '');
+                                        } catch (\Exception $e) {
+                                            $set('_validation_error', $e->getMessage());
+                                        }
+                                    } else {
+                                        $set('_validation_error', '');
+                                    }
                                 })
-                                ->helperText(function (?WaterTariff $record) {
+                                ->helperText(function (?WaterTariff $record, Forms\Get $get) {
+                                    // Show validation error if present
+                                    $validationError = $get('_validation_error');
+                                    if ($validationError) {
+                                        return "❌ {$validationError}";
+                                    }
+                                    
                                     if (!$record) return '';
 
                                     $service = app(TariffRangeService::class);
@@ -376,51 +425,61 @@ class WaterTariffResource extends Resource
                                         $tariffs = $updatedTariffs;
                                     }
 
-                                    // For edit context, update the current record values with form data
+                                    // For edit context, update the current record values with form data and show auto-adjustments
                                     if ($record) {
-                                        $recordUpdated = false;
+                                        $formUsageMin = $get('usage_min');
+                                        $formUsageMax = $get('usage_max');
+                                        $formPrice = $get('price_per_m3');
 
-                                        foreach ($tariffs as &$tariff) {
-                                            // Match by the original record's usage_min to identify which tariff is being edited
-                                            if ($tariff['usage_min'] == $record->usage_min && !$recordUpdated) {
-                                                // Get form values, fallback to original record values
-                                                $formUsageMin = $get('usage_min');
-                                                $formUsageMax = $get('usage_max');
-                                                $formPrice = $get('price_per_m3');
+                                        // Check if there are actual changes
+                                        $hasMinChange = $formUsageMin !== null && $formUsageMin != $record->usage_min;
+                                        $hasMaxChange = $formUsageMax !== null && $formUsageMax != $record->usage_max;
+                                        $hasPriceChange = $formPrice !== null && $formPrice != $record->price_per_m3;
 
-                                                // Only update if form values are different from original
-                                                $hasChanges = false;
+                                        if ($hasMinChange || $hasMaxChange || $hasPriceChange) {
+                                            $recordUpdated = false;
 
-                                                if ($formUsageMin !== null && $formUsageMin != $record->usage_min) {
-                                                    $tariff['usage_min'] = (int) $formUsageMin;
-                                                    $hasChanges = true;
-                                                }
+                                            foreach ($tariffs as $index => &$tariff) {
+                                                // Update the current record being edited
+                                                if ($tariff['usage_min'] == $record->usage_min && !$recordUpdated) {
+                                                    if ($hasMinChange) $tariff['usage_min'] = (int) $formUsageMin;
+                                                    if ($hasMaxChange) $tariff['usage_max'] = (int) $formUsageMax;
+                                                    if ($hasPriceChange) $tariff['price_per_m3'] = (float) $formPrice;
 
-                                                if ($formUsageMax !== null && $formUsageMax != $record->usage_max) {
-                                                    $tariff['usage_max'] = (int) $formUsageMax;
-                                                    $hasChanges = true;
-                                                }
-
-                                                if ($formPrice !== null && $formPrice != $record->price_per_m3) {
-                                                    $tariff['price_per_m3'] = (float) $formPrice;
-                                                    $hasChanges = true;
-                                                }
-
-                                                // Update range display if there were changes
-                                                if ($hasChanges) {
+                                                    // Update range display
                                                     if ($tariff['usage_max'] === null) {
                                                         $tariff['range_display'] = $tariff['usage_min'] . '+ m³';
                                                     } else {
                                                         $tariff['range_display'] = $tariff['usage_min'] . '-' . $tariff['usage_max'] . ' m³';
                                                     }
                                                     $tariff['is_preview'] = true;
-                                                }
+                                                    $recordUpdated = true;
 
-                                                $recordUpdated = true;
-                                                break;
+                                                    // If max was changed, auto-adjust the next range
+                                                    if ($hasMaxChange && isset($tariffs[$index + 1])) {
+                                                        $nextTariff = &$tariffs[$index + 1];
+                                                        $newNextMin = $tariff['usage_max'] + 1;
+                                                        
+                                                        // Only adjust if the change would affect the next range
+                                                        if ($newNextMin != $nextTariff['usage_min']) {
+                                                            $nextTariff['usage_min'] = $newNextMin;
+                                                            
+                                                            // Update next tariff's range display
+                                                            if ($nextTariff['usage_max'] === null) {
+                                                                $nextTariff['range_display'] = $nextTariff['usage_min'] . '+ m³';
+                                                            } else {
+                                                                $nextTariff['range_display'] = $nextTariff['usage_min'] . '-' . $nextTariff['usage_max'] . ' m³';
+                                                            }
+                                                            $nextTariff['is_preview'] = true;
+                                                            $nextTariff['auto_adjusted'] = true;
+                                                        }
+                                                    }
+
+                                                    break;
+                                                }
                                             }
+                                            unset($tariff); // Clean up reference
                                         }
-                                        unset($tariff); // Clean up reference
                                     }
 
                                     if (empty($tariffs)) {
@@ -439,8 +498,17 @@ class WaterTariffResource extends Resource
                                         if ($tariff['editable_fields']['can_edit_max']) $editableInfo[] = 'max';
                                         $editableText = !empty($editableInfo) ? ' <span class="text-xs text-blue-600">(dapat edit: ' . implode(', ', $editableInfo) . ')</span>' : '';
 
-                                        $previewClass = isset($tariff['is_preview']) ? 'border-blue-500 bg-blue-50' : 'border-gray-200';
-                                        $previewLabel = isset($tariff['is_preview']) ? ' <span class="text-xs text-blue-600 font-bold">(PREVIEW)</span>' : '';
+                                        // Different styling for different types of changes
+                                        if (isset($tariff['auto_adjusted'])) {
+                                            $previewClass = 'border-orange-400 bg-orange-50';
+                                            $previewLabel = ' <span class="text-xs text-orange-600 font-bold">(AUTO-ADJUSTED)</span>';
+                                        } elseif (isset($tariff['is_preview'])) {
+                                            $previewClass = 'border-blue-500 bg-blue-50';
+                                            $previewLabel = ' <span class="text-xs text-blue-600 font-bold">(EDITED)</span>';
+                                        } else {
+                                            $previewClass = 'border-gray-200';
+                                            $previewLabel = '';
+                                        }
 
                                         $content .= '<div class="flex justify-between items-center p-3 rounded-lg border ' . $previewClass . '">';
                                         $content .= '<span class="font-medium text-gray-900">' . $tariff['range_display'] . $previewLabel . '</span>';
@@ -484,14 +552,22 @@ class WaterTariffResource extends Resource
                                         ];
                                     }
 
-                                    // Apply form changes for preview
+                                    // Apply form changes for preview with auto-adjustments
                                     if ($record) {
-                                        // Update existing record
-                                        foreach ($tempTariffs as &$tariff) {
+                                        $formUsageMax = $get('usage_max');
+                                        $hasMaxChange = $formUsageMax !== null && $formUsageMax != $record->usage_max;
+                                        
+                                        // Update existing record and handle auto-adjustments
+                                        foreach ($tempTariffs as $index => &$tariff) {
                                             if ($tariff['usage_min'] == $record->usage_min) {
                                                 $tariff['usage_min'] = (int) ($get('usage_min') ?? $record->usage_min);
-                                                $tariff['usage_max'] = $get('usage_max') !== null ? (int) $get('usage_max') : $record->usage_max;
+                                                if ($hasMaxChange) $tariff['usage_max'] = (int) $formUsageMax;
                                                 $tariff['price_per_m3'] = (float) ($get('price_per_m3') ?? $record->price_per_m3);
+                                                
+                                                // If max was changed, auto-adjust next range
+                                                if ($hasMaxChange && isset($tempTariffs[$index + 1])) {
+                                                    $tempTariffs[$index + 1]['usage_min'] = $tariff['usage_max'] + 1;
+                                                }
                                                 break;
                                             }
                                         }
@@ -500,7 +576,7 @@ class WaterTariffResource extends Resource
                                         $newMin = (int) $get('usage_min');
                                         $newPrice = (float) $get('price_per_m3');
 
-                                        // Handle range splitting logic for calculation
+                                        // Handle range splitting logic for calculation with gap validation
                                         $updatedTariffs = [];
                                         $newTariffAdded = false;
 
@@ -509,12 +585,15 @@ class WaterTariffResource extends Resource
                                                 $newMin > $tariff['usage_min'] &&
                                                 ($tariff['usage_max'] === null || $newMin <= $tariff['usage_max'])
                                             ) {
-                                                // Split existing range - first part
-                                                $updatedTariffs[] = [
-                                                    'usage_min' => $tariff['usage_min'],
-                                                    'usage_max' => $newMin - 1,
-                                                    'price_per_m3' => $tariff['price_per_m3'],
-                                                ];
+                                                // Only split if there's room for proper gap (at least 2 units difference)
+                                                if ($newMin > $tariff['usage_min'] + 1) {
+                                                    // Split existing range - first part ends at newMin - 1
+                                                    $updatedTariffs[] = [
+                                                        'usage_min' => $tariff['usage_min'],
+                                                        'usage_max' => $newMin - 1,
+                                                        'price_per_m3' => $tariff['price_per_m3'],
+                                                    ];
+                                                }
 
                                                 // Add new tariff with correct range
                                                 $updatedTariffs[] = [
@@ -528,13 +607,37 @@ class WaterTariffResource extends Resource
                                             }
                                         }
 
-                                        // If new tariff wasn't added (new minimum is larger than all existing), add it at the end
+                                        // If new tariff wasn't added, find correct insertion point with gap validation
                                         if (!$newTariffAdded) {
-                                            $updatedTariffs[] = [
-                                                'usage_min' => $newMin,
-                                                'usage_max' => null,
-                                                'price_per_m3' => $newPrice,
-                                            ];
+                                            $inserted = false;
+                                            $finalTariffs = [];
+                                            
+                                            foreach ($updatedTariffs as $tariff) {
+                                                if (!$inserted && $newMin < $tariff['usage_min']) {
+                                                    // Ensure gap between ranges
+                                                    $newMax = $tariff['usage_min'] - 1;
+                                                    if ($newMax >= $newMin) {
+                                                        $finalTariffs[] = [
+                                                            'usage_min' => $newMin,
+                                                            'usage_max' => $newMax,
+                                                            'price_per_m3' => $newPrice,
+                                                        ];
+                                                        $inserted = true;
+                                                    }
+                                                }
+                                                $finalTariffs[] = $tariff;
+                                            }
+                                            
+                                            // If still not inserted, add at the end (infinite range)
+                                            if (!$inserted) {
+                                                $finalTariffs[] = [
+                                                    'usage_min' => $newMin,
+                                                    'usage_max' => null,
+                                                    'price_per_m3' => $newPrice,
+                                                ];
+                                            }
+                                            
+                                            $updatedTariffs = $finalTariffs;
                                         }
 
                                         $tempTariffs = $updatedTariffs;
