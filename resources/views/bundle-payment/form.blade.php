@@ -85,7 +85,7 @@
 
         @if (isset($bundlePayment->status) && $bundlePayment->status === 'form')
           <!-- Payment Form for Bundle -->
-          <form action="{{ route('bundle.payment.process.direct', ['customer_code' => $customer->customer_code]) }}"
+          <form id="bundlePaymentForm" action="{{ route('bundle.payment.process.direct', ['customer_code' => $customer->customer_code]) }}"
             method="POST" class="space-y-4">
             @csrf
 
@@ -234,7 +234,7 @@
             </div>
 
             <!-- Submit Button -->
-            <button type="submit"
+            <button type="submit" id="paymentButton"
               class="w-full bg-blue-600 text-white py-3 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 font-medium transition duration-200 flex items-center justify-center">
               <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -466,8 +466,8 @@
     </div>
   </div>
 
-  <!-- Alert Container -->
-  <div id="alert-container" class="fixed top-4 right-4 z-50 space-y-2"></div>
+  <!-- Toaster Container -->
+  <div id="toaster-container" class="fixed top-4 right-4 z-50 space-y-2 max-w-sm"></div>
 
   <script>
     // Email Selection Functionality
@@ -574,50 +574,189 @@
       });
     });
 
-    // Show alert function
-    function showAlert(type, message, duration = 5000) {
-      const alertContainer = document.getElementById('alert-container');
-      const alertId = 'alert-' + Date.now();
+    // Handle bundle payment form submission with AJAX
+    @if (isset($bundlePayment->status) && $bundlePayment->status === 'form')
+      const bundleForm = document.getElementById('bundlePaymentForm');
+      if (bundleForm) {
+        bundleForm.addEventListener('submit', function(e) {
+          e.preventDefault();
+          
+          const button = document.getElementById('paymentButton');
+          if (!button) {
+            console.error('Payment button not found');
+            return;
+          }
+          
+          const originalText = button.innerHTML;
+        
+        // Show loading state
+        button.innerHTML = `
+          <div class="flex items-center justify-center">
+            <svg class="animate-spin w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Memproses Pembayaran...
+          </div>
+        `;
+        button.disabled = true;
 
-      const colors = {
-        success: 'bg-green-100 border-green-500 text-green-700',
-        error: 'bg-red-100 border-red-500 text-red-700',
-        warning: 'bg-yellow-100 border-yellow-500 text-yellow-700',
-        info: 'bg-blue-100 border-blue-500 text-blue-700'
+        // Show processing alert
+        showAlert('info', 'Sedang memproses pembayaran QRIS...', 0);
+
+        // Submit form data via fetch
+        const formData = new FormData(this);
+        fetch(this.action, {
+          method: 'POST',
+          body: formData,
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        })
+        .then(response => response.json())
+        .then(data => {
+          if (data.success && data.checkout_url) {
+            // Successful payment creation - redirect to Tripay
+            showAlert('success', 'Pembayaran berhasil dibuat! Mengarahkan ke halaman pembayaran...', 2000);
+            setTimeout(() => {
+              window.location.href = data.checkout_url;
+            }, 1500);
+          } else if (!data.success) {
+            // Show error message in toaster
+            showAlert('error', data.message || 'Gagal memproses pembayaran');
+            
+            // Reset button
+            button.innerHTML = originalText;
+            button.disabled = false;
+          }
+        })
+        .catch(error => {
+          console.error('Error:', error);
+          showAlert('error', 'Terjadi kesalahan jaringan. Silakan coba lagi.');
+          
+          // Reset button
+          button.innerHTML = originalText;
+          button.disabled = false;
+        });
+        });
+      }
+    @endif
+
+    // Toaster notification system
+    function showToast(type, message, duration = 5000) {
+      const toasterContainer = document.getElementById('toaster-container');
+      
+      // If no toaster container exists, fall back to basic browser alert
+      if (!toasterContainer) {
+        window.alert(message);
+        return;
+      }
+      
+      const toastId = 'toast-' + Date.now();
+
+      const typeConfig = {
+        success: {
+          bgColor: 'bg-green-50',
+          borderColor: 'border-green-200',
+          textColor: 'text-green-800',
+          iconColor: 'text-green-400',
+          icon: `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                 </svg>`
+        },
+        error: {
+          bgColor: 'bg-red-50',
+          borderColor: 'border-red-200',
+          textColor: 'text-red-800',
+          iconColor: 'text-red-400',
+          icon: `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                 </svg>`
+        },
+        warning: {
+          bgColor: 'bg-yellow-50',
+          borderColor: 'border-yellow-200',
+          textColor: 'text-yellow-800',
+          iconColor: 'text-yellow-400',
+          icon: `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.19 2.5 1.732 2.5z"></path>
+                 </svg>`
+        },
+        info: {
+          bgColor: 'bg-blue-50',
+          borderColor: 'border-blue-200',
+          textColor: 'text-blue-800',
+          iconColor: 'text-blue-400',
+          icon: `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                 </svg>`
+        }
       };
 
-      const alert = document.createElement('div');
-      alert.id = alertId;
-      alert.className = `${colors[type]} border-l-4 px-6 py-4 rounded-lg shadow-lg max-w-md`;
-      alert.innerHTML = `
-        <div class="flex items-center">
-          <div class="flex-1">${message}</div>
-          <button onclick="closeAlert('${alertId}')" class="ml-4 opacity-70 hover:opacity-100">
-            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"></path>
-            </svg>
-          </button>
+      const config = typeConfig[type] || typeConfig.info;
+
+      const toastElement = document.createElement('div');
+      toastElement.id = toastId;
+      toastElement.className = `${config.bgColor} ${config.borderColor} ${config.textColor} border rounded-lg shadow-lg p-4 transform translate-x-full transition-all duration-300 ease-in-out`;
+      toastElement.innerHTML = `
+        <div class="flex items-start">
+          <div class="flex-shrink-0 ${config.iconColor}">
+            ${config.icon}
+          </div>
+          <div class="ml-3 flex-1">
+            <p class="text-sm font-medium">${message}</p>
+          </div>
+          <div class="ml-4 flex-shrink-0 flex">
+            <button onclick="closeToast('${toastId}')" class="inline-flex ${config.textColor} hover:opacity-75 focus:outline-none">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+              </svg>
+            </button>
+          </div>
         </div>
       `;
 
-      alertContainer.appendChild(alert);
+      toasterContainer.appendChild(toastElement);
 
+      // Animate in
+      setTimeout(() => {
+        toastElement.classList.remove('translate-x-full');
+        toastElement.classList.add('translate-x-0');
+      }, 100);
+
+      // Auto remove
       if (duration > 0) {
-        setTimeout(() => closeAlert(alertId), duration);
+        setTimeout(() => closeToast(toastId), duration);
       }
     }
 
-    function closeAlert(alertId) {
-      const alert = document.getElementById(alertId);
-      if (alert) {
-        alert.remove();
+    function closeToast(toastId) {
+      const toastElement = document.getElementById(toastId);
+      if (toastElement) {
+        toastElement.classList.add('translate-x-full', 'opacity-0');
+        setTimeout(() => {
+          if (toastElement.parentNode) {
+            toastElement.parentNode.removeChild(toastElement);
+          }
+        }, 300);
       }
+    }
+
+    // Alias for backward compatibility
+    function showAlert(type, message, duration = 5000) {
+      showToast(type, message, duration);
     }
 
     @if ($bundlePayment->status === 'pending')
       function continueBundlePayment() {
-        // This would typically redirect to continue the existing payment
-        window.location.href = '{{ route("bundle.payment.form", ["customer_code" => $customer->customer_code, "bundle_reference" => $bundlePayment->bundle_reference]) }}';
+        // Check if we have payment reference to continue existing payment
+        @if(isset($bundlePayment->payment_reference) && $bundlePayment->payment_reference)
+          // Redirect to Tripay checkout URL for existing payment
+          window.location.href = '{{ config("tripay.base_url") }}/checkout/{{ $bundlePayment->payment_reference }}';
+        @else
+          // Process new payment if no reference exists
+          window.location.href = '{{ route("bundle.payment.process", ["customer_code" => $customer->customer_code, "bundle_reference" => $bundlePayment->bundle_reference]) }}';
+        @endif
       }
 
       function checkBundlePaymentStatus() {

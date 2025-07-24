@@ -258,7 +258,123 @@
         </div>
       </div>
 
-      @if ($bills->count() > 0)
+      @php
+        // Separate bills into pending and payable
+        $pendingBills = $bills->where('status', 'pending');
+        $payableBills = $bills->whereIn('status', ['unpaid', 'overdue']);
+      @endphp
+
+      @if ($pendingBills->count() > 0)
+        <!-- Pending Transactions Section -->
+        <div class="card-gradient rounded-2xl shadow-xl overflow-hidden mb-8 animate-slide-up">
+          <!-- Header -->
+          <div class="bg-gradient-to-r from-purple-500 to-indigo-500 px-6 py-4 text-white">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between">
+              <div class="mb-4 md:mb-0">
+                <h3 class="text-xl font-bold mb-1 flex items-center">
+                  <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                  </svg>
+                  Transaksi Sedang Diproses
+                </h3>
+                <p class="text-purple-100">{{ $pendingBills->count() }} pembayaran menunggu konfirmasi</p>
+              </div>
+              @php
+                $totalPending = $pendingBills->sum('total_amount');
+              @endphp
+              <div class="text-right">
+                <p class="text-sm text-purple-100">Total Pending</p>
+                <p class="text-2xl font-bold">Rp {{ number_format($totalPending) }}</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Pending Bills List -->
+          <div class="p-6">
+            <div class="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-4">
+              <div class="flex items-center">
+                <svg class="w-5 h-5 text-purple-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <p class="text-purple-800 font-medium">Pembayaran di bawah ini sedang dalam proses. Mohon tunggu konfirmasi atau cek status pembayaran Anda.</p>
+              </div>
+            </div>
+
+            <div class="space-y-4">
+              @foreach ($pendingBills as $bill)
+                <div class="bg-white rounded-lg border-2 border-purple-200 p-4">
+                  <div class="flex items-center justify-between">
+                    <div class="flex-1">
+                      <div class="flex items-center mb-2">
+                        <div class="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center mr-3">
+                          <svg class="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                          </svg>
+                        </div>
+                        <div>
+                          <h4 class="font-bold text-gray-800">{{ $bill->waterUsage->billingPeriod->period_name }}</h4>
+                          <p class="text-sm text-gray-600">{{ $bill->waterUsage->total_usage_m3 }} m³ • Sedang diproses</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="text-right">
+                      <span class="text-lg font-bold text-purple-600">Rp {{ number_format($bill->total_amount) }}</span>
+                      <div class="mt-2 space-y-2">
+                        <div>
+                          <span class="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm font-medium">
+                            ⏳ Menunggu Pembayaran
+                          </span>
+                        </div>
+                        @php
+                          // Check if this bill is part of a bundle payment or individual payment
+                          $bundlePayment = \App\Models\BundlePayment::whereHas('bundlePaymentBills', function($q) use ($bill) {
+                              $q->where('bill_id', $bill->bill_id);
+                          })->where('status', 'pending')->first();
+                          
+                          // For individual payments, we need to check if there's an active Tripay transaction
+                          // Since payments table doesn't have status, we check if bill is pending but no bundle payment exists
+                          $hasIndividualPendingPayment = $bill->status === 'pending' && !$bundlePayment;
+                        @endphp
+                        
+                        @if ($bundlePayment)
+                          <!-- Bundle Payment - Continue -->
+                          <a href="{{ route('bundle.payment.payment.form', ['customer_code' => $customer->customer_code, 'bundle_reference' => $bundlePayment->bundle_reference]) }}"
+                            class="inline-flex items-center px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium rounded-lg transition-colors duration-200">
+                            <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m-2 0h-2m2-4v-3m2 3V9l-6 6 2-2z"></path>
+                            </svg>
+                            Lanjutkan Bundle Payment
+                          </a>
+                        @elseif ($hasIndividualPendingPayment)
+                          <!-- Individual Payment - Go to Status Page -->
+                          <a href="{{ route('tripay.form', ['village' => $customer->village->slug, 'bill' => $bill->bill_id]) }}"
+                            class="inline-flex items-center px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium rounded-lg transition-colors duration-200">
+                            <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m-2 0h-2m2-4v-3m2 3V9l-6 6 2-2z"></path>
+                            </svg>
+                            Lanjutkan Pembayaran
+                          </a>
+                        @else
+                          <!-- No active payment found - allow retry -->
+                          <button onclick="retryPayment('{{ $bill->bill_id }}')"
+                            class="inline-flex items-center px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-medium rounded-lg transition-colors duration-200">
+                            <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                            </svg>
+                            Coba Lagi
+                          </button>
+                        @endif
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              @endforeach
+            </div>
+          </div>
+        </div>
+      @endif
+
+      @if ($payableBills->count() > 0)
         <!-- Outstanding Bills Section - Checkout Style Layout -->
         <div class="card-gradient rounded-2xl shadow-xl overflow-hidden mb-8 animate-slide-up">
           <!-- Header -->
@@ -266,10 +382,10 @@
             <div class="flex flex-col md:flex-row md:items-center md:justify-between">
               <div class="mb-4 md:mb-0">
                 <h3 class="text-xl font-bold mb-1">Tagihan Menunggu Pembayaran</h3>
-                <p class="text-orange-100">{{ $bills->count() }} tagihan belum dibayar</p>
+                <p class="text-orange-100">{{ $payableBills->count() }} tagihan belum dibayar</p>
               </div>
               @php
-                $totalOutstanding = $bills->sum('total_amount');
+                $totalOutstanding = $payableBills->sum('total_amount');
               @endphp
               <div class="text-right">
                 <p class="text-sm text-orange-100">Total Outstanding</p>
@@ -330,7 +446,7 @@
                   </svg>
                   Daftar Tagihan
                 </h4>
-                <span class="text-sm text-gray-500">{{ $bills->count() }} item</span>
+                <span class="text-sm text-gray-500">{{ $payableBills->count() }} item</span>
               </div>
 
               <!-- Scrollable Bills Container -->
@@ -351,11 +467,14 @@
                     background: #94a3b8;
                   }
                 </style>
-              @foreach ($bills as $index => $bill)
+              @foreach ($payableBills as $index => $bill)
                 <!-- Compact Bill Card for Checkout Style -->
-                <div class="bg-white rounded-lg border border-gray-200 p-4 bill-card"
+                <div class="bg-white rounded-lg border border-gray-200 p-4 bill-card cursor-pointer hover:border-blue-300 hover:shadow-md transition-all duration-200"
                   data-bill-id="{{ $bill->bill_id }}" data-bill-amount="{{ $bill->total_amount }}"
-                  data-bill-period="{{ $bill->waterUsage->billingPeriod->period_name }}">
+                  data-bill-period="{{ $bill->waterUsage->billingPeriod->period_name }}"
+                  data-water-charge="{{ $bill->water_charge }}"
+                  data-admin-fee="{{ $bill->admin_fee }}"
+                  data-maintenance-fee="{{ $bill->maintenance_fee }}">
                   
                   <div class="flex items-start gap-4">
                     <!-- Payment Selection Checkbox -->
@@ -421,22 +540,144 @@
                         </button>
                         
                         <!-- Collapsible Details -->
-                        <div class="bill-details hidden mt-3 p-3 bg-gray-50 rounded-lg" id="details-{{ $bill->bill_id }}">
-                          <div class="grid grid-cols-2 gap-2 text-sm">
-                            <div class="flex justify-between">
-                              <span class="text-gray-600">Biaya Air:</span>
-                              <span class="font-medium">Rp {{ number_format($bill->water_charge) }}</span>
-                            </div>
-                            <div class="flex justify-between">
-                              <span class="text-gray-600">Biaya Admin:</span>
-                              <span class="font-medium">Rp {{ number_format($bill->admin_fee) }}</span>
-                            </div>
-                            <div class="flex justify-between">
-                              <span class="text-gray-600">Biaya Pemeliharaan:</span>
-                              <span class="font-medium">Rp {{ number_format($bill->maintenance_fee) }}</span>
+                        <div class="bill-details hidden mt-3 p-4 bg-gray-50 rounded-lg border" id="details-{{ $bill->bill_id }}">
+                          <!-- Usage Information -->
+                          <div class="mb-4 pb-3 border-b border-gray-200">
+                            <h5 class="font-medium text-gray-800 mb-2">Informasi Pemakaian</h5>
+                            <div class="grid grid-cols-2 gap-3 text-sm">
+                              <div class="flex justify-between">
+                                <span class="text-gray-600">Periode:</span>
+                                <span class="font-medium">{{ $bill->waterUsage->billingPeriod->period_name }}</span>
+                              </div>
+                              <div class="flex justify-between">
+                                <span class="text-gray-600">Pemakaian:</span>
+                                <span class="font-medium">{{ $bill->waterUsage->total_usage_m3 }} m³</span>
+                              </div>
+                              <div class="flex justify-between">
+                                <span class="text-gray-600">Meter Awal:</span>
+                                <span class="font-medium">{{ number_format($bill->waterUsage->initial_meter) }}</span>
+                              </div>
+                              <div class="flex justify-between">
+                                <span class="text-gray-600">Meter Akhir:</span>
+                                <span class="font-medium">{{ number_format($bill->waterUsage->final_meter) }}</span>
+                              </div>
                             </div>
                           </div>
                           
+                          <!-- Calculation Process -->
+                          <div class="mb-4 pb-3 border-b border-gray-200">
+                            <h5 class="font-medium text-gray-800 mb-2">Proses Perhitungan</h5>
+                            <div class="space-y-2 text-sm">
+                              @php
+                                $usage = $bill->waterUsage->total_usage_m3;
+                                $baseCost = $bill->water_charge;
+                                $adminFee = $bill->admin_fee;
+                                $maintenanceFee = $bill->maintenance_fee;
+                              @endphp
+                              
+                              <!-- Water Charge Calculation -->
+                              <div class="bg-white p-3 rounded border-l-4 border-blue-500">
+                                <div class="flex justify-between items-center mb-2">
+                                  <span class="text-gray-700 font-medium">Biaya Air ({{ $usage }} m³):</span>
+                                  <span class="font-bold text-blue-600">Rp {{ number_format($baseCost) }}</span>
+                                </div>
+                                
+                                <!-- Tariff Breakdown -->
+                                @php
+                                  $tariffs = \App\Models\WaterTariff::where('village_id', $bill->waterUsage->customer->village_id)
+                                    ->where('is_active', true)
+                                    ->orderBy('usage_min')
+                                    ->get();
+                                  
+                                  $remainingUsage = $usage;
+                                  $totalCalculated = 0;
+                                @endphp
+                                
+                                @if($tariffs->count() > 0 && $usage > 0)
+                                  <div class="text-xs space-y-1 mt-2 pl-2 border-l-2 border-blue-200">
+                                    <div class="font-medium text-gray-600 mb-1">Perhitungan Tarif Progresif:</div>
+                                    @foreach($tariffs as $tariff)
+                                      @php
+                                        if ($remainingUsage <= 0) break;
+                                        
+                                        $tierMin = $tariff->usage_min;
+                                        $tierMax = $tariff->usage_max;
+                                        $rate = $tariff->price_per_m3;
+                                        
+                                        // Calculate usage for this tier
+                                        $usageInTier = 0;
+                                        
+                                        if ($usage > $tierMin) {
+                                          if ($tierMax !== null) {
+                                            // Has upper limit
+                                            $tierCapacity = $tierMax - $tierMin + 1;
+                                            $usageInTier = min($remainingUsage, $tierCapacity);
+                                          } else {
+                                            // Unlimited tier (highest tier)
+                                            $usageInTier = $remainingUsage;
+                                          }
+                                        }
+                                        
+                                        $tierCost = $usageInTier * $rate;
+                                        $remainingUsage -= $usageInTier;
+                                        $totalCalculated += $tierCost;
+                                      @endphp
+                                      
+                                      @if($usageInTier > 0)
+                                        <div class="flex justify-between items-center py-1">
+                                          <span class="text-gray-600">
+                                            • {{ $tierMin }}{{ $tariff->usage_max ? '-'.$tariff->usage_max : '+' }} m³: 
+                                            {{ number_format($usageInTier) }} m³ × Rp {{ number_format($rate) }}
+                                          </span>
+                                          <span class="text-blue-600 font-medium">Rp {{ number_format($tierCost) }}</span>
+                                        </div>
+                                      @endif
+                                    @endforeach
+                                    
+                                    @if($totalCalculated != $baseCost)
+                                      <div class="text-xs text-orange-600 mt-1">
+                                        * Tarif mungkin telah berubah sejak tagihan dibuat
+                                      </div>
+                                    @endif
+                                  </div>
+                                @elseif($usage > 0)
+                                  <div class="text-xs text-gray-500 mt-1">
+                                    ≈ Rp {{ number_format($baseCost / $usage) }} per m³ (rata-rata)
+                                  </div>
+                                @endif
+                              </div>
+                              
+                              <!-- Admin Fee -->
+                              <div class="bg-white p-2 rounded border-l-4 border-green-500">
+                                <div class="flex justify-between items-center">
+                                  <span class="text-gray-700">Biaya Admin:</span>
+                                  <span class="font-medium text-green-600">Rp {{ number_format($adminFee) }}</span>
+                                </div>
+                                <div class="text-xs text-gray-500 mt-1">Biaya administrasi tetap</div>
+                              </div>
+                              
+                              <!-- Maintenance Fee -->
+                              <div class="bg-white p-2 rounded border-l-4 border-orange-500">
+                                <div class="flex justify-between items-center">
+                                  <span class="text-gray-700">Biaya Pemeliharaan:</span>
+                                  <span class="font-medium text-orange-600">Rp {{ number_format($maintenanceFee) }}</span>
+                                </div>
+                                <div class="text-xs text-gray-500 mt-1">Biaya perawatan infrastruktur</div>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <!-- Total Calculation -->
+                          <div class="bg-blue-50 p-3 rounded-lg">
+                            <div class="flex justify-between items-center text-sm mb-2">
+                              <span class="text-gray-700">Subtotal:</span>
+                              <span>Rp {{ number_format($baseCost + $adminFee + $maintenanceFee) }}</span>
+                            </div>
+                            <div class="flex justify-between items-center font-bold text-lg border-t pt-2">
+                              <span class="text-gray-800">Total Bayar:</span>
+                              <span class="text-blue-600">Rp {{ number_format($bill->total_amount) }}</span>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -461,7 +702,7 @@
                 <div class="bg-white rounded-lg p-4 mb-4">
                   <div class="space-y-3">
                     <div class="flex justify-between text-sm">
-                      <span class="text-gray-600">{{ $bills->count() }} Tagihan</span>
+                      <span class="text-gray-600">{{ $payableBills->count() }} Tagihan</span>
                       <span class="font-medium">Rp {{ number_format($totalOutstanding) }}</span>
                     </div>
                     <div class="border-t pt-3">
@@ -482,12 +723,16 @@
                       <span class="font-medium" id="selectedCount">0</span>
                     </div>
                     <div class="flex justify-between">
+                      <span class="text-blue-600">Total Biaya Air:</span>
+                      <span class="font-medium text-blue-800" id="totalWaterCharge">Rp 0</span>
+                    </div>
+                    <div class="flex justify-between">
                       <span class="text-blue-600">Biaya Admin:</span>
-                      <span class="font-medium text-blue-800">1× per transaksi</span>
+                      <span class="font-medium text-blue-800" id="totalAdminFee">Rp 0</span>
                     </div>
                     <div class="flex justify-between">
                       <span class="text-blue-600">Biaya Pemeliharaan:</span>
-                      <span class="font-medium text-blue-800">Akumulatif</span>
+                      <span class="font-medium text-blue-800" id="totalMaintenanceFee">Rp 0</span>
                     </div>
                     <div class="border-t border-blue-300 pt-2 mt-2">
                       <div class="flex justify-between">
@@ -536,7 +781,9 @@
             </div>
           </div>
         </div>
-      @else
+      @endif
+
+      @if ($payableBills->count() == 0 && $pendingBills->count() == 0)
         <!-- No Bills Message -->
         <div class="card-gradient rounded-2xl shadow-xl p-12 text-center mb-8 animate-fade-in">
           <div class="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
@@ -1020,9 +1267,27 @@
       });
     });
 
+    // Retry payment function for pending bills without active payment
+    function retryPayment(billId) {
+      // Show confirmation dialog
+      if (!confirm('Apakah Anda yakin ingin mencoba pembayaran lagi untuk tagihan ini?')) {
+        return;
+      }
+
+      // Redirect to payment form for retry
+      window.location.href = `/{{ $customer->village->slug }}/bill/${billId}/payment`;
+    }
+
     // Add dynamic alert function
     function showAlert(type, message, duration = 5000) {
       const alertContainer = document.getElementById('alert-container');
+      
+      // If no alert container exists, fall back to basic alert
+      if (!alertContainer) {
+        alert(message);
+        return;
+      }
+      
       const alertId = 'alert-' + Date.now();
 
       const colors = {
@@ -1106,9 +1371,13 @@
           
           // Handle checkbox state change
           checkbox.addEventListener('change', function() {
+            const billCard = this.closest('.bill-card');
             const billId = this.dataset.billId;
-            const billAmount = parseFloat(this.closest('.bill-card').dataset.billAmount);
-            const billPeriod = this.closest('.bill-card').dataset.billPeriod;
+            const billAmount = parseFloat(billCard.dataset.billAmount);
+            const billPeriod = billCard.dataset.billPeriod;
+            const waterCharge = parseFloat(billCard.dataset.waterCharge);
+            const adminFee = parseFloat(billCard.dataset.adminFee);
+            const maintenanceFee = parseFloat(billCard.dataset.maintenanceFee);
             
             console.log('Checkbox changed:', billId, 'checked:', this.checked);
             
@@ -1118,13 +1387,16 @@
               selectedBills.set(billId, {
                 id: billId,
                 amount: billAmount,
-                period: billPeriod
+                period: billPeriod,
+                waterCharge: waterCharge,
+                adminFee: adminFee,
+                maintenanceFee: maintenanceFee
               });
               
-              this.closest('.bill-card').classList.add('ring-2', 'ring-blue-500', 'ring-opacity-50');
+              billCard.classList.add('ring-2', 'ring-blue-500', 'ring-opacity-50');
             } else {
               selectedBills.delete(billId);
-              this.closest('.bill-card').classList.remove('ring-2', 'ring-blue-500', 'ring-opacity-50');
+              billCard.classList.remove('ring-2', 'ring-blue-500', 'ring-opacity-50');
             }
             
             updateBundleSummary();
@@ -1136,6 +1408,26 @@
             console.log('Label clicked for bill:', checkbox.dataset.billId);
             checkbox.checked = !checkbox.checked;
             checkbox.dispatchEvent(new Event('change'));
+          });
+        });
+      }
+
+      // Make entire card clickable
+      function initializeCardClicks() {
+        billCards.forEach(card => {
+          card.addEventListener('click', function(e) {
+            // Don't trigger if clicking on the details toggle button or checkbox area
+            if (e.target.closest('.bill-details-toggle') || e.target.closest('label')) {
+              return;
+            }
+            
+            const billId = this.dataset.billId;
+            const checkbox = this.querySelector(`.bill-checkbox[data-bill-id="${billId}"]`);
+            
+            if (checkbox) {
+              checkbox.checked = !checkbox.checked;
+              checkbox.dispatchEvent(new Event('change'));
+            }
           });
         });
       }
@@ -1157,35 +1449,30 @@
         }
       }
 
-      // Update bundle summary with corrected cost calculation
+      // Update bundle summary with exact cost calculation
       function updateBundleSummary() {
         const count = selectedBills.size;
         const selectedBillsArray = Array.from(selectedBills.values());
         
-        // Calculate corrected total for bundle payment
+        // Calculate exact total for bundle payment following backend logic
         let totalWaterCharge = 0;
         let totalMaintenanceFee = 0;
-        let singleAdminFee = 0;
+        let totalAdminFee = 0;
         
         selectedBillsArray.forEach((bill, index) => {
-          // Extract costs from bill amount (approximate calculation)
-          // This is a simplified approach - in a real app you'd get detailed breakdown from server
-          const waterCharge = Math.floor(bill.amount * 0.85); // Approximate water charge
-          const adminFee = Math.floor(bill.amount * 0.10);   // Approximate admin fee  
-          const maintenanceFee = Math.floor(bill.amount * 0.05); // Approximate maintenance fee
-          
-          totalWaterCharge += waterCharge;
-          totalMaintenanceFee += maintenanceFee; // Accumulative
-          
-          // Only add admin fee once (from first bill)
-          if (index === 0) {
-            singleAdminFee = adminFee;
-          }
+          // Use exact amounts from bill data
+          totalWaterCharge += bill.waterCharge;
+          totalMaintenanceFee += bill.maintenanceFee; // Accumulative
+          totalAdminFee += bill.adminFee; // Accumulative
         });
         
-        const correctedTotal = totalWaterCharge + singleAdminFee + totalMaintenanceFee;
+        const correctedTotal = totalWaterCharge + totalAdminFee + totalMaintenanceFee;
         
+        // Update display elements
         selectedCount.textContent = `${count} tagihan`;
+        document.getElementById('totalWaterCharge').textContent = `Rp ${new Intl.NumberFormat('id-ID').format(totalWaterCharge)}`;
+        document.getElementById('totalAdminFee').textContent = `Rp ${new Intl.NumberFormat('id-ID').format(totalAdminFee)}`;
+        document.getElementById('totalMaintenanceFee').textContent = `Rp ${new Intl.NumberFormat('id-ID').format(totalMaintenanceFee)}`;
         selectedTotal.textContent = `Rp ${new Intl.NumberFormat('id-ID').format(correctedTotal)}`;
         paymentBtnText.textContent = `Bayar dengan QRIS (${count})`;
         
@@ -1345,6 +1632,7 @@
 
       // Initialize
       initializeCheckboxes();
+      initializeCardClicks();
     });
   </script>
 </body>

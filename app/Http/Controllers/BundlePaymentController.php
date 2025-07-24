@@ -40,7 +40,7 @@ class BundlePaymentController extends Controller
                 ->whereHas('waterUsage', function ($query) use ($customer) {
                     $query->where('customer_id', $customer->customer_id);
                 })
-                ->where('status', '!=', 'paid')
+                ->whereIn('status', ['unpaid', 'overdue']) // Exclude pending bills
                 ->with(['waterUsage.billingPeriod'])
                 ->get();
 
@@ -49,14 +49,26 @@ class BundlePaymentController extends Controller
             }
 
             if ($bills->count() !== count($request->bill_ids)) {
+                // Check if some bills are pending
+                $pendingBills = Bill::whereIn('bill_id', $request->bill_ids)
+                    ->whereHas('waterUsage', function ($query) use ($customer) {
+                        $query->where('customer_id', $customer->customer_id);
+                    })
+                    ->where('status', 'pending')
+                    ->count();
+                
+                if ($pendingBills > 0) {
+                    return redirect()->back()->with('error', 'Beberapa tagihan sedang dalam proses pembayaran. Mohon tunggu konfirmasi atau cek kembali dalam beberapa saat.');
+                }
+                
                 return redirect()->back()->with('error', 'Beberapa tagihan tidak valid atau sudah dibayar.');
             }
 
             // Calculate bundle total with corrected fees
             $totalWaterCharge = $bills->sum('water_charge');
             $totalMaintenanceFee = $bills->sum('maintenance_fee');
-            $singleAdminFee = $bills->isNotEmpty() ? $bills->first()->admin_fee : 0;
-            $totalAmount = $totalWaterCharge + $singleAdminFee + $totalMaintenanceFee;
+            $totalAdminFee = $bills->sum('admin_fee'); // Accumulative admin fee
+            $totalAmount = $totalWaterCharge + $totalAdminFee + $totalMaintenanceFee;
 
             // Create bundle payment object for display (not saved yet)
             $bundlePayment = (object) [
@@ -107,7 +119,7 @@ class BundlePaymentController extends Controller
                 ->whereHas('waterUsage', function ($query) use ($customer) {
                     $query->where('customer_id', $customer->customer_id);
                 })
-                ->where('status', '!=', 'paid')
+                ->whereIn('status', ['unpaid', 'overdue']) // Exclude pending bills
                 ->get();
 
             if ($bills->isEmpty()) {
@@ -115,18 +127,30 @@ class BundlePaymentController extends Controller
             }
 
             if ($bills->count() !== count($request->bill_ids)) {
+                // Check if some bills are pending
+                $pendingBills = Bill::whereIn('bill_id', $request->bill_ids)
+                    ->whereHas('waterUsage', function ($query) use ($customer) {
+                        $query->where('customer_id', $customer->customer_id);
+                    })
+                    ->where('status', 'pending')
+                    ->count();
+                
+                if ($pendingBills > 0) {
+                    return redirect()->back()->with('error', 'Beberapa tagihan sedang dalam proses pembayaran. Mohon tunggu konfirmasi atau cek kembali dalam beberapa saat.');
+                }
+                
                 return redirect()->back()->with('error', 'Beberapa tagihan tidak valid atau sudah dibayar.');
             }
 
             DB::beginTransaction();
 
             // Calculate bundle total amount with corrected fees
-            // For bundle payment: accumulative maintenance fee, single admin fee  
+            // For bundle payment: accumulative maintenance fee, accumulative admin fee  
             $totalWaterCharge = $bills->sum('water_charge');
             $totalMaintenanceFee = $bills->sum('maintenance_fee'); // Accumulative
-            $singleAdminFee = $bills->isNotEmpty() ? $bills->first()->admin_fee : 0; // Single fee
+            $totalAdminFee = $bills->sum('admin_fee'); // Accumulative
             
-            $correctedTotalAmount = $totalWaterCharge + $singleAdminFee + $totalMaintenanceFee;
+            $correctedTotalAmount = $totalWaterCharge + $totalAdminFee + $totalMaintenanceFee;
 
             // Create bundle payment with corrected total
             $bundlePayment = BundlePayment::create([
@@ -255,12 +279,12 @@ class BundlePaymentController extends Controller
                 ];
             }
             
-            // Add single admin fee
-            if ($bundlePayment->bills->isNotEmpty()) {
-                $adminFee = $bundlePayment->bills->first()->admin_fee;
+            // Add accumulative admin fee
+            $totalAdminFee = $bundlePayment->bills->sum('admin_fee');
+            if ($totalAdminFee > 0) {
                 $correctedOrderItems[] = [
-                    'name' => "Biaya Admin (Bundle)",
-                    'price' => $adminFee,
+                    'name' => "Biaya Admin (Total)",
+                    'price' => $totalAdminFee,
                     'quantity' => 1,
                 ];
             }
@@ -404,6 +428,13 @@ class BundlePaymentController extends Controller
         ]);
 
         if ($validator->fails()) {
+            if ($request->ajax() || $request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Data tidak valid: ' . $validator->errors()->first()
+                ], 400);
+            }
+            
             return redirect()->back()
                 ->withErrors($validator)
                 ->withInput()
@@ -420,16 +451,41 @@ class BundlePaymentController extends Controller
                 ->whereHas('waterUsage', function ($query) use ($customer) {
                     $query->where('customer_id', $customer->customer_id);
                 })
-                ->where('status', '!=', 'paid')
+                ->whereIn('status', ['unpaid', 'overdue']) // Exclude pending bills
                 ->with(['waterUsage.billingPeriod'])
                 ->get();
 
             if ($bills->isEmpty()) {
+                if ($request->ajax() || $request->wantsJson()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Tidak ada tagihan yang valid untuk dibayar.'
+                    ], 400);
+                }
                 return redirect()->back()->with('error', 'Tidak ada tagihan yang valid untuk dibayar.');
             }
 
             if ($bills->count() !== count($request->bill_ids)) {
-                return redirect()->back()->with('error', 'Beberapa tagihan tidak valid atau sudah dibayar.');
+                // Check if some bills are pending
+                $pendingBills = Bill::whereIn('bill_id', $request->bill_ids)
+                    ->whereHas('waterUsage', function ($query) use ($customer) {
+                        $query->where('customer_id', $customer->customer_id);
+                    })
+                    ->where('status', 'pending')
+                    ->count();
+                
+                $errorMessage = $pendingBills > 0 
+                    ? 'Beberapa tagihan sedang dalam proses pembayaran. Mohon tunggu konfirmasi atau cek kembali dalam beberapa saat.'
+                    : 'Beberapa tagihan tidak valid atau sudah dibayar.';
+                
+                if ($request->ajax() || $request->wantsJson()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => $errorMessage
+                    ], 400);
+                }
+                
+                return redirect()->back()->with('error', $errorMessage);
             }
 
             DB::beginTransaction();
@@ -437,9 +493,9 @@ class BundlePaymentController extends Controller
             // Calculate bundle total amount with corrected fees
             $totalWaterCharge = $bills->sum('water_charge');
             $totalMaintenanceFee = $bills->sum('maintenance_fee'); // Accumulative
-            $singleAdminFee = $bills->isNotEmpty() ? $bills->first()->admin_fee : 0; // Single fee
+            $totalAdminFee = $bills->sum('admin_fee'); // Accumulative
             
-            $correctedTotalAmount = $totalWaterCharge + $singleAdminFee + $totalMaintenanceFee;
+            $correctedTotalAmount = $totalWaterCharge + $totalAdminFee + $totalMaintenanceFee;
 
             // Create bundle payment with corrected total
             $bundlePayment = BundlePayment::create([
@@ -478,12 +534,12 @@ class BundlePaymentController extends Controller
                 ];
             }
             
-            // Add single admin fee
-            if ($bills->isNotEmpty()) {
-                $adminFee = $bills->first()->admin_fee;
+            // Add accumulative admin fee
+            $totalAdminFee = $bills->sum('admin_fee');
+            if ($totalAdminFee > 0) {
                 $correctedOrderItems[] = [
-                    'name' => "Biaya Admin (Bundle)",
-                    'price' => $adminFee,
+                    'name' => "Biaya Admin (Total)",
+                    'price' => $totalAdminFee,
                     'quantity' => 1,
                 ];
             }
@@ -522,13 +578,22 @@ class BundlePaymentController extends Controller
 
                 DB::commit();
 
+                // Check if it's an AJAX request
+                if ($request->ajax() || $request->wantsJson()) {
+                    return response()->json([
+                        'success' => true,
+                        'checkout_url' => $tripayResponse['data']['checkout_url']
+                    ]);
+                }
+
                 // Redirect to Tripay checkout
                 return redirect()->away($tripayResponse['data']['checkout_url']);
             } else {
                 DB::rollBack();
-                return redirect()->back()
-                    ->with('error', 'Gagal membuat pembayaran: ' . $tripayResponse['message'])
-                    ->withInput();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Gagal membuat pembayaran: ' . $tripayResponse['message']
+                ], 400);
             }
 
         } catch (\Exception $e) {
@@ -539,9 +604,10 @@ class BundlePaymentController extends Controller
                 'error' => $e->getMessage()
             ]);
 
-            return redirect()->back()
-                ->with('error', 'Gagal memproses pembayaran. Silakan coba lagi.')
-                ->withInput();
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal memproses pembayaran. Silakan coba lagi.'
+            ], 500);
         }
     }
 
