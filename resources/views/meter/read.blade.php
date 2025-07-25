@@ -144,35 +144,23 @@
                                 </div>
 
                                 
-                                <!-- Instructions overlay -->
-                                <div class="absolute top-2 left-2 right-2 bg-black bg-opacity-75 text-white p-3 rounded-lg text-sm">
-                                    <div class="flex items-center justify-between">
-                                        <div class="flex items-center space-x-2">
-                                            <i class="fas fa-grip-horizontal text-orange-400"></i>
-                                            <span id="boxes-instruction">Align each meter digit with individual grid boxes</span>
-                                        </div>
-                                        <div class="flex items-center space-x-1 text-xs">
-                                            <i class="fas fa-camera text-blue-400"></i>
-                                            <span class="text-blue-400">GRID MODE</span>
-                                        </div>
-                                    </div>
-                                    <div class="mt-2 text-xs text-gray-300">
-                                        🔢 Green boxes: Black digits (0815) | Red boxes: Red digits (313) | 📸 Capture when aligned
-                                    </div>
-                                </div>
                                 
-                                <!-- Capture Button -->
-                                <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-50" style="pointer-events: auto;">
-                                    <button id="manual-capture-btn" 
-                                            class="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 cursor-pointer"
-                                            style="pointer-events: auto; z-index: 1000; position: relative;"
-                                            onclick="manualCapture(); console.log('Direct onclick fired');">
-                                        <i class="fas fa-camera mr-2"></i>CAPTURE
-                                    </button>
-                                </div>
                             </div>
                             
                             <img id="captured-photo" class="w-full h-full object-cover hidden">
+                        </div>
+                        
+                        <!-- Status Display (Outside Camera View) -->
+                        <div class="mt-2 text-center">
+                            <div id="boxes-instruction" class="text-sm text-gray-600 mb-2">🔍 Aligning digits in boxes</div>
+                        </div>
+                        
+                        <!-- Manual Capture Button (Outside Camera View) -->
+                        <div class="text-center">
+                            <button id="manual-capture-btn" 
+                                    class="bg-blue-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-blue-700 shadow-lg">
+                                <i class="fas fa-camera mr-2"></i>MANUAL CAPTURE
+                            </button>
                         </div>
 
                         <!-- Testing Info -->
