@@ -57,6 +57,10 @@ class DatabaseSeeder extends Seeder
         $this->call(PaymentSeeder::class);
         $this->validateStep('payments', 300);
 
+        // 9. Create bundle bills for customers with multiple bills
+        $this->command->info('9️⃣ Creating bundle bills...');
+        $this->createBundleBills();
+
         $this->command->info('✅ Database seeding completed successfully!');
         $this->command->info('');
 
@@ -148,6 +152,7 @@ class DatabaseSeeder extends Seeder
         $usages = \App\Models\WaterUsage::count();
         $bills = \App\Models\Bill::count();
         $payments = \App\Models\Payment::count();
+        $bundleBills = \App\Models\Bill::bundles()->count();
         $tariffs = \App\Models\WaterTariff::count();
 
         $this->command->info("Villages: {$villages}");
@@ -158,6 +163,7 @@ class DatabaseSeeder extends Seeder
         $this->command->info("Water Usages: {$usages}");
         $this->command->info("Bills: {$bills}");
         $this->command->info("Payments: {$payments}");
+        $this->command->info("Bundle Bills: {$bundleBills}");
         $this->command->info('');
 
         // Show tariff validation summary
@@ -228,5 +234,83 @@ class DatabaseSeeder extends Seeder
         $this->command->info('');
         $this->command->info('💡 Quick Test: Try different usage amounts in bill calculations');
         $this->command->info('   to see how the multi-tier tariff system works!');
+    }
+
+    private function createBundleBills(): void
+    {
+        $villages = \App\Models\Village::where('is_active', true)->get();
+        $totalBundleBills = 0;
+
+        foreach ($villages as $village) {
+            $this->command->info("Creating bundle bills for village: {$village->name}");
+
+            // Get customers with multiple unpaid bills
+            $customersWithMultipleBills = \App\Models\Customer::where('village_id', $village->id)
+                ->whereHas('bills', function ($query) {
+                    $query->where('status', 'unpaid')
+                        ->where('bill_count', 1); // Only single bills
+                }, '>=', 2)
+                ->with(['bills' => function ($query) {
+                    $query->where('status', 'unpaid')
+                        ->where('bill_count', 1)
+                        ->orderBy('due_date', 'asc');
+                }])
+                ->get()
+                ->filter(function ($customer) {
+                    return $customer->bills->where('status', 'unpaid')->where('bill_count', 1)->count() >= 2;
+                });
+
+            if ($customersWithMultipleBills->isEmpty()) {
+                $this->command->warn("No customers with multiple unpaid bills found for {$village->name}. Skipping...");
+                continue;
+            }
+
+            $villageBundleBills = 0;
+            $bundleCount = max(1, (int)($customersWithMultipleBills->count() * 0.3));
+
+            $customersWithMultipleBills->take($bundleCount)->each(function ($customer) use ($village, &$villageBundleBills) {
+                $unpaidBills = $customer->bills->where('status', 'unpaid')->where('bill_count', 1);
+                $bills = $unpaidBills->shuffle()->take(fake()->numberBetween(2, min(4, $unpaidBills->count())));
+                
+                try {
+                    // Use the new createBundle method
+                    $bundleBill = \App\Models\Bill::create([
+                        'bundle_reference' => \App\Models\Bill::generateBundleReference(),
+                        'customer_id' => $customer->customer_id,
+                        'usage_id' => $bills->first()->usage_id,
+                        'total_amount' => $bills->sum('total_amount'),
+                        'bill_count' => $bills->count(),
+                        'status' => fake()->randomElement(['pending', 'paid', 'expired', 'failed']),
+                        'payment_method' => fake()->randomElement(['cash', 'transfer', 'qris', 'other']),
+                        'collector_id' => \App\Models\User::whereHas('villages', function ($q) use ($village) {
+                            $q->where('village_id', $village->id);
+                        })->where('role', 'collector')->first()?->id,
+                        'expires_at' => now()->addDays(7),
+                        'notes' => fake()->optional(0.3)->sentence(),
+                    ]);
+
+                    // Link the bills to the bundle
+                    foreach ($bills as $bill) {
+                        $bundleBill->bundledBills()->attach($bill->bill_id, [
+                            'original_amount' => $bill->total_amount,
+                        ]);
+                    }
+
+                    // If bundle is paid, mark associated bills as paid
+                    if ($bundleBill->status === 'paid') {
+                        $bundleBill->markAsPaid();
+                    }
+
+                    $villageBundleBills++;
+                } catch (\Exception $e) {
+                    $this->command->warn("Failed to create bundle for customer {$customer->customer_code}: " . $e->getMessage());
+                }
+            });
+
+            $this->command->info("Created {$villageBundleBills} bundle bills for {$village->name}");
+            $totalBundleBills += $villageBundleBills;
+        }
+
+        $this->command->info("Total bundle bills created: {$totalBundleBills}");
     }
 }

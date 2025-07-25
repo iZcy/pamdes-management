@@ -5,6 +5,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\BillResource\Pages;
 use App\Models\Bill;
+use App\Models\Customer;
 use App\Models\User;
 use App\Models\WaterUsage;
 use App\Traits\ExportableResource;
@@ -23,7 +24,7 @@ class BillResource extends Resource
 
     protected static ?string $model = Bill::class;
     protected static ?string $navigationIcon = 'heroicon-o-document-text';
-    protected static ?string $navigationLabel = 'Tagihan';
+    protected static ?string $navigationLabel = 'Tagihan & Bundel';
     protected static ?string $modelLabel = 'Tagihan';
     protected static ?string $pluralModelLabel = 'Tagihan';
     protected static ?int $navigationSort = 4;
@@ -124,7 +125,7 @@ class BillResource extends Resource
                     ->schema([
                         Forms\Components\Placeholder::make('village_info')
                             ->label('Desa')
-                            ->content(function (?Bill $record) {
+                            ->content(function (?Bill $record = null) {
                                 if ($record && $record->waterUsage?->customer?->village) {
                                     return $record->waterUsage->customer->village->name;
                                 }
@@ -352,6 +353,38 @@ class BillResource extends Resource
                     ->label('Jatuh Tempo')
                     ->date()
                     ->sortable(),
+
+                Tables\Columns\TextColumn::make('bundle_info')
+                    ->label('Bundel')
+                    ->badge()
+                    ->color('warning')
+                    ->formatStateUsing(function (?Bill $record = null) {
+                        if (!$record) return null;
+                        
+                        if ($record->is_bundle) {
+                            return "Bundel: {$record->bundle_reference} ({$record->bill_count} tagihan)";
+                        } elseif ($record->parentBundle()->exists()) {
+                            $parentBundle = $record->parentBundle()->first();
+                            return "Bagian dari: {$parentBundle->bundle_reference}";
+                        }
+                        return null;
+                    })
+                    ->visible(fn (?Bill $record = null) => $record && ($record->is_bundle || $record->parentBundle()->exists()))
+                    ->tooltip(function (?Bill $record = null) {
+                        if (!$record) return null;
+                        
+                        if ($record->is_bundle) {
+                            $bundledBills = $record->bundledBills;
+                            return $bundledBills->map(function ($bill) {
+                                $period = $bill->waterUsage?->billingPeriod?->period_name ?? 'Unknown';
+                                return "Periode: {$period} - Rp " . number_format($bill->total_amount);
+                            })->join('\n');
+                        } elseif ($record->parentBundle()->exists()) {
+                            $parent = $record->parentBundle()->first();
+                            return "Bundel: {$parent->bundle_reference} - Total: Rp " . number_format($parent->total_amount);
+                        }
+                        return null;
+                    }),
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('village')
@@ -404,9 +437,10 @@ class BillResource extends Resource
                         ->label('Cetak Kwitansi')
                         ->icon('heroicon-o-printer')
                         ->color('primary')
-                        ->url(fn(Bill $record): string => route('bill.receipt', $record))
+                        ->url(fn(?Bill $record = null): string => $record ? route('bill.receipt', $record) : '#')
                         ->openUrlInNewTab()
-                        ->tooltip('Cetak/Lihat kwitansi tagihan'),
+                        ->tooltip('Cetak/Lihat kwitansi tagihan')
+                        ->visible(fn(?Bill $record = null) => $record !== null),
 
                     // Mark as Paid - only for collectors and above
                     Tables\Actions\Action::make('mark_paid')
@@ -414,8 +448,8 @@ class BillResource extends Resource
                         ->icon('heroicon-o-check-circle')
                         ->color('success')
                         ->visible(
-                            fn(Bill $record): bool =>
-                            $record->canBePaid() && ($isCollector || !$isOperator)
+                            fn(?Bill $record = null): bool =>
+                            $record && $record->canBePaid() && ($isCollector || !$isOperator)
                         )
                         ->form([
                             Forms\Components\DatePicker::make('payment_date')
@@ -439,8 +473,85 @@ class BillResource extends Resource
                                 ->default('cash')
                                 ->required(),
                         ])
-                        ->action(function (Bill $record, array $data) {
-                            $record->markAsPaid($data);
+                        ->action(function (?Bill $record, array $data) {
+                            if ($record) {
+                                $record->markAsPaid($data);
+                            }
+                        }),
+
+                    // Create Bundle Payment - only for collectors and above
+                    Tables\Actions\Action::make('create_bundle')
+                        ->label('Buat Bundel')
+                        ->icon('heroicon-o-banknotes')
+                        ->color('warning')
+                        ->visible(
+                            fn(?Bill $record = null): bool =>
+                            $record && $record->canBePaid() && ($isCollector || !$isOperator)
+                        )
+                        ->form([
+                            Forms\Components\Section::make('Pilih Tagihan untuk Bundel')
+                                ->description('Pilih tagihan lain dari pelanggan yang sama untuk digabung dalam satu pembayaran')
+                                ->schema([
+                                    Forms\Components\CheckboxList::make('selected_bills')
+                                        ->label('Tagihan Tersedia')
+                                        ->options(function (?Bill $record = null) {
+                                            if (!$record) return [];
+                                            
+                                            $customerId = $record->waterUsage?->customer_id ?? $record->customer_id;
+                                            if (!$customerId) return [];
+                                            
+                                            return Bill::where('customer_id', $customerId)
+                                            ->where('status', 'unpaid')
+                                            ->where('bill_id', '!=', $record->bill_id)
+                                            ->where('bill_count', 1) // Only single bills can be bundled
+                                            ->get()
+                                            ->mapWithKeys(function ($bill) {
+                                                $period = $bill->waterUsage?->billingPeriod?->period_name ?? 'Unknown';
+                                                return [
+                                                    $bill->bill_id => "Periode: {$period} - Rp " . number_format($bill->total_amount)
+                                                ];
+                                            });
+                                        })
+                                        ->required()
+                                        ->columns(1),
+
+                                    Forms\Components\Select::make('payment_method')
+                                        ->label('Metode Pembayaran')
+                                        ->options([
+                                            'cash' => 'Tunai',
+                                            'transfer' => 'Transfer Bank',
+                                            'qris' => 'QRIS',
+                                            'other' => 'Lainnya',
+                                        ])
+                                        ->default('cash')
+                                        ->required(),
+
+                                    Forms\Components\Textarea::make('notes')
+                                        ->label('Catatan')
+                                        ->placeholder('Catatan tambahan untuk bundel pembayaran (opsional)')
+                                        ->maxLength(500),
+                                ])
+                        ])
+                        ->action(function (?Bill $record, array $data) {
+                            if (!$record) return;
+                            
+                            $selectedBills = collect($data['selected_bills']);
+                            $selectedBills->push($record->bill_id);
+                            
+                            $bills = Bill::whereIn('bill_id', $selectedBills)->get();
+                            
+                            // Use the new unified system to create bundle
+                            $bundleBill = $record->createBundle($selectedBills->toArray(), [
+                                'payment_method' => $data['payment_method'],
+                                'collector_id' => auth()->user()->isCollector() ? auth()->id() : null,
+                                'notes' => $data['notes'] ?? null,
+                            ]);
+                            
+                            \Filament\Notifications\Notification::make()
+                                ->title('Bundel pembayaran berhasil dibuat')
+                                ->body("Bundel {$bundleBill->bundle_reference} dengan {$bills->count()} tagihan senilai Rp " . number_format($bundleBill->total_amount))
+                                ->success()
+                                ->send();
                         }),
                 ])
             ])
@@ -462,6 +573,75 @@ class BillResource extends Resource
                         ->action(function ($records) {
                             $urls = $records->map(fn(Bill $bill) => route('bill.receipt', $bill))->toArray();
                             return redirect()->back()->with('openUrls', $urls);
+                        })
+                        ->deselectRecordsAfterCompletion(),
+
+                    // Create Bundle Payment from selected bills - for collectors and above
+                    Tables\Actions\BulkAction::make('create_bundle_bulk')
+                        ->label('Buat Bundel dari Terpilih')
+                        ->icon('heroicon-o-banknotes')
+                        ->color('warning')
+                        ->visible(fn() => $isCollector || !$isOperator)
+                        ->requiresConfirmation()
+                        ->modalHeading('Buat Bundel dari Tagihan Terpilih')
+                        ->modalDescription('Tagihan harus dari pelanggan yang sama untuk dapat dibundel')
+                        ->form([
+                            Forms\Components\Select::make('payment_method')
+                                ->label('Metode Pembayaran')
+                                ->options([
+                                    'cash' => 'Tunai',
+                                    'transfer' => 'Transfer Bank',
+                                    'qris' => 'QRIS',
+                                    'other' => 'Lainnya',
+                                ])
+                                ->default('cash')
+                                ->required(),
+                            Forms\Components\Textarea::make('notes')
+                                ->label('Catatan')
+                                ->placeholder('Catatan tambahan untuk bundel pembayaran (opsional)')
+                                ->maxLength(500),
+                        ])
+                        ->action(function ($records, array $data) {
+                            // Group bills by customer
+                            $billsByCustomer = $records->groupBy(function($bill) {
+                                return $bill->waterUsage?->customer_id ?? $bill->customer_id;
+                            });
+
+                            $bundlesCreated = 0;
+                            foreach ($billsByCustomer as $customerId => $bills) {
+                                if ($bills->count() < 2) continue; // Skip single bills
+                                
+                                try {
+                                    $firstBill = $bills->first();
+                                    $billIds = $bills->pluck('bill_id')->toArray();
+                                    
+                                    // Use the new unified system to create bundle
+                                    $bundleBill = $firstBill->createBundle($billIds, [
+                                        'payment_method' => $data['payment_method'],
+                                        'collector_id' => auth()->user()->isCollector() ? auth()->id() : null,
+                                        'notes' => $data['notes'] ?? null,
+                                    ]);
+                                    
+                                    $bundlesCreated++;
+                                } catch (\Exception $e) {
+                                    // Skip if bundle creation fails
+                                    continue;
+                                }
+                            }
+                            
+                            if ($bundlesCreated > 0) {
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Bundel berhasil dibuat')
+                                    ->body("Berhasil membuat {$bundlesCreated} bundel pembayaran")
+                                    ->success()
+                                    ->send();
+                            } else {
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Tidak ada bundel yang dibuat')
+                                    ->body('Pastikan memilih minimal 2 tagihan dari pelanggan yang sama')
+                                    ->warning()
+                                    ->send();
+                            }
                         })
                         ->deselectRecordsAfterCompletion(),
 

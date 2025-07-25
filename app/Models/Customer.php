@@ -41,6 +41,7 @@ class Customer extends Model
         return $this->hasMany(WaterUsage::class, 'customer_id', 'customer_id');
     }
 
+    // Bills relationship through water usages (original bills)
     public function bills(): HasManyThrough
     {
         return $this->hasManyThrough(
@@ -53,6 +54,12 @@ class Customer extends Model
         );
     }
 
+    // Direct bills relationship (includes bundle bills)
+    public function allBills(): HasMany
+    {
+        return $this->hasMany(Bill::class, 'customer_id', 'customer_id');
+    }
+
     public function payments(): HasMany
     {
         return $this->hasManyThrough(
@@ -63,11 +70,6 @@ class Customer extends Model
             'customer_id',
             'bill_id'
         )->through('waterUsages');
-    }
-
-    public function bundlePayments(): HasMany
-    {
-        return $this->hasMany(BundlePayment::class, 'customer_id', 'customer_id');
     }
 
     // Scopes

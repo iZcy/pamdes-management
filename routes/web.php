@@ -292,6 +292,18 @@ Route::prefix('tripay')->group(function () {
         ->name('tripay.return');
 });
 
+// Operator meter reading routes (separate from auth middleware group)
+Route::middleware([App\Http\Middleware\RequireOperator::class])->prefix('admin/meter')->group(function () {
+    Route::get('/read', [App\Http\Controllers\MeterReadingController::class, 'index'])
+        ->name('meter.read');
+    Route::post('/read/submit', [App\Http\Controllers\MeterReadingController::class, 'submit'])
+        ->name('meter.read.submit');
+    Route::post('/verify-customer', [App\Http\Controllers\MeterReadingController::class, 'verifyCustomer'])
+        ->name('meter.verify.customer');
+    Route::post('/ocr', [App\Http\Controllers\MeterReadingController::class, 'processOCR'])
+        ->name('meter.ocr');
+});
+
 // Admin routes (protected by auth)
 Route::middleware(['auth'])->prefix('admin')->group(function () {
     // Payment receipt (existing)

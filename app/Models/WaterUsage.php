@@ -106,6 +106,8 @@ class WaterUsage extends Model
         $totalAmount = $waterCharge + $adminFee + $maintenanceFee;
 
         return Bill::create([
+            'bundle_reference' => Bill::generateBundleReference(),
+            'customer_id' => $this->customer_id,
             'usage_id' => $this->usage_id,
             'tariff_id' => null,
             'water_charge' => $waterCharge,

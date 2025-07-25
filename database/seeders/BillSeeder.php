@@ -95,6 +95,8 @@ class BillSeeder extends Seeder
                         ->first();
 
                     Bill::create([
+                        'bundle_reference' => \App\Models\Bill::generateBundleReference(),
+                        'customer_id' => $usage->customer_id,
                         'usage_id' => $usage->usage_id,
                         'tariff_id' => $tariff?->tariff_id, // Link to specific tariff used
                         'water_charge' => $waterCharge,
