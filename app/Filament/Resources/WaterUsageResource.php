@@ -443,45 +443,49 @@ class WaterUsageResource extends Resource
                             ->default(now())
                             ->helperText('Tanggal pembacaan meter dilakukan'),
 
-                        Forms\Components\Select::make('reader_id')
-                            ->label('Petugas Baca')
-                            ->options(function (Forms\Get $get) use ($currentVillageId, $user) {
-                                // For super admin, use selected village_id from form
-                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : $currentVillageId;
-                                
-                                if (!$villageId) {
-                                    return [];
-                                }
+                        // Reader field - read-only for operators, editable for admins
+                        $user?->role === 'operator' 
+                            ? Forms\Components\Placeholder::make('reader_info')
+                                ->label('Petugas Baca')
+                                ->content($user->name . ' (' . $user->display_role . ')')
+                                ->helperText('Anda otomatis menjadi petugas baca untuk pembacaan ini')
+                            : Forms\Components\Select::make('reader_id')
+                                ->label('Petugas Baca')
+                                ->options(function (Forms\Get $get) use ($currentVillageId, $user) {
+                                    // For super admin, use selected village_id from form
+                                    $villageId = $user?->isSuperAdmin() ? $get('village_id') : $currentVillageId;
+                                    
+                                    if (!$villageId) {
+                                        return [];
+                                    }
 
-                                // Get users who can read meters (ONLY operators)
-                                return User::whereHas('villages', function ($q) use ($villageId) {
-                                    $q->where('villages.id', $villageId);
+                                    // Get users who can read meters (ONLY operators)
+                                    return User::whereHas('villages', function ($q) use ($villageId) {
+                                        $q->where('villages.id', $villageId);
+                                    })
+                                        ->where('role', 'operator')
+                                        ->where('is_active', true)
+                                        ->orderBy('name')
+                                        ->get()
+                                        ->mapWithKeys(function ($reader) {
+                                            return [
+                                                $reader->id => $reader->name . ' (' . $reader->display_role . ')'
+                                            ];
+                                        });
                                 })
-                                    ->where('role', 'operator')
-                                    ->where('is_active', true)
-                                    ->orderBy('name')
-                                    ->get()
-                                    ->mapWithKeys(function ($reader) {
-                                        return [
-                                            $reader->id => $reader->name . ' (' . $reader->display_role . ')'
-                                        ];
-                                    });
+                                ->searchable()
+                                ->required()
+                                ->helperText(function (Forms\Get $get) use ($currentVillageId, $user) {
+                                    $villageId = $user?->isSuperAdmin() ? $get('village_id') : $currentVillageId;
+                                    return $villageId ? 'Pilih petugas yang melakukan pembacaan meter' : ($user?->isSuperAdmin() ? 'Pilih desa terlebih dahulu' : 'Tidak ada operator yang tersedia');
+                                }),
+
+                        // Hidden field to store reader_id for operators
+                        Forms\Components\Hidden::make('reader_id')
+                            ->default(function () use ($user) {
+                                return $user?->role === 'operator' ? $user->id : null;
                             })
-                            ->searchable()
-                            ->default(function (Forms\Get $get) use ($currentVillageId, $user) {
-                                // For super admin, use selected village_id from form
-                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : $currentVillageId;
-                                
-                                // Auto-select current user if they are an operator
-                                if ($user && $villageId && $user->role === 'operator') {
-                                    return $user->id;
-                                }
-                                return null;
-                            })
-                            ->helperText(function (Forms\Get $get) use ($currentVillageId, $user) {
-                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : $currentVillageId;
-                                return $villageId ? 'Pilih petugas yang melakukan pembacaan meter' : ($user?->isSuperAdmin() ? 'Pilih desa terlebih dahulu' : 'Tidak ada operator yang tersedia');
-                            }),
+                            ->visible($user?->role === 'operator'),
 
                         Forms\Components\Textarea::make('notes')
                             ->label('Catatan')
