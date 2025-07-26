@@ -7,6 +7,10 @@ use Filament\Actions;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
 
+/**
+ * DISABLED: Bills should only be generated from water usage, not created manually
+ * This page is kept for backward compatibility but not accessible through routes
+ */
 class CreateBill extends CreateRecord
 {
     protected static string $resource = BillResource::class;
@@ -18,8 +22,8 @@ class CreateBill extends CreateRecord
 
         if ($existingBill) {
             Notification::make()
-                ->title('Error')
-                ->body('A bill for this water usage record already exists.')
+                ->title('Kesalahan')
+                ->body('Tagihan untuk data pembacaan meter ini sudah ada.')
                 ->danger()
                 ->send();
 

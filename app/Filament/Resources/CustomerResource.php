@@ -90,17 +90,6 @@ class CustomerResource extends Resource
         // For village users (admin, collector, operator), try multiple approaches
         $villageId = $user->getCurrentVillageContext();
 
-        // Log for debugging
-        Log::info("Getting village context for user", [
-            'user_id' => $user->id,
-            'role' => $user->role,
-            'village_context' => $villageId,
-            'config_village_id' => config('pamdes.current_village_id'),
-            'tenant' => config('pamdes.tenant'),
-            'user_villages' => $user->villages->pluck('id', 'name')->toArray(),
-            'primary_village' => $user->getPrimaryVillageId(),
-        ]);
-
         // If still no village, try direct fallbacks
         if (!$villageId) {
             // Try config directly
@@ -120,15 +109,11 @@ class CustomerResource extends Resource
 
         // Verify user has access to this village
         if ($villageId && !$user->hasAccessToVillage($villageId)) {
-            Log::warning("User does not have access to village", [
-                'user_id' => $user->id,
-                'village_id' => $villageId,
-            ]);
-
             // Fall back to first accessible village
             $firstVillage = $user->getAccessibleVillages()->first();
             $villageId = $firstVillage?->id;
         }
+
 
         return $villageId;
     }
@@ -167,7 +152,12 @@ class CustomerResource extends Resource
         } else {
             // For village admin, collector, and operator - only show customers from their accessible villages
             $accessibleVillages = $user?->getAccessibleVillages()->pluck('id') ?? collect();
-            $query->whereIn('village_id', $accessibleVillages);
+            if ($accessibleVillages->isNotEmpty()) {
+                $query->whereIn('village_id', $accessibleVillages);
+            } else {
+                // If no accessible villages, return empty result
+                $query->whereRaw('1 = 0');
+            }
         }
 
         return $query;
@@ -181,14 +171,6 @@ class CustomerResource extends Resource
         $villageName = static::getVillageName($currentVillageId);
         $isCollector = $user?->isCollector();
 
-        // Debug logging
-        Log::info("CustomerResource form - Village context", [
-            'user_id' => $user?->id,
-            'role' => $user?->role,
-            'current_village_id' => $currentVillageId,
-            'village_name' => $villageName,
-            'is_collector' => $isCollector,
-        ]);
 
         // Collectors get a read-only view
         if ($isCollector) {
@@ -268,7 +250,6 @@ class CustomerResource extends Resource
                                 $firstVillage = $user?->getAccessibleVillages()->first();
                                 return $firstVillage?->id;
                             })
-                            ->required()
                             ->visible(fn() => !$user?->isSuperAdmin()),
 
                         Forms\Components\TextInput::make('customer_code')

@@ -107,14 +107,14 @@ class ReportService
 
     protected function getPaymentStats(string $villageId, array $dateRange): array
     {
-        $payments = Payment::whereHas('bill.waterUsage.customer', function ($q) use ($villageId) {
+        $payments = Payment::whereHas('bills.customer', function ($q) use ($villageId) {
             $q->where('village_id', $villageId);
         })->whereBetween('payment_date', [$dateRange['start'], $dateRange['end']]);
 
         return [
             'total_payments' => $payments->count(),
-            'total_amount' => $payments->sum('amount_paid'),
-            'by_method' => $payments->selectRaw('payment_method, COUNT(*) as count, SUM(amount_paid) as total')
+            'total_amount' => $payments->sum('total_amount'),
+            'by_method' => $payments->selectRaw('payment_method, COUNT(*) as count, SUM(total_amount) as total')
                 ->groupBy('payment_method')
                 ->get()
                 ->keyBy('payment_method')
@@ -124,9 +124,9 @@ class ReportService
 
     protected function getFinancialSummary(string $villageId, array $dateRange): array
     {
-        $revenue = Payment::whereHas('bill.waterUsage.customer', function ($q) use ($villageId) {
+        $revenue = Payment::whereHas('bills.customer', function ($q) use ($villageId) {
             $q->where('village_id', $villageId);
-        })->whereBetween('payment_date', [$dateRange['start'], $dateRange['end']])->sum('amount_paid');
+        })->whereBetween('payment_date', [$dateRange['start'], $dateRange['end']])->sum('total_amount');
 
         $outstanding = Bill::whereHas('waterUsage.customer', function ($q) use ($villageId) {
             $q->where('village_id', $villageId);

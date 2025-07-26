@@ -7,6 +7,10 @@ use Filament\Actions;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
 
+/**
+ * DISABLED: Payments should only be made through bill pay actions, not created manually
+ * This page is kept for backward compatibility but not accessible through routes
+ */
 class CreatePayment extends CreateRecord
 {
     protected static string $resource = PaymentResource::class;

@@ -168,9 +168,14 @@ class WaterUsageResource extends Resource
             });
         } elseif ($user?->isVillageAdmin() || $user?->isCollector() || $user?->role === 'operator') {
             $accessibleVillages = $user->getAccessibleVillages()->pluck('id');
-            $query->whereHas('customer', function ($q) use ($accessibleVillages) {
-                $q->whereIn('village_id', $accessibleVillages);
-            });
+            if ($accessibleVillages->isNotEmpty()) {
+                $query->whereHas('customer', function ($q) use ($accessibleVillages) {
+                    $q->whereIn('village_id', $accessibleVillages);
+                });
+            } else {
+                // If no accessible villages, return empty result
+                $query->whereRaw('1 = 0');
+            }
         }
 
         return $query;
@@ -281,6 +286,23 @@ class WaterUsageResource extends Resource
                                 ->label('Desa')
                                 ->content($villageName)
                                 ->columnSpanFull(),
+
+                        Forms\Components\Hidden::make('village_id')
+                            ->default(function () use ($currentVillageId, $user) {
+                                if ($user?->isSuperAdmin()) {
+                                    return null; // Super admin selects manually
+                                }
+
+                                // For other roles, use current village context or fallback
+                                if ($currentVillageId) {
+                                    return $currentVillageId;
+                                }
+
+                                // Fallback to first accessible village for village admin/operator
+                                $firstVillage = $user?->getAccessibleVillages()->first();
+                                return $firstVillage?->id;
+                            })
+                            ->visible(fn() => !$user?->isSuperAdmin()),
 
                         Forms\Components\Select::make('customer_id')
                             ->label('Pelanggan')
@@ -399,13 +421,51 @@ class WaterUsageResource extends Resource
                                     return 0;
                                 })
                                 ->live()
+                                ->disabled(function (Forms\Get $get) use ($currentVillageId, $user) {
+                                    $customerId = $get('customer_id');
+                                    $periodId = $get('period_id');
+                                    // For super admin, use selected village_id from form
+                                    $villageId = $user?->isSuperAdmin() ? $get('village_id') : $currentVillageId;
+                                    
+                                    if ($customerId && $periodId && $villageId) {
+                                        $previousFinalMeter = WaterUsage::getPreviousMonthFinalMeter(
+                                            $customerId, 
+                                            $periodId, 
+                                            $villageId
+                                        );
+                                        
+                                        // Disable if previous meter exists (not null)
+                                        return $previousFinalMeter !== null;
+                                    }
+                                    
+                                    return false;
+                                })
                                 ->afterStateUpdated(function (Forms\Set $set, $state, Forms\Get $get) {
                                     $final = $get('final_meter') ?? 0;
                                     $initial = $state ?? 0;
                                     $usage = max(0, $final - $initial);
                                     $set('total_usage_m3', $usage);
                                 })
-                                ->helperText('Angka meter pada awal periode (otomatis diisi dari meter akhir bulan sebelumnya)'),
+                                ->helperText(function (Forms\Get $get) use ($currentVillageId, $user) {
+                                    $customerId = $get('customer_id');
+                                    $periodId = $get('period_id');
+                                    // For super admin, use selected village_id from form
+                                    $villageId = $user?->isSuperAdmin() ? $get('village_id') : $currentVillageId;
+                                    
+                                    if ($customerId && $periodId && $villageId) {
+                                        $previousFinalMeter = WaterUsage::getPreviousMonthFinalMeter(
+                                            $customerId, 
+                                            $periodId, 
+                                            $villageId
+                                        );
+                                        
+                                        if ($previousFinalMeter !== null) {
+                                            return 'Meter awal otomatis diisi dari meter akhir bulan sebelumnya (' . number_format($previousFinalMeter) . ') dan tidak dapat diubah';
+                                        }
+                                    }
+                                    
+                                    return 'Angka meter pada awal periode (dapat diubah jika tidak ada data bulan sebelumnya)';
+                                }),
 
                             Forms\Components\TextInput::make('final_meter')
                                 ->label('Meter Akhir')

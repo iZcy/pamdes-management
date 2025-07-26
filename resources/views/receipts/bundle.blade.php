@@ -260,8 +260,8 @@
   {{-- Document Number --}}
   <div class="document-info">
     <span class="bundle-badge">BUNDLE {{ $bundlePayment->bill_count }} TAGIHAN</span>
-    <p>No. KWT-BDL-{{ $bundlePayment->bundle_reference }}</p>
-    <p>Tanggal: {{ $bundlePayment->paid_at ? $bundlePayment->paid_at->format('d/m/Y') : now()->format('d/m/Y') }}</p>
+    <p>No. KWT-BDL-{{ $bundlePayment->transaction_ref }}</p>
+    <p>Tanggal: {{ $bundlePayment->payment_date ? \Carbon\Carbon::parse($bundlePayment->payment_date)->format('d/m/Y') : now()->format('d/m/Y') }}</p>
   </div>
 
   {{-- Customer Information --}}
@@ -293,7 +293,7 @@
       <h4>INFORMASI BUNDLE PEMBAYARAN</h4>
       <div class="row">
         <span class="label">Referensi Bundle:</span>
-        <span class="value">{{ $bundlePayment->bundle_reference }}</span>
+        <span class="value">{{ $bundlePayment->transaction_ref }}</span>
       </div>
       <div class="row">
         <span class="label">Jumlah Tagihan:</span>
@@ -301,14 +301,9 @@
       </div>
       <div class="row">
         <span class="label">Tanggal Pembayaran:</span>
-        <span class="value">{{ $bundlePayment->paid_at ? $bundlePayment->paid_at->format('d/m/Y H:i') : '-' }}</span>
+        <span class="value">{{ $bundlePayment->payment_date ? \Carbon\Carbon::parse($bundlePayment->payment_date)->format('d/m/Y H:i') : '-' }}</span>
       </div>
-      @if ($bundlePayment->payment_reference)
-        <div class="row">
-          <span class="label">Referensi Payment:</span>
-          <span class="value">{{ $bundlePayment->payment_reference }}</span>
-        </div>
-      @endif
+      {{-- Payment reference not used in new structure --}}
     </div>
 
     {{-- Bundle Items --}}
@@ -356,14 +351,12 @@
     {{-- Status Section --}}
     <div class="status-section status-paid">
       <h4 style="margin: 0 0 5px 0;">STATUS: LUNAS</h4>
-      @if ($bundlePayment->paid_at)
-        <p style="margin: 0;">Dibayar pada: {{ $bundlePayment->paid_at->format('d/m/Y H:i') }}</p>
+      @if ($bundlePayment->payment_date)
+        <p style="margin: 0;">Dibayar pada: {{ \Carbon\Carbon::parse($bundlePayment->payment_date)->format('d/m/Y H:i') }}</p>
       @endif
       <p style="margin: 0; font-size: 10px;">
         Metode: QRIS
-        @if ($bundlePayment->payment_reference)
-          | Ref: {{ $bundlePayment->payment_reference }}
-        @endif
+        {{-- Payment reference not available in new structure --}}
       </p>
     </div>
 
@@ -372,7 +365,7 @@
       <h4 style="margin: 0 0 8px 0;">INFORMASI PEMBAYARAN</h4>
       <div class="row">
         <span class="label">Tanggal Bayar:</span>
-        <span class="value">{{ $bundlePayment->paid_at ? $bundlePayment->paid_at->format('d/m/Y H:i') : '-' }}</span>
+        <span class="value">{{ $bundlePayment->payment_date ? \Carbon\Carbon::parse($bundlePayment->payment_date)->format('d/m/Y H:i') : '-' }}</span>
       </div>
       <div class="row">
         <span class="label">Jumlah Bayar:</span>
@@ -382,12 +375,7 @@
         <span class="label">Metode Bayar:</span>
         <span class="value">QRIS (Payment Gateway)</span>
       </div>
-      @if ($bundlePayment->payment_reference)
-        <div class="row">
-          <span class="label">Referensi Tripay:</span>
-          <span class="value">{{ $bundlePayment->payment_reference }}</span>
-        </div>
-      @endif
+      {{-- Tripay payment reference not available in new structure --}}
     </div>
 
     {{-- Period Coverage --}}

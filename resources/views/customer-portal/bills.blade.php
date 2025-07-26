@@ -259,12 +259,13 @@
       </div>
 
       @php
-        // Separate bills into pending and payable
-        $pendingBills = $bills->where('status', 'pending');
-        $payableBills = $bills->whereIn('status', ['unpaid', 'overdue']);
+        // Bills are now already separated:
+        // $bills = unpaid/overdue bills (for selection)
+        // $pendingBills = pending bills (for continue/status)
+        $payableBills = $bills; // All bills in $bills are now payable
       @endphp
 
-      @if ($pendingBills->count() > 0)
+      @if ($pendingBills->count() > 0 || (isset($pendingBundles) && $pendingBundles->count() > 0))
         <!-- Pending Transactions Section -->
         <div class="card-gradient rounded-2xl shadow-xl overflow-hidden mb-8 animate-slide-up">
           <!-- Header -->
@@ -277,14 +278,17 @@
                   </svg>
                   Transaksi Sedang Diproses
                 </h3>
-                <p class="text-purple-100">{{ $pendingBills->count() }} pembayaran menunggu konfirmasi</p>
+                @php
+                  $totalPendingTransactions = $pendingBills->count() + (isset($pendingBundles) ? $pendingBundles->count() : 0);
+                @endphp
+                <p class="text-purple-100">{{ $totalPendingTransactions }} pembayaran menunggu konfirmasi</p>
               </div>
               @php
-                $totalPending = $pendingBills->sum('total_amount');
+                $totalPendingAmount = $pendingBills->sum('total_amount') + (isset($pendingBundles) ? $pendingBundles->sum('total_amount') : 0);
               @endphp
               <div class="text-right">
                 <p class="text-sm text-purple-100">Total Pending</p>
-                <p class="text-2xl font-bold">Rp {{ number_format($totalPending) }}</p>
+                <p class="text-2xl font-bold">Rp {{ number_format($totalPendingAmount) }}</p>
               </div>
             </div>
           </div>
@@ -301,6 +305,7 @@
             </div>
 
             <div class="space-y-4">
+              {{-- Individual Pending Bills --}}
               @foreach ($pendingBills as $bill)
                 <div class="bg-white rounded-lg border-2 border-purple-200 p-4">
                   <div class="flex items-center justify-between">
@@ -325,50 +330,76 @@
                             ⏳ Menunggu Pembayaran
                           </span>
                         </div>
-                        @php
-                          // Check if this bill is part of a bundle payment or individual payment
-                          $bundlePayment = \App\Models\BundlePayment::whereHas('bundlePaymentBills', function($q) use ($bill) {
-                              $q->where('bill_id', $bill->bill_id);
-                          })->where('status', 'pending')->first();
-                          
-                          // For individual payments, we need to check if there's an active Tripay transaction
-                          // Since payments table doesn't have status, we check if bill is pending but no bundle payment exists
-                          $hasIndividualPendingPayment = $bill->status === 'pending' && !$bundlePayment;
-                        @endphp
-                        
-                        @if ($bundlePayment)
-                          <!-- Bundle Payment - Continue -->
-                          <a href="{{ route('bundle.payment.payment.form', ['customer_code' => $customer->customer_code, 'bundle_reference' => $bundlePayment->bundle_reference]) }}"
-                            class="inline-flex items-center px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium rounded-lg transition-colors duration-200">
-                            <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m-2 0h-2m2-4v-3m2 3V9l-6 6 2-2z"></path>
-                            </svg>
-                            Lanjutkan Bundle Payment
-                          </a>
-                        @elseif ($hasIndividualPendingPayment)
-                          <!-- Individual Payment - Go to Status Page -->
-                          <a href="{{ route('tripay.form', ['village' => $customer->village->slug, 'bill' => $bill->bill_id]) }}"
-                            class="inline-flex items-center px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium rounded-lg transition-colors duration-200">
-                            <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m-2 0h-2m2-4v-3m2 3V9l-6 6 2-2z"></path>
-                            </svg>
-                            Lanjutkan Pembayaran
-                          </a>
-                        @else
-                          <!-- No active payment found - allow retry -->
-                          <button onclick="retryPayment('{{ $bill->bill_id }}')"
-                            class="inline-flex items-center px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-medium rounded-lg transition-colors duration-200">
-                            <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
-                            </svg>
-                            Coba Lagi
-                          </button>
-                        @endif
+                        <!-- Individual Payment - Continue -->
+                        <a href="{{ route('tripay.form', ['village' => $customer->village->slug, 'bill' => $bill->bill_id]) }}"
+                          class="inline-flex items-center px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium rounded-lg transition-colors duration-200">
+                          <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m-2 0h-2m2-4v-3m2 3V9l-6 6 2-2z"></path>
+                          </svg>
+                          Lanjutkan Pembayaran
+                        </a>
                       </div>
                     </div>
                   </div>
                 </div>
               @endforeach
+
+              {{-- Pending Bundle Payments --}}
+              @if(isset($pendingBundles))
+                @foreach ($pendingBundles as $bundle)
+                  <div class="bg-white rounded-lg border-2 border-indigo-200 p-4">
+                    <div class="flex items-center justify-between">
+                      <div class="flex-1">
+                        <div class="flex items-center mb-2">
+                          <div class="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center mr-3">
+                            <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                            </svg>
+                          </div>
+                          <div>
+                            <h4 class="font-bold text-gray-800 flex items-center">
+                              Bundle Payment
+                              <span class="ml-2 px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded-full text-xs font-medium">
+                                {{ $bundle->bill_count }} tagihan
+                              </span>
+                            </h4>
+                            <p class="text-sm text-gray-600">
+                              @php
+                                $periods = $bundle->bills->map(function($bill) {
+                                  return $bill->waterUsage->billingPeriod->period_name;
+                                })->unique()->take(2);
+                              @endphp
+                              {{ $periods->implode(', ') }}
+                              @if($bundle->bills->count() > 2)
+                                + {{ $bundle->bills->count() - 2 }} lainnya
+                              @endif
+                              • Sedang diproses
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="text-right">
+                        <span class="text-lg font-bold text-indigo-600">Rp {{ number_format($bundle->total_amount) }}</span>
+                        <div class="mt-2 space-y-2">
+                          <div>
+                            <span class="px-3 py-1 bg-indigo-100 text-indigo-800 rounded-full text-sm font-medium">
+                              📦 Bundle Payment
+                            </span>
+                          </div>
+                          <!-- Bundle Payment - Continue -->
+                          <a href="{{ route('tripay.form', ['village' => $customer->village->slug, 'bill' => $bundle->first_bill->bill_id]) }}"
+                            class="inline-flex items-center px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-lg transition-colors duration-200">
+                            <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m-2 0h-2m2-4v-3m2 3V9l-6 6 2-2z"></path>
+                            </svg>
+                            Lanjutkan Bundle Payment
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                @endforeach
+              @endif
             </div>
           </div>
         </div>
@@ -690,26 +721,29 @@
             <!-- Right Column: Checkout Summary (1/3 width) -->
             <div class="lg:col-span-1 p-6 bg-gray-50">
               <div class="sticky top-6">
-                <!-- Order Summary -->
-                <h4 class="font-bold text-gray-800 mb-4 flex items-center">
-                  <svg class="w-5 h-5 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
-                  </svg>
-                  Ringkasan Tagihan
-                </h4>
 
-                <!-- Total Summary -->
+                <!-- Quick Actions (Always at top) -->
                 <div class="bg-white rounded-lg p-4 mb-4">
-                  <div class="space-y-3">
-                    <div class="flex justify-between text-sm">
-                      <span class="text-gray-600">{{ $payableBills->count() }} Tagihan</span>
-                      <span class="font-medium">Rp {{ number_format($totalOutstanding) }}</span>
-                    </div>
-                    <div class="border-t pt-3">
-                      <div class="flex justify-between items-center">
-                        <span class="font-bold text-lg">Total</span>
-                        <span class="font-bold text-xl text-blue-600">Rp {{ number_format($totalOutstanding) }}</span>
-                      </div>
+                  <h5 class="font-medium text-gray-800 mb-3">Aksi Cepat</h5>
+                  <div class="space-y-2">
+                    <a href="{{ route('portal.index') }}" class="w-full text-left text-sm text-gray-600 hover:text-gray-800 flex items-center py-2">
+                      <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                      </svg>
+                      Kembali ke Portal
+                    </a>
+                  </div>
+                </div>
+
+                <!-- No Selection Message -->
+                <div id="noSelectionMessage" class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                  <div class="flex items-center">
+                    <svg class="w-5 h-5 text-yellow-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <div>
+                      <h6 class="font-medium text-yellow-800">Belum Ada Tagihan Dipilih</h6>
+                      <p class="text-sm text-yellow-700 mt-1">Pilih tagihan yang ingin dibayar terlebih dahulu</p>
                     </div>
                   </div>
                 </div>
@@ -764,18 +798,6 @@
                     <span id="invoiceButtonText">Cetak Invoice (0)</span>
                   </button>
 
-                  <!-- Quick Actions -->
-                  <div class="bg-white rounded-lg p-4">
-                    <h5 class="font-medium text-gray-800 mb-3">Aksi Cepat</h5>
-                    <div class="space-y-2">
-                      <a href="{{ route('portal.index') }}" class="w-full text-left text-sm text-gray-600 hover:text-gray-800 flex items-center py-2">
-                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
-                        </svg>
-                        Kembali ke Portal
-                      </a>
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>
@@ -838,7 +860,7 @@
                   $allPayments->push([
                     'type' => 'bundle',
                     'data' => $bundle,
-                    'date' => $bundle->paid_at
+                    'date' => $bundle->payment_date
                   ]);
                 }
                 
@@ -924,9 +946,9 @@
                               </span>
                             </h4>
                             <p class="text-sm text-gray-600">
-                              Dibayar {{ $bundle->paid_at->format('d/m/Y') }} • 
+                              Dibayar {{ \Carbon\Carbon::parse($bundle->payment_date)->format('d/m/Y') }} • 
                               @php
-                                $periods = $bundle->bills->pluck('waterUsage.billingPeriod.period_name')->unique();
+                                $periods = $bundle->bills ? $bundle->bills->pluck('waterUsage.billingPeriod.period_name')->unique() : collect();
                               @endphp
                               {{ $periods->implode(', ') }}
                             </p>
@@ -945,7 +967,7 @@
                         <span class="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
                           ✓ Lunas
                         </span>
-                        <a href="{{ route('receipt.bundle', ['bundle_reference' => $bundle->bundle_reference, 'customer_code' => $customer->customer_code]) }}"
+                        <a href="{{ route('receipt.bundle', ['bundle_reference' => $bundle->transaction_ref, 'customer_code' => $customer->customer_code]) }}"
                           target="_blank"
                           class="btn-secondary text-white py-2 px-4 rounded-lg text-sm font-medium flex items-center">
                           <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1454,6 +1476,18 @@
         const count = selectedBills.size;
         const selectedBillsArray = Array.from(selectedBills.values());
         
+        // Get UI elements
+        const noSelectionMessage = document.getElementById('noSelectionMessage');
+        
+        // Show/hide no selection message
+        if (count === 0) {
+          noSelectionMessage.style.display = 'block';
+          paymentSummary.classList.add('hidden');
+        } else {
+          noSelectionMessage.style.display = 'none';
+          paymentSummary.classList.remove('hidden');
+        }
+        
         // Calculate exact total for bundle payment following backend logic
         let totalWaterCharge = 0;
         let totalMaintenanceFee = 0;
@@ -1483,8 +1517,8 @@
           invoiceBtnText.textContent = `Cetak Invoice (${count})`;
         }
         
+        // Update button states
         if (count > 0) {
-          paymentSummary.classList.remove('hidden');
           paymentBtn.disabled = false;
           paymentBtn.classList.remove('opacity-50', 'cursor-not-allowed');
           paymentBtn.classList.add('hover:bg-blue-700');
@@ -1496,7 +1530,6 @@
             invoiceBtn.classList.add('hover:bg-gray-700');
           }
         } else {
-          paymentSummary.classList.add('hidden');
           paymentBtn.disabled = true;
           paymentBtn.classList.add('opacity-50', 'cursor-not-allowed');
           paymentBtn.classList.remove('hover:bg-blue-700');
@@ -1633,6 +1666,7 @@
       // Initialize
       initializeCheckboxes();
       initializeCardClicks();
+      updateBundleSummary(); // Initialize UI state
     });
   </script>
 </body>

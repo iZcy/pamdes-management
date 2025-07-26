@@ -1,11 +1,12 @@
 <?php
-// app/Models/Payment.php - Updated with collector relationship
+// app/Models/Payment.php - Updated to handle multiple bills (bundle payments)
 
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Builder;
 
 class Payment extends Model
@@ -15,31 +16,35 @@ class Payment extends Model
     protected $primaryKey = 'payment_id';
 
     protected $fillable = [
-        'bill_id',
         'payment_date',
-        'amount_paid',
+        'total_amount',
         'change_given',
         'payment_method',
-        'payment_reference',
+        'transaction_ref',
+        'tripay_data',
         'collector_id',
         'notes',
     ];
 
     protected $casts = [
         'payment_date' => 'date',
-        'amount_paid' => 'decimal:2',
+        'total_amount' => 'decimal:2',
         'change_given' => 'decimal:2',
+        'tripay_data' => 'array',
     ];
 
     protected $appends = [
         'net_amount',
         'collector_name',
+        'bill_count',
     ];
 
     // Relationships
-    public function bill(): BelongsTo
+    public function bills(): BelongsToMany
     {
-        return $this->belongsTo(Bill::class, 'bill_id', 'bill_id');
+        return $this->belongsToMany(Bill::class, 'bill_payment', 'payment_id', 'bill_id')
+            ->withPivot('amount_paid')
+            ->withTimestamps();
     }
 
     public function collector(): BelongsTo
@@ -50,12 +55,17 @@ class Payment extends Model
     // Accessors
     public function getNetAmountAttribute(): float
     {
-        return $this->amount_paid - $this->change_given;
+        return $this->total_amount - $this->change_given;
     }
 
     public function getCollectorNameAttribute(): ?string
     {
         return $this->collector?->name;
+    }
+
+    public function getBillCountAttribute(): int
+    {
+        return $this->bills()->count();
     }
 
     // Scopes
@@ -80,11 +90,9 @@ class Payment extends Model
         return $query->where('collector_id', $collectorId);
     }
 
-    public function scopeForVillage(Builder $query, string $villageId): Builder
+    public function scopeByTransactionRef(Builder $query, string $transactionRef): Builder
     {
-        return $query->whereHas('bill.waterUsage.customer', function ($q) use ($villageId) {
-            $q->where('village_id', $villageId);
-        });
+        return $query->where('transaction_ref', $transactionRef);
     }
 
     // Helper methods
@@ -104,18 +112,53 @@ class Payment extends Model
         return $this->change_given > 0;
     }
 
-    public function isExactPayment(): bool
+    public function isBundle(): bool
     {
-        return $this->amount_paid == $this->bill->total_amount;
+        return $this->bills()->count() > 1;
     }
 
-    public function getCustomerInfo(): ?object
+    public function isTripayPayment(): bool
     {
-        return $this->bill?->waterUsage?->customer;
+        return $this->transaction_ref !== null;
     }
 
-    public function getVillageInfo(): ?object
+    // Pay multiple bills at once
+    public static function payBills(array $billIds, array $paymentData): self
     {
-        return $this->bill?->waterUsage?->customer?->village;
+        $bills = Bill::whereIn('bill_id', $billIds)->where('status', 'unpaid')->get();
+        
+        if ($bills->isEmpty()) {
+            throw new \Exception('No unpaid bills found');
+        }
+
+        $totalAmount = $bills->sum('total_amount');
+        
+        // Create payment
+        $payment = self::create([
+            'payment_date' => $paymentData['payment_date'] ?? now()->toDateString(),
+            'total_amount' => $totalAmount,
+            'change_given' => $paymentData['change_given'] ?? 0,
+            'payment_method' => $paymentData['payment_method'] ?? 'cash',
+            'transaction_ref' => $paymentData['transaction_ref'] ?? null,
+            'tripay_data' => $paymentData['tripay_data'] ?? null,
+            'collector_id' => $paymentData['collector_id'] ?? null,
+            'notes' => $paymentData['notes'] ?? null,
+        ]);
+
+        // Attach bills and mark as paid
+        foreach ($bills as $bill) {
+            $payment->bills()->attach($bill->bill_id, [
+                'amount_paid' => $bill->total_amount
+            ]);
+            
+            $bill->markAsPaid($payment->payment_date);
+            
+            // Set transaction_ref on the bill if provided
+            if (isset($paymentData['transaction_ref'])) {
+                $bill->update(['transaction_ref' => $paymentData['transaction_ref']]);
+            }
+        }
+
+        return $payment;
     }
 }

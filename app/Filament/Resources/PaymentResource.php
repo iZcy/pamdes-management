@@ -53,19 +53,7 @@ class PaymentResource extends Resource
     // Role-based record access
     public static function canCreate(): bool
     {
-        $user = User::find(Auth::user()->id);
-
-        // Super admin and village admin can create
-        if ($user?->isSuperAdmin() || $user?->role === 'village_admin') {
-            return true;
-        }
-
-        // Collectors can create payments (their primary function)
-        if ($user?->role === 'collector') {
-            return true;
-        }
-
-        // Operators cannot create payments
+        // Payments should only be made through bill pay actions, not created manually
         return false;
     }
 
@@ -101,28 +89,84 @@ class PaymentResource extends Resource
         return $user?->isSuperAdmin() || $user?->role === 'village_admin';
     }
 
+    /**
+     * Get the current village ID with proper fallback logic
+     */
+    protected static function getCurrentVillageId(): ?string
+    {
+        $user = User::find(Auth::user()->id);
+
+        if (!$user) {
+            return null;
+        }
+
+        // For super admins, use village context if available
+        if ($user->isSuperAdmin()) {
+            return $user->getCurrentVillageContext();
+        }
+
+        // For village users, try multiple approaches
+        $villageId = $user->getCurrentVillageContext();
+
+        // If still no village, try fallbacks
+        if (!$villageId) {
+            // Try config directly
+            $villageId = config('pamdes.current_village_id');
+
+            if (!$villageId) {
+                // Try primary village
+                $villageId = $user->getPrimaryVillageId();
+            }
+
+            if (!$villageId) {
+                // Try first accessible village
+                $firstVillage = $user->getAccessibleVillages()->first();
+                $villageId = $firstVillage?->id;
+            }
+        }
+
+        // Verify user has access to this village
+        if ($villageId && !$user->hasAccessToVillage($villageId)) {
+            // Fall back to first accessible village
+            $firstVillage = $user->getAccessibleVillages()->first();
+            $villageId = $firstVillage?->id;
+        }
+
+        return $villageId;
+    }
+
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery()->with(['bill.waterUsage.customer.village', 'collector']);
+        $query = parent::getEloquentQuery()->with(['bills.customer.village', 'collector']);
 
         $user = User::find(Auth::user()->id);
-        $currentVillage = $user?->getCurrentVillageContext();
+        $currentVillage = static::getCurrentVillageId();
 
         if ($user?->isSuperAdmin() && $currentVillage) {
-            $query->whereHas('bill.waterUsage.customer', function ($q) use ($currentVillage) {
+            $query->whereHas('bills.customer', function ($q) use ($currentVillage) {
                 $q->where('village_id', $currentVillage);
             });
         } elseif ($user?->role === 'village_admin') {
             $accessibleVillages = $user->getAccessibleVillages()->pluck('id');
-            $query->whereHas('bill.waterUsage.customer', function ($q) use ($accessibleVillages) {
-                $q->whereIn('village_id', $accessibleVillages);
-            });
+            if ($accessibleVillages->isNotEmpty()) {
+                $query->whereHas('bills.customer', function ($q) use ($accessibleVillages) {
+                    $q->whereIn('village_id', $accessibleVillages);
+                });
+            } else {
+                // If no accessible villages, return empty result
+                $query->whereRaw('1 = 0');
+            }
         } elseif ($user?->role === 'collector') {
             // Collectors see all payments in their village(s) for reference
             $accessibleVillages = $user->getAccessibleVillages()->pluck('id');
-            $query->whereHas('bill.waterUsage.customer', function ($q) use ($accessibleVillages) {
-                $q->whereIn('village_id', $accessibleVillages);
-            });
+            if ($accessibleVillages->isNotEmpty()) {
+                $query->whereHas('bills.customer', function ($q) use ($accessibleVillages) {
+                    $q->whereIn('village_id', $accessibleVillages);
+                });
+            } else {
+                // If no accessible villages, return empty result
+                $query->whereRaw('1 = 0');
+            }
         }
 
         return $query;
@@ -140,8 +184,9 @@ class PaymentResource extends Resource
                         Forms\Components\Placeholder::make('village_info')
                             ->label('Desa')
                             ->content(function (?Payment $record) {
-                                if ($record && $record->bill?->waterUsage?->customer?->village) {
-                                    return $record->bill->waterUsage->customer->village->name;
+                                if ($record && $record->bills->isNotEmpty()) {
+                                    $firstBill = $record->bills->first();
+                                    return $firstBill?->customer?->village?->name;
                                 }
                                 $user = User::find(Auth::user()->id);
                                 $currentVillage = $user?->getCurrentVillageContext();
@@ -199,7 +244,7 @@ class PaymentResource extends Resource
                             ->disabled($isCollector) // Collectors cannot change this
                             ->dehydrated(),
 
-                        Forms\Components\TextInput::make('amount_paid')
+                        Forms\Components\TextInput::make('total_amount')
                             ->label('Jumlah Dibayar')
                             ->required()
                             ->numeric()
@@ -261,36 +306,40 @@ class PaymentResource extends Resource
 
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('bill.waterUsage.customer.village.name')
+                Tables\Columns\TextColumn::make('bills.0.customer.village.name')
                     ->label('Desa')
                     ->searchable()
                     ->sortable()
                     ->visible($isSuperAdmin)
                     ->badge()
-                    ->color('primary'),
+                    ->color('primary')
+                    ->getStateUsing(fn($record) => $record->bills->first()?->customer->village->name),
 
-                Tables\Columns\TextColumn::make('bill.waterUsage.customer.customer_code')
+                Tables\Columns\TextColumn::make('bills.0.customer.customer_code')
                     ->label('Kode Pelanggan')
                     ->searchable()
-                    ->sortable(),
+                    ->sortable()
+                    ->getStateUsing(fn($record) => $record->bills->first()?->customer->customer_code),
 
-                Tables\Columns\TextColumn::make('bill.waterUsage.customer.name')
+                Tables\Columns\TextColumn::make('bills.0.customer.name')
                     ->label('Nama Pelanggan')
                     ->searchable()
                     ->limit(25)
-                    ->sortable(),
+                    ->sortable()
+                    ->getStateUsing(fn($record) => $record->bills->first()?->customer->name),
 
-                Tables\Columns\TextColumn::make('bill.waterUsage.billingPeriod.period_name')
+                Tables\Columns\TextColumn::make('bills.0.waterUsage.billingPeriod.period_name')
                     ->label('Periode')
                     ->searchable()
-                    ->sortable(),
+                    ->sortable()
+                    ->getStateUsing(fn($record) => $record->bills->first()?->waterUsage?->billingPeriod?->period_name),
 
                 Tables\Columns\TextColumn::make('payment_date')
                     ->label('Tanggal Bayar')
                     ->date()
                     ->sortable(),
 
-                Tables\Columns\TextColumn::make('amount_paid')
+                Tables\Columns\TextColumn::make('total_amount')
                     ->label('Jumlah Dibayar')
                     ->money('IDR')
                     ->sortable(),
@@ -332,7 +381,12 @@ class PaymentResource extends Resource
             ->filters([
                 Tables\Filters\SelectFilter::make('village')
                     ->label('Desa')
-                    ->relationship('bill.waterUsage.customer.village', 'name')
+                    ->options(\App\Models\Village::pluck('name', 'id'))
+                    ->query(function (Builder $query, array $data): Builder {
+                        return $data['value']
+                            ? $query->whereHas('bills.customer', fn($q) => $q->where('village_id', $data['value']))
+                            : $query;
+                    })
                     ->visible($isSuperAdmin),
 
                 Tables\Filters\SelectFilter::make('payment_method')
@@ -414,7 +468,7 @@ class PaymentResource extends Resource
 
         if ($bill) {
             $totalAmount = $bill->total_amount;
-            $amountPaid = $get('amount_paid');
+            $amountPaid = $get('total_amount');
 
             if (is_numeric($amountPaid) && $amountPaid >= $totalAmount) {
                 $set('change_given', $amountPaid - $totalAmount);
@@ -428,7 +482,7 @@ class PaymentResource extends Resource
     {
         return [
             'index' => Pages\ListPayments::route('/'),
-            'create' => Pages\CreatePayment::route('/create'),
+            // Create removed - payments are made through bill pay actions only
             'edit' => Pages\EditPayment::route('/{record}/edit'),
         ];
     }

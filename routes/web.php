@@ -8,6 +8,7 @@ use App\Models\Bill;
 use App\Http\Controllers\TripayController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -103,54 +104,157 @@ Route::middleware(['village.context'])->group(function () {
                 ->with('village')
                 ->firstOrFail();
 
-            // Get unpaid bills
-            $bills = $customer->bills()
-                ->whereIn('status', ['unpaid', 'overdue', 'pending'])
-                ->with(['waterUsage.billingPeriod'])
+            // Get pending transactions for this customer (bills with transaction_ref but not paid)
+            $pendingTransactions = \App\Models\Bill::where('customer_id', $customer->customer_id)
+                ->where('status', 'unpaid')
+                ->whereNotNull('transaction_ref')
+                ->get();
+
+            // Log debugging info before cleanup
+            Log::info('Pending transactions found (before cleanup)', [
+                'customer_id' => $customer->customer_id,
+                'pending_transactions_count' => $pendingTransactions->count(),
+                'transaction_refs' => $pendingTransactions->pluck('transaction_ref')->unique()->values()->toArray()
+            ]);
+
+            // Clean up expired transactions (older than 7 days)
+            // Use updated_at since it changes when transaction_ref is assigned
+            $expiredUpdated = \App\Models\Bill::where('customer_id', $customer->customer_id)
+                ->where('status', 'unpaid')
+                ->whereNotNull('transaction_ref')
+                ->where('updated_at', '<', now()->subDays(7))
+                ->update(['transaction_ref' => null]);
+
+            Log::info('Bill cleanup performed', [
+                'customer_id' => $customer->customer_id,
+                'expired_transactions_cleared' => $expiredUpdated,
+            ]);
+
+            // Re-fetch pending transactions after cleanup
+            $pendingTransactionsAfterCleanup = \App\Models\Bill::where('customer_id', $customer->customer_id)
+                ->where('status', 'unpaid')
+                ->whereNotNull('transaction_ref')
+                ->get();
+
+            Log::info('Valid pending transactions after cleanup', [
+                'customer_id' => $customer->customer_id,
+                'valid_pending_transactions_count' => $pendingTransactionsAfterCleanup->count(),
+                'transaction_refs' => $pendingTransactionsAfterCleanup->pluck('transaction_ref')->unique()->values()->toArray()
+            ]);
+
+            // Get unpaid bills (exclude bills already in pending transactions)
+            $billsQuery = $customer->bills()
+                ->where('status', 'unpaid');
+
+            // Exclude bills that are already in pending transactions
+            $billsQuery->whereNull('transaction_ref');
+
+            $bills = $billsQuery->with(['waterUsage.billingPeriod'])
                 ->orderBy('due_date', 'asc')
                 ->get();
 
-            // Get paid bills (last 10 for history)
-            $paidBills = $customer->bills()
+            Log::info('Final bills for selection', [
+                'bills_count' => $bills->count(),
+                'bills' => $bills->map(function ($bill) {
+                    return [
+                        'bill_id' => $bill->bill_id,
+                        'status' => $bill->status,
+                        'period' => $bill->waterUsage->billingPeriod->period_name,
+                        'amount' => $bill->total_amount
+                    ];
+                })
+            ]);
+
+            // The pending transactions are now just bills with transaction_ref
+            // Group them by transaction_ref to identify bundles vs individual bills
+            $pendingBills = collect();
+            $pendingBundles = collect();
+            
+            $transactionGroups = $pendingTransactionsAfterCleanup->groupBy('transaction_ref');
+            
+            foreach ($transactionGroups as $transactionRef => $billsInTransaction) {
+                if ($billsInTransaction->count() > 1) {
+                    // This is a bundle (multiple bills with same transaction_ref)
+                    // Create a bundle object for the template
+                    $bundleData = (object) [
+                        'transaction_ref' => $transactionRef,
+                        'bills' => $billsInTransaction,
+                        'bill_count' => $billsInTransaction->count(),
+                        'total_amount' => $billsInTransaction->sum('total_amount'),
+                        'first_bill' => $billsInTransaction->first(),
+                        'customer' => $billsInTransaction->first()->waterUsage->customer ?? $customer
+                    ];
+                    $pendingBundles->push($bundleData);
+                } else {
+                    // This is an individual bill
+                    $pendingBills = $pendingBills->concat($billsInTransaction);
+                }
+            }
+
+            Log::info('Pending transactions organized', [
+                'customer_id' => $customer->customer_id,
+                'individual_pending_bills' => $pendingBills->count(),
+                'pending_bundle_bills' => $pendingBundles->count(),
+                'transaction_groups' => count($transactionGroups)
+            ]);
+
+            // Get paid bills - separate individual and bundle payments
+            $allPaidBills = $customer->bills()
                 ->paid()
-                ->with(['waterUsage.billingPeriod', 'latestPayment'])
+                ->with(['waterUsage.billingPeriod', 'payments'])
                 ->orderBy('payment_date', 'desc')
-                ->limit(10)
                 ->get();
 
-            // Get paid bundle payments (last 10 for history)
-            $paidBundles = \App\Models\BundlePayment::where('customer_id', $customer->customer_id)
-                ->where('status', 'paid')
-                ->with(['bills.waterUsage.billingPeriod'])
-                ->orderBy('paid_at', 'desc')
-                ->limit(10)
-                ->get();
+            // Separate individual paid bills from bundle payments
+            $paidBills = collect();
+            $paidBundles = collect();
+            
+            $paidTransactionGroups = $allPaidBills->groupBy('transaction_ref');
+            
+            foreach ($paidTransactionGroups as $transactionRef => $billsInTransaction) {
+                if ($transactionRef && $billsInTransaction->count() > 1) {
+                    // This was a bundle payment - create bundle object
+                    $bundleData = (object) [
+                        'transaction_ref' => $transactionRef,
+                        'bills' => $billsInTransaction,
+                        'bill_count' => $billsInTransaction->count(),
+                        'total_amount' => $billsInTransaction->sum('total_amount'),
+                        'first_bill' => $billsInTransaction->first(),
+                        'payment_date' => $billsInTransaction->first()->payment_date,
+                        'customer' => $billsInTransaction->first()->waterUsage->customer ?? $customer
+                    ];
+                    $paidBundles->push($bundleData);
+                } else {
+                    // This was an individual payment
+                    $paidBills = $paidBills->concat($billsInTransaction);
+                }
+            }
+            
+            // Limit to 10 most recent
+            $paidBills = $paidBills->take(10);
+            $paidBundles = $paidBundles->take(10);
 
-            return view('customer-portal.bills', compact('customer', 'bills', 'paidBills', 'paidBundles'));
+            return view('customer-portal.bills', compact('customer', 'bills', 'pendingBills', 'pendingBundles', 'paidBills', 'paidBundles'));
         })->name('bills');
     });
 
-    // Bundle Payment Routes
+    // Bundle Payment Routes - Only bulk operations allowed
     Route::prefix('bundle-payment')->name('bundle.payment.')->group(function () {
-        // Show bundle payment form (email selection) 
+        // Show bundle payment form (email selection) - POST route from bills page (requires bill selection)
         Route::post('/form/{customer_code}', [App\Http\Controllers\BundlePaymentController::class, 'showPaymentForm'])
             ->name('form');
-        
-        // Create bundle payment and process
+
+        // Create bundle payment and process (accepts single or multiple bills)
         Route::post('/create/{customer_code}', [App\Http\Controllers\BundlePaymentController::class, 'create'])
             ->name('create');
-        
-        // Process bundle payment directly (create bundle + process payment)
-        Route::post('/process-direct/{customer_code}', [App\Http\Controllers\BundlePaymentController::class, 'processDirectly'])
-            ->name('process.direct');
-        
+
         // Existing bundle payment routes (for continuation)
         Route::get('/payment/{customer_code}/{bundle_reference}', [App\Http\Controllers\BundlePaymentController::class, 'showForm'])
             ->name('payment.form');
-        
+
         Route::post('/process/{customer_code}/{bundle_reference}', [App\Http\Controllers\BundlePaymentController::class, 'processPayment'])
             ->name('process');
-        
+
         Route::get('/status/{customer_code}/{bundle_reference}', [App\Http\Controllers\BundlePaymentController::class, 'checkStatus'])
             ->name('status');
     });
@@ -180,28 +284,44 @@ Route::middleware(['village.context'])->group(function () {
             return view('receipts.bill', compact('bill'));
         })->name('bill');
 
-        // Bundle receipt - accessible by anyone with the right bundle reference and customer code
+        // Bundle receipt - accessible by anyone with the right transaction reference and customer code
         Route::get('/bundle/{bundle_reference}/{customer_code}', function ($bundleReference, $customerCode) {
             // Find the customer
             $customer = Customer::where('customer_code', $customerCode)->firstOrFail();
-            
-            // Find the bundle payment
-            $bundlePayment = \App\Models\BundlePayment::where('bundle_reference', $bundleReference)
+
+            // Find bills with this transaction_ref (bundle payment)
+            $bundleBills = \App\Models\Bill::where('transaction_ref', $bundleReference)
                 ->where('customer_id', $customer->customer_id)
                 ->where('status', 'paid')
                 ->with([
-                    'customer.village',
-                    'bills.waterUsage.billingPeriod'
+                    'waterUsage.customer.village',
+                    'waterUsage.billingPeriod',
+                    'payments'
                 ])
-                ->firstOrFail();
+                ->get();
 
-            // Verify the bundle is for the current village context
-            $villageId = config('pamdes.current_village_id');
-            if ($villageId && $bundlePayment->customer->village_id !== $villageId) {
+            if ($bundleBills->isEmpty() || $bundleBills->count() < 2) {
                 abort(404, 'Bundle payment not found');
             }
 
-            return view('receipts.bundle', compact('bundlePayment'));
+            // Verify the bundle is for the current village context
+            $villageId = config('pamdes.current_village_id');
+            if ($villageId && $bundleBills->first()->waterUsage->customer->village_id !== $villageId) {
+                abort(404, 'Bundle payment not found');
+            }
+
+            // Create bundle object for template compatibility
+            $bundlePayment = (object) [
+                'transaction_ref' => $bundleReference,
+                'bills' => $bundleBills,
+                'bill_count' => $bundleBills->count(),
+                'total_amount' => $bundleBills->sum('total_amount'),
+                'customer' => $bundleBills->first()->waterUsage->customer,
+                'payment_date' => $bundleBills->first()->payment_date,
+                'village' => $bundleBills->first()->waterUsage->customer->village
+            ];
+
+            return view('receipts.bundle', compact('bundlePayment', 'bundleBills'));
         })->name('bundle');
 
         // Multiple bills invoice - generate invoice for selected bills
@@ -217,7 +337,7 @@ Route::middleware(['village.context'])->group(function () {
 
             // Find the customer
             $customer = Customer::where('customer_code', $customerCode)->firstOrFail();
-            
+
             // Get bills and validate they belong to the customer
             $bills = Bill::whereIn('bill_id', $request->bill_ids)
                 ->whereHas('waterUsage', function ($query) use ($customer) {

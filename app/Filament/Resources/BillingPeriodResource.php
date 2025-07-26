@@ -27,6 +27,52 @@ class BillingPeriodResource extends Resource
     protected static ?int $navigationSort = 2;
     protected static ?string $navigationGroup = 'Manajemen Data';
 
+    /**
+     * Get the current village ID with proper fallback logic
+     */
+    protected static function getCurrentVillageId(): ?string
+    {
+        $user = User::find(Auth::user()->id);
+
+        if (!$user) {
+            return null;
+        }
+
+        // For super admins, use village context if available
+        if ($user->isSuperAdmin()) {
+            return $user->getCurrentVillageContext();
+        }
+
+        // For village users, try multiple approaches
+        $villageId = $user->getCurrentVillageContext();
+
+        // If still no village, try fallbacks
+        if (!$villageId) {
+            // Try config directly
+            $villageId = config('pamdes.current_village_id');
+
+            if (!$villageId) {
+                // Try primary village
+                $villageId = $user->getPrimaryVillageId();
+            }
+
+            if (!$villageId) {
+                // Try first accessible village
+                $firstVillage = $user->getAccessibleVillages()->first();
+                $villageId = $firstVillage?->id;
+            }
+        }
+
+        // Verify user has access to this village
+        if ($villageId && !$user->hasAccessToVillage($villageId)) {
+            // Fall back to first accessible village
+            $firstVillage = $user->getAccessibleVillages()->first();
+            $villageId = $firstVillage?->id;
+        }
+
+        return $villageId;
+    }
+
     // Role-based navigation visibility
     public static function shouldRegisterNavigation(): bool
     {
@@ -82,13 +128,18 @@ class BillingPeriodResource extends Resource
         $query = parent::getEloquentQuery()->with('village');
 
         $user = User::find(Auth::user()->id);
-        $currentVillage = $user?->getCurrentVillageContext();
+        $currentVillage = static::getCurrentVillageId();
 
         if ($user?->isSuperAdmin() && $currentVillage) {
             $query->where('village_id', $currentVillage);
         } elseif ($user?->isVillageAdmin() || $user?->role === 'operator') {
             $accessibleVillages = $user->getAccessibleVillages()->pluck('id');
-            $query->whereIn('village_id', $accessibleVillages);
+            if ($accessibleVillages->isNotEmpty()) {
+                $query->whereIn('village_id', $accessibleVillages);
+            } else {
+                // If no accessible villages, return empty result
+                $query->whereRaw('1 = 0');
+            }
         }
 
         return $query;
@@ -98,7 +149,7 @@ class BillingPeriodResource extends Resource
     {
         $user = Auth::user();
         $user = User::find($user->id);
-        $currentVillageId = $user?->getCurrentVillageContext();
+        $currentVillageId = static::getCurrentVillageId();
 
         return $form
             ->schema([
@@ -111,16 +162,30 @@ class BillingPeriodResource extends Resource
                                     ->orderBy('name')
                                     ->pluck('name', 'id');
                             })
+                            ->default(function () use ($currentVillageId, $user) {
+                                if ($user?->isSuperAdmin()) {
+                                    return null; // Super admin selects manually
+                                }
+
+                                // For other roles, use current village context or fallback
+                                if ($currentVillageId) {
+                                    return $currentVillageId;
+                                }
+
+                                // Fallback to first accessible village for village admin/operator
+                                $firstVillage = $user?->getAccessibleVillages()->first();
+                                return $firstVillage?->id;
+                            })
                             ->searchable()
                             ->required()
                             ->live()
                             ->afterStateUpdated(function (Forms\Set $set, $state, Forms\Get $get) {
                                 $year = $get('year') ?? now()->year;
                                 $month = $get('month') ?? now()->month;
-                                
+
                                 if ($state && $year && $month) {
                                     $scheduleDates = BillingPeriod::getPreviousPeriodScheduleDates($state, $year, $month);
-                                    
+
                                     if ($scheduleDates['reading_start_date']) {
                                         $set('reading_start_date', $scheduleDates['reading_start_date']->format('Y-m-d'));
                                     }
@@ -141,13 +206,13 @@ class BillingPeriodResource extends Resource
                                 if ($record && $record->village) {
                                     return $record->village->name;
                                 }
-                                
+
                                 // For create mode, determine village for non-super admin
                                 if ($currentVillageId) {
                                     $village = \App\Models\Village::find($currentVillageId);
                                     return $village?->name ?? 'Unknown Village';
                                 }
-                                
+
                                 // Fallback to first accessible village
                                 $firstVillage = $user?->getAccessibleVillages()->first();
                                 return $firstVillage?->name ?? 'No Village Available';
@@ -160,12 +225,12 @@ class BillingPeriodResource extends Resource
                                 if ($user?->isSuperAdmin()) {
                                     return null; // Super admin selects manually
                                 }
-                                
+
                                 // For other roles, use current village context or fallback
                                 if ($currentVillageId) {
                                     return $currentVillageId;
                                 }
-                                
+
                                 // Fallback to first accessible village for village admin/operator
                                 $firstVillage = $user?->getAccessibleVillages()->first();
                                 return $firstVillage?->id;
@@ -193,12 +258,13 @@ class BillingPeriodResource extends Resource
                             ->default(now()->month)
                             ->live()
                             ->afterStateUpdated(function (Forms\Set $set, $state, Forms\Get $get) use ($user) {
-                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : $get('village_id');
+                                // Fix: Use proper village ID resolution
+                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : static::getCurrentVillageId();
                                 $year = $get('year') ?? now()->year;
-                                
+
                                 if ($villageId && $state && $year) {
                                     $scheduleDates = BillingPeriod::getPreviousPeriodScheduleDates($villageId, $year, $state);
-                                    
+
                                     if ($scheduleDates['reading_start_date']) {
                                         $set('reading_start_date', $scheduleDates['reading_start_date']->format('Y-m-d'));
                                     }
@@ -220,12 +286,13 @@ class BillingPeriodResource extends Resource
                             ->default(now()->year)
                             ->live()
                             ->afterStateUpdated(function (Forms\Set $set, $state, Forms\Get $get) use ($user) {
-                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : $get('village_id');
+                                // Fix: Use proper village ID resolution
+                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : static::getCurrentVillageId();
                                 $month = $get('month') ?? now()->month;
-                                
+
                                 if ($villageId && $state && $month) {
                                     $scheduleDates = BillingPeriod::getPreviousPeriodScheduleDates($villageId, $state, $month);
-                                    
+
                                     if ($scheduleDates['reading_start_date']) {
                                         $set('reading_start_date', $scheduleDates['reading_start_date']->format('Y-m-d'));
                                     }
@@ -255,11 +322,11 @@ class BillingPeriodResource extends Resource
                     ->schema([
                         Forms\Components\DatePicker::make('reading_start_date')
                             ->label('Tanggal Mulai Baca Meter')
-                            ->default(function (Forms\Get $get) use ($user, $currentVillageId) {
-                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : $currentVillageId;
+                            ->default(function (Forms\Get $get) use ($user) {
+                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : static::getCurrentVillageId();
                                 $year = $get('year') ?? now()->year;
                                 $month = $get('month') ?? now()->month;
-                                
+
                                 if ($villageId && $year && $month) {
                                     $scheduleDates = BillingPeriod::getPreviousPeriodScheduleDates($villageId, $year, $month);
                                     return $scheduleDates['reading_start_date']?->format('Y-m-d');
@@ -270,11 +337,11 @@ class BillingPeriodResource extends Resource
 
                         Forms\Components\DatePicker::make('reading_end_date')
                             ->label('Tanggal Selesai Baca Meter')
-                            ->default(function (Forms\Get $get) use ($user, $currentVillageId) {
-                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : $currentVillageId;
+                            ->default(function (Forms\Get $get) use ($user) {
+                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : static::getCurrentVillageId();
                                 $year = $get('year') ?? now()->year;
                                 $month = $get('month') ?? now()->month;
-                                
+
                                 if ($villageId && $year && $month) {
                                     $scheduleDates = BillingPeriod::getPreviousPeriodScheduleDates($villageId, $year, $month);
                                     return $scheduleDates['reading_end_date']?->format('Y-m-d');
@@ -285,11 +352,11 @@ class BillingPeriodResource extends Resource
 
                         Forms\Components\DatePicker::make('billing_due_date')
                             ->label('Tanggal Jatuh Tempo')
-                            ->default(function (Forms\Get $get) use ($user, $currentVillageId) {
-                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : $currentVillageId;
+                            ->default(function (Forms\Get $get) use ($user) {
+                                $villageId = $user?->isSuperAdmin() ? $get('village_id') : static::getCurrentVillageId();
                                 $year = $get('year') ?? now()->year;
                                 $month = $get('month') ?? now()->month;
-                                
+
                                 if ($villageId && $year && $month) {
                                     $scheduleDates = BillingPeriod::getPreviousPeriodScheduleDates($villageId, $year, $month);
                                     return $scheduleDates['billing_due_date']?->format('Y-m-d');

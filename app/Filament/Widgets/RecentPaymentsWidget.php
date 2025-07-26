@@ -29,8 +29,8 @@ class RecentPaymentsWidget extends BaseWidget
 
         return $table
             ->query(
-                Payment::whereHas('bill.waterUsage.customer', fn($q) => $q->where('village_id', $currentVillage))
-                    ->with(['bill.waterUsage.customer', 'collector'])
+                Payment::whereHas('bills.customer', fn($q) => $q->where('village_id', $currentVillage))
+                    ->with(['bills.customer', 'collector'])
                     ->latest('payment_date')
             )
             ->columns([
@@ -39,16 +39,18 @@ class RecentPaymentsWidget extends BaseWidget
                     ->dateTime()
                     ->sortable(),
 
-                Tables\Columns\TextColumn::make('bill.waterUsage.customer.customer_code')
+                Tables\Columns\TextColumn::make('bills.0.customer.customer_code')
                     ->label('Kode')
-                    ->searchable(),
+                    ->searchable()
+                    ->getStateUsing(fn($record) => $record->bills->first()?->customer->customer_code),
 
-                Tables\Columns\TextColumn::make('bill.waterUsage.customer.name')
+                Tables\Columns\TextColumn::make('bills.0.customer.name')
                     ->label('Pelanggan')
                     ->searchable()
-                    ->limit(25),
+                    ->limit(25)
+                    ->getStateUsing(fn($record) => $record->bills->first()?->customer->name),
 
-                Tables\Columns\TextColumn::make('amount_paid')
+                Tables\Columns\TextColumn::make('total_amount')
                     ->label('Jumlah')
                     ->money('IDR')
                     ->sortable(),

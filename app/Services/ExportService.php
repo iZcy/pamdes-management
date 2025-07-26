@@ -268,8 +268,8 @@ class ExportService
     public function exportPayments(Builder $query, string $format, array $metadata = []): string
     {
         $payments = $query->with([
-            'bill.waterUsage.customer.village',
-            'bill.waterUsage.billingPeriod',
+            'bills.customer.village',
+            'bills.waterUsage.billingPeriod',
             'collector'
         ])->get();
 
@@ -287,17 +287,18 @@ class ExportService
         ];
 
         $exportData = $payments->map(function ($payment) {
+            $firstBill = $payment->bills->first();
             return [
                 'payment_date' => $payment->payment_date->format('d/m/Y H:i'),
-                'customer_code' => $payment->bill->waterUsage->customer->customer_code ?? '',
-                'customer_name' => $payment->bill->waterUsage->customer->name ?? '',
-                'village_name' => $payment->bill->waterUsage->customer->village->name ?? '',
-                'period_name' => $payment->bill->waterUsage->billingPeriod->period_name ?? '',
-                'amount_paid' => 'Rp ' . number_format($payment->amount_paid ?? 0),
+                'customer_code' => $firstBill?->customer->customer_code ?? '',
+                'customer_name' => $firstBill?->customer->name ?? '',
+                'village_name' => $firstBill?->customer->village->name ?? '',
+                'period_name' => $firstBill?->waterUsage->billingPeriod->period_name ?? '',
+                'amount_paid' => 'Rp ' . number_format($payment->total_amount ?? 0),
                 'change_given' => 'Rp ' . number_format($payment->change_given ?? 0),
                 'payment_method' => $payment->getPaymentMethodLabel(),
                 'collector_name' => $payment->collector->name ?? '',
-                'payment_reference' => $payment->payment_reference ?? '',
+                'payment_reference' => $payment->transaction_ref ?? '',
             ];
         })->toArray();
 

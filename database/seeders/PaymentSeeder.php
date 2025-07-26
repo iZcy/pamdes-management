@@ -1,5 +1,5 @@
 <?php
-// database/seeders/PaymentSeeder.php - Fixed to use correct relationship
+// database/seeders/PaymentSeeder.php - Updated for new simplified payment structure
 
 namespace Database\Seeders;
 
@@ -38,23 +38,28 @@ class PaymentSeeder extends Seeder
                 continue;
             }
 
-            // Get paid bills that don't have payment records yet for this village
-            $paidBills = Bill::whereHas('waterUsage.customer', function ($q) use ($village) {
+            // Get unpaid bills that can be paid for this village
+            $unpaidBills = Bill::whereHas('customer', function ($q) use ($village) {
                 $q->where('village_id', $village->id);
             })
-                ->where('status', 'paid')
-                ->whereDoesntHave('payments')
-                ->with(['waterUsage.customer', 'waterUsage.billingPeriod'])
+                ->where('status', 'unpaid')
+                ->with(['customer', 'waterUsage.billingPeriod'])
                 ->get();
 
-            if ($paidBills->isEmpty()) {
-                $this->command->warn("No paid bills without payment records found for {$village->name}. Skipping...");
+            if ($unpaidBills->isEmpty()) {
+                $this->command->warn("No unpaid bills found for {$village->name}. Skipping...");
                 continue;
             }
 
+            // Pay a percentage of bills (70% paid for completed periods)
+            $billsToPay = $unpaidBills->filter(function ($bill) {
+                return $bill->waterUsage->billingPeriod->status === 'completed' && rand(1, 10) <= 7;
+            });
+
             $villagePayments = 0;
 
-            foreach ($paidBills as $bill) {
+            // Create individual payments for selected bills
+            foreach ($billsToPay as $bill) {
                 // Determine payment method (realistic distribution)
                 $paymentMethods = [
                     'cash' => 60,     // 60% cash
@@ -77,33 +82,29 @@ class PaymentSeeder extends Seeder
 
                 // Calculate payment details
                 $billAmount = $bill->total_amount;
-
-                // Sometimes customers pay more (for change scenarios)
-                $amountPaid = $billAmount;
                 $changeGiven = 0;
 
                 if ($paymentMethod === 'cash' && rand(1, 3) === 1) {
                     // 33% chance for cash payments to have change
                     $roundUpAmount = ceil($billAmount / 5000) * 5000; // Round up to nearest 5000
                     if ($roundUpAmount > $billAmount) {
-                        $amountPaid = $roundUpAmount;
-                        $changeGiven = $amountPaid - $billAmount;
+                        $changeGiven = $roundUpAmount - $billAmount;
                     }
                 }
 
-                // Generate payment reference for non-cash payments
-                $paymentReference = null;
-                if ($paymentMethod === 'transfer') {
-                    $paymentReference = 'TRF' . date('Ymd', strtotime($bill->payment_date)) . rand(1000, 9999);
-                } elseif ($paymentMethod === 'qris') {
-                    $paymentReference = 'QR' . date('Ymd', strtotime($bill->payment_date)) . rand(100000, 999999);
+                // Generate transaction reference for digital payments
+                $transactionRef = null;
+                if (in_array($paymentMethod, ['transfer', 'qris'])) {
+                    $transactionRef = 'TXN-' . strtoupper($village->slug) . '-' . date('YmdHis', strtotime($bill->payment_date)) . '-' . uniqid();
                 }
 
                 // Select random collector from this village
                 $collector = $collectors->random();
 
-                // Use payment date from bill, or generate realistic date
-                $paymentDate = $bill->payment_date ?: $bill->due_date->subDays(rand(0, 10));
+                // Generate realistic payment date for completed periods
+                $paymentDate = $bill->due_date
+                    ? $bill->due_date->subDays(rand(0, 10))
+                    : now()->subDays(rand(1, 30));
 
                 // Generate realistic notes (20% chance)
                 $notes = null;
@@ -113,26 +114,43 @@ class PaymentSeeder extends Seeder
                         'Dibayar di kantor desa',
                         'Pelanggan datang sendiri',
                         'Pembayaran melalui petugas',
-                        'Bayar sekaligus 2 bulan',
-                        'Cicilan pembayaran',
                         'Pembayaran via transfer mobile banking',
                         'Dibayar oleh keluarga',
                     ];
                     $notes = fake()->randomElement($noteOptions);
                 }
 
-                Payment::create([
-                    'bill_id' => $bill->bill_id,
+                // Create payment using the new payBills method
+                $payment = Payment::payBills([$bill->bill_id], [
                     'payment_date' => $paymentDate,
-                    'amount_paid' => $amountPaid,
                     'change_given' => $changeGiven,
                     'payment_method' => $paymentMethod,
-                    'payment_reference' => $paymentReference,
+                    'transaction_ref' => $transactionRef,
                     'collector_id' => $collector->id,
                     'notes' => $notes,
                 ]);
 
                 $villagePayments++;
+            }
+
+            // Create some bundle payments (20% chance for customers with multiple unpaid bills)
+            if (rand(1, 5) === 1) {
+                $customers = $village->customers()->has('bills')->get();
+                foreach ($customers->take(3) as $customer) {
+                    $unpaidBills = $customer->bills()->where('status', 'unpaid')->limit(rand(2, 4))->get();
+                    if ($unpaidBills->count() >= 2) {
+                        $transactionRef = 'TXN-' . strtoupper($village->slug) . '-' . now()->format('YmdHis') . '-' . uniqid();
+                        
+                        $payment = Payment::payBills($unpaidBills->pluck('bill_id')->toArray(), [
+                            'payment_date' => now()->subDays(rand(0, 7)),
+                            'payment_method' => 'qris',
+                            'transaction_ref' => $transactionRef,
+                            'notes' => 'Bundle payment via portal',
+                        ]);
+                        
+                        $villagePayments++;
+                    }
+                }
             }
 
             $this->command->info("Created {$villagePayments} payment records for {$village->name}");
@@ -152,15 +170,15 @@ class PaymentSeeder extends Seeder
         $this->command->info('');
         $this->command->info('Payment Summary by Village:');
         foreach ($villages as $village) {
-            $villagePaymentCount = Payment::whereHas('bill.waterUsage.customer', function ($q) use ($village) {
+            $villagePaymentCount = Payment::whereHas('bills.customer', function ($q) use ($village) {
                 $q->where('village_id', $village->id);
             })->count();
 
-            $totalPaid = Payment::whereHas('bill.waterUsage.customer', function ($q) use ($village) {
+            $totalPaid = Payment::whereHas('bills.customer', function ($q) use ($village) {
                 $q->where('village_id', $village->id);
-            })->sum('amount_paid');
+            })->sum('total_amount');
 
-            $totalChange = Payment::whereHas('bill.waterUsage.customer', function ($q) use ($village) {
+            $totalChange = Payment::whereHas('bills.customer', function ($q) use ($village) {
                 $q->where('village_id', $village->id);
             })->sum('change_given');
 
@@ -187,7 +205,7 @@ class PaymentSeeder extends Seeder
                     ->count();
 
                 $totalCollected = Payment::where('collector_id', $collector->id)
-                    ->sum('amount_paid');
+                    ->sum('total_amount');
 
                 $this->command->info("  - {$collector->name}: {$recentPaymentCount} payments (last 30 days), Rp " . number_format($totalCollected) . " total collected");
             }

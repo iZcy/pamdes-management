@@ -55,7 +55,6 @@ class BillingService
         }
 
         return Bill::create([
-            'bundle_reference' => Bill::generateBundleReference(),
             'customer_id' => $usage->customer_id,
             'usage_id' => $usage->usage_id,
             'water_charge' => $waterCharge,

@@ -93,31 +93,38 @@ class TripayService
     }
 
     /**
-     * Create QRIS payment for bill
+     * Create QRIS payment for bill (simplified for single bills only)
      */
     public function createPayment(Bill $bill, array $customerData, string $return)
     {
-        // If pending transaction for the bill exists, reject
-        if ($bill->status === 'pending' && $bill->bill_ref) {
+        Log::info('TripayService createPayment called', [
+            'bill_id' => $bill->bill_id,
+            'customer_id' => $bill->customer_id,
+            'bill_status' => $bill->status,
+            'transaction_ref' => $bill->transaction_ref
+        ]);
+
+        // If bill has pending transaction, reject
+        if ($bill->transaction_ref) {
             Log::warning('Payment already pending for bill', ['bill_id' => $bill->bill_id]);
             throw new \Exception('Payment is already pending for this bill. Please complete or cancel the existing payment first.');
         }
 
         try {
-            // Generate unique merchant reference
-            $village = Village::find($bill->waterUsage->customer->village_id);
-            if (!$village) {
-                throw new \Exception('Village not found for this bill');
+            // Generate unique merchant reference for single bill
+            if (!$this->village) {
+                throw new \Exception('Village not available for payment processing');
             }
-            $villageSlug = $village->slug;
-            $villageCode = strtoupper($villageSlug); // Use village slug as code
-            $yearMonth = $bill->waterUsage->billingPeriod->created_at->format('Ym'); // e.g., "202401" for January 2024
+            
+            $villageSlug = $this->village->slug;
+            $villageCode = strtoupper($villageSlug);
+            $yearMonth = $bill->waterUsage->billingPeriod->created_at->format('Ym');
             $merchantRef = 'PAMDES-' . $villageCode . '-' . $yearMonth . '-' . $bill->bill_id . '-' . time();
 
             // Calculate timeout
             $timeout = Carbon::now()->addMinutes($this->timeoutMinutes)->timestamp;
 
-            // Prepare order items
+            // Prepare order items for single bill
             $orderItems = [[
                 "sku" => "BILL-{$bill->bill_id}",
                 "name" => "Pembayaran Tagihan Air " . ($bill->waterUsage->billingPeriod->period_name ?? 'Bulan Ini'),
@@ -167,10 +174,9 @@ class TripayService
 
             $responseData = $response->json()['data'];
 
-            // Update bill with Tripay reference
+            // Update bill with transaction reference
             $bill->update([
-                'bill_ref' => $merchantRef,
-                'status' => 'pending'
+                'transaction_ref' => $merchantRef
             ]);
 
             Log::info('Tripay payment created successfully', [
@@ -193,6 +199,112 @@ class TripayService
                 'village_id' => $this->village?->id,
             ]);
             throw $e;
+        }
+    }
+
+    /**
+     * Create QRIS payment for multiple bills (bundle payment)
+     */
+    public function createBundlePayment($bills, array $customerData, string $transactionRef, string $return)
+    {
+        Log::info('TripayService createBundlePayment called', [
+            'bill_count' => $bills->count(),
+            'total_amount' => $bills->sum('total_amount'),
+            'transaction_ref' => $transactionRef
+        ]);
+
+        try {
+            if (!$this->village) {
+                throw new \Exception('Village not available for bundle payment processing');
+            }
+            
+            $villageSlug = $this->village->slug;
+            $villageCode = strtoupper($villageSlug);
+            $yearMonth = now()->format('Ym');
+            $merchantRef = 'PAMDES-' . $villageCode . '-' . $yearMonth . '-BUNDLE-' . time();
+
+            // Calculate timeout
+            $timeout = Carbon::now()->addMinutes($this->timeoutMinutes)->timestamp;
+            $totalAmount = $bills->sum('total_amount');
+
+            // Prepare order items for bundle
+            $orderItems = [[
+                "sku" => "BUNDLE-{$transactionRef}",
+                "name" => "Bundle Pembayaran Tagihan Air ({$bills->count()} tagihan)",
+                "price" => (int) $totalAmount,
+                "quantity" => 1,
+            ]];
+
+            // Generate signature
+            $signature = $this->generateSignature($merchantRef, $totalAmount);
+
+            // Prepare payload
+            $payload = [
+                "method" => "QRIS",
+                "merchant_ref" => $merchantRef,
+                "amount" => (int) $totalAmount,
+                "customer_name" => $customerData['name'],
+                "customer_email" => $customerData['email'],
+                "customer_phone" => $customerData['phone'] ?? '',
+                "order_items" => $orderItems,
+                "return_url" => $return,
+                "expired_time" => $timeout,
+                "signature" => $signature,
+            ];
+
+            Log::info('Creating Tripay bundle payment', [
+                'merchant_ref' => $merchantRef,
+                'amount' => $totalAmount,
+                'bill_count' => $bills->count(),
+                'village_id' => $this->village?->id,
+                'is_production' => $this->isProduction,
+            ]);
+
+            // Send request to Tripay
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $this->apiKey,
+            ])->post($this->baseUrl . '/transaction/create', $payload);
+
+            if (!$response->successful()) {
+                $errorMessage = $response->json()['message'] ?? 'Unknown error';
+                Log::error('Tripay bundle payment creation failed', [
+                    'error' => $errorMessage,
+                    'response' => $response->body(),
+                    'status' => $response->status(),
+                ]);
+                
+                return [
+                    'success' => false,
+                    'message' => $errorMessage,
+                ];
+            }
+
+            $responseData = $response->json()['data'];
+
+            Log::info('Tripay bundle payment created successfully', [
+                'merchant_ref' => $merchantRef,
+                'tripay_reference' => $responseData['reference'],
+                'checkout_url' => $responseData['checkout_url'],
+                'bill_count' => $bills->count(),
+            ]);
+
+            return [
+                'success' => true,
+                'checkout_url' => $responseData['checkout_url'],
+                'tripay_reference' => $responseData['reference'],
+                'merchant_ref' => $merchantRef,
+                'timeout' => Carbon::createFromTimestamp($timeout),
+            ];
+        } catch (\Exception $e) {
+            Log::error('Failed to create Tripay bundle payment', [
+                'error' => $e->getMessage(),
+                'village_id' => $this->village?->id,
+            ]);
+            
+            return [
+                'success' => false,
+                'message' => $e->getMessage(),
+            ];
         }
     }
 

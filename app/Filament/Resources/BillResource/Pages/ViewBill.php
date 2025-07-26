@@ -3,7 +3,6 @@
 namespace App\Filament\Resources\BillResource\Pages;
 
 use App\Filament\Resources\BillResource;
-use App\Models\BundlePayment;
 use Filament\Actions;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\Section;
@@ -61,64 +60,47 @@ class ViewBill extends ViewRecord
                     ])
                     ->columns(2),
 
-                Section::make('Bundel Pembayaran')
+                Section::make('Informasi Bundel')
                     ->schema([
-                        RepeatableEntry::make('bundlePayments')
+                        TextEntry::make('transaction_ref')
+                            ->label('Transaction Reference')
+                            ->copyable()
+                            ->weight('bold')
+                            ->visible(fn ($record) => $record->transaction_ref),
+                        TextEntry::make('expires_at')
+                            ->label('Kadaluwarsa')
+                            ->dateTime()
+                            ->visible(fn ($record) => $record->status === 'pending' && $record->expires_at),
+                    ])
+                    ->columns(3)
+                    ->visible(fn ($record) => $record->is_bundle)
+                    ->collapsible(),
+
+                Section::make('Tagihan dalam Bundel')
+                    ->schema([
+                        RepeatableEntry::make('bundledBills')
                             ->label('')
                             ->schema([
-                                TextEntry::make('bundle_reference')
-                                    ->label('Referensi Bundel')
-                                    ->copyable()
-                                    ->weight('bold'),
+                                TextEntry::make('waterUsage.customer.customer_code')
+                                    ->label('Kode Pelanggan'),
+                                TextEntry::make('waterUsage.billingPeriod.period_name')
+                                    ->label('Periode'),
+                                TextEntry::make('total_amount')
+                                    ->label('Jumlah')
+                                    ->money('IDR'),
                                 TextEntry::make('status')
-                                    ->label('Status Bundel')
+                                    ->label('Status')
                                     ->badge()
                                     ->colors([
-                                        'warning' => 'pending',
+                                        'warning' => 'unpaid',
                                         'success' => 'paid',
-                                        'danger' => ['failed', 'expired'],
-                                    ])
-                                    ->formatStateUsing(fn ($state) => match($state) {
-                                        'pending' => 'Menunggu Pembayaran',
-                                        'paid' => 'Lunas',
-                                        'failed' => 'Gagal',
-                                        'expired' => 'Kedaluwarsa',
-                                        default => $state
-                                    }),
-                                TextEntry::make('total_amount')
-                                    ->label('Total Bundel')
-                                    ->money('IDR'),
-                                TextEntry::make('bill_count')
-                                    ->label('Jumlah Tagihan')
-                                    ->suffix(' tagihan'),
-                                TextEntry::make('payment_method')
-                                    ->label('Metode Pembayaran')
-                                    ->formatStateUsing(fn ($state) => match($state) {
-                                        'cash' => 'Tunai',
-                                        'transfer' => 'Transfer Bank',
-                                        'qris' => 'QRIS',  
-                                        'other' => 'Lainnya',
-                                        default => $state
-                                    }),
-                                TextEntry::make('collector.name')
-                                    ->label('Petugas Penagih')
-                                    ->visible(fn ($record) => $record->collector_id),
-                                TextEntry::make('paid_at')
-                                    ->label('Dibayar Pada')
-                                    ->dateTime()
-                                    ->visible(fn ($record) => $record->status === 'paid'),
-                                TextEntry::make('expires_at')
-                                    ->label('Kadaluwarsa')
-                                    ->dateTime()
-                                    ->visible(fn ($record) => $record->status === 'pending'),
-                                TextEntry::make('notes')
-                                    ->label('Catatan')
-                                    ->visible(fn ($record) => $record->notes),
+                                        'danger' => 'overdue',
+                                    ]),
                             ])
-                            ->columns(3)
+                            ->columns(4)
                             ->columnSpanFull(),
                     ])
-                    ->visible(fn ($record) => $record->bundlePayments()->exists())
+                    ->visible(fn ($record) => $record->is_bundle && $record->bundledBills()->exists())
                     ->collapsible(),
             ]);
     }

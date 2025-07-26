@@ -48,9 +48,9 @@ class StatsOverview extends BaseWidget
         $totalVillages = Village::active()->count();
         $totalCustomers = Customer::count();
         $activeCustomers = Customer::active()->count();
-        $totalRevenue = Payment::sum('amount_paid');
+        $totalRevenue = Payment::sum('total_amount');
         $thisMonthRevenue = Payment::whereMonth('payment_date', now()->month)
-            ->whereYear('payment_date', now()->year)->sum('amount_paid');
+            ->whereYear('payment_date', now()->year)->sum('total_amount');
         $unpaidBills = Bill::where('status', '!=', 'paid')->count();
         $overdueBills = Bill::where('status', 'overdue')->count();
         $todayPayments = Payment::whereDate('payment_date', today())->count();
@@ -94,7 +94,7 @@ class StatsOverview extends BaseWidget
         // Build queries with village filter
         $customerQuery = Customer::where('village_id', $villageId);
         $billQuery = Bill::whereHas('waterUsage.customer', fn($q) => $q->where('village_id', $villageId));
-        $paymentQuery = Payment::whereHas('bill.waterUsage.customer', fn($q) => $q->where('village_id', $villageId));
+        $paymentQuery = Payment::whereHas('bills.customer', fn($q) => $q->where('village_id', $villageId));
 
         // Calculate stats
         $totalCustomers = $customerQuery->count();
@@ -110,8 +110,8 @@ class StatsOverview extends BaseWidget
             ->whereYear('payment_date', now()->year)->count();
         $todayPayments = $paymentQuery->whereDate('payment_date', today())->count();
         $thisMonthRevenue = $paymentQuery->whereMonth('payment_date', now()->month)
-            ->whereYear('payment_date', now()->year)->sum('amount_paid');
-        $totalRevenue = $paymentQuery->sum('amount_paid');
+            ->whereYear('payment_date', now()->year)->sum('total_amount');
+        $totalRevenue = $paymentQuery->sum('total_amount');
 
         // System resources stats
         $totalUsages = WaterUsage::whereHas('customer', fn($q) => $q->where('village_id', $villageId))->count();
@@ -169,7 +169,7 @@ class StatsOverview extends BaseWidget
             $date = now()->subMonths($i);
             $revenue = Payment::whereMonth('payment_date', $date->month)
                 ->whereYear('payment_date', $date->year)
-                ->sum('amount_paid');
+                ->sum('total_amount');
             $trend[] = $revenue / 1000000; // Convert to millions
         }
         return $trend;
@@ -221,10 +221,10 @@ class StatsOverview extends BaseWidget
         $trend = [];
         for ($i = 5; $i >= 0; $i--) {
             $date = now()->subMonths($i);
-            $revenue = Payment::whereHas('bill.waterUsage.customer', fn($q) => $q->where('village_id', $villageId))
+            $revenue = Payment::whereHas('bills.customer', fn($q) => $q->where('village_id', $villageId))
                 ->whereMonth('payment_date', $date->month)
                 ->whereYear('payment_date', $date->year)
-                ->sum('amount_paid');
+                ->sum('total_amount');
             $trend[] = $revenue / 1000000;
         }
         return $trend;

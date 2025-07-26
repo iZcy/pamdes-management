@@ -46,10 +46,10 @@ class MonthlyRevenueChartWidget extends ChartWidget
                 12 => 'Des'
             ][$month->month];
 
-            $revenue = Payment::whereHas('bill.waterUsage.customer', fn($q) => $q->where('village_id', $currentVillage))
+            $revenue = Payment::whereHas('bills.customer', fn($q) => $q->where('village_id', $currentVillage))
                 ->whereMonth('payment_date', $month->month)
                 ->whereYear('payment_date', $month->year)
-                ->sum('amount_paid');
+                ->sum('total_amount');
 
             $labels[] = $monthName . ' ' . $month->format('y');
             $data[] = $revenue / 1000000; // Convert to millions

@@ -64,25 +64,9 @@ class BillSeeder extends Seeder
                     $waterCharge = $calculation['total_charge'];
                     $totalAmount = $waterCharge + $adminFee + $maintenanceFee;
 
-                    // Determine bill status based on billing period
+                    // All bills start as unpaid - payments will mark them as paid
                     $status = 'unpaid';
                     $paymentDate = null;
-
-                    // For completed periods, make some bills paid (70% paid)
-                    if ($usage->billingPeriod->status === 'completed' && rand(1, 10) <= 7) {
-                        $status = 'paid';
-                        $paymentDate = $usage->billingPeriod->billing_due_date
-                            ? $usage->billingPeriod->billing_due_date->subDays(rand(0, 10))
-                            : now()->subDays(rand(1, 30));
-                    }
-
-                    // For overdue bills (5% chance for unpaid bills)
-                    if (
-                        $status === 'unpaid' && $usage->billingPeriod->billing_due_date &&
-                        $usage->billingPeriod->billing_due_date->isPast() && rand(1, 20) === 1
-                    ) {
-                        $status = 'overdue';
-                    }
 
                     // Get the appropriate tariff for logging/debugging
                     $tariff = WaterTariff::where('village_id', $village->id)
@@ -95,7 +79,6 @@ class BillSeeder extends Seeder
                         ->first();
 
                     Bill::create([
-                        'bundle_reference' => \App\Models\Bill::generateBundleReference(),
                         'customer_id' => $usage->customer_id,
                         'usage_id' => $usage->usage_id,
                         'tariff_id' => $tariff?->tariff_id, // Link to specific tariff used
@@ -136,7 +119,8 @@ class BillSeeder extends Seeder
         $this->command->info('📊 Bill Status Summary:');
         $this->command->info('- Paid: ' . Bill::where('status', 'paid')->count());
         $this->command->info('- Unpaid: ' . Bill::where('status', 'unpaid')->count());
-        $this->command->info('- Overdue: ' . Bill::where('status', 'overdue')->count());
+        $overdueCount = Bill::where('status', 'unpaid')->where('due_date', '<', now())->count();
+        $this->command->info('- Overdue (unpaid past due): ' . $overdueCount);
 
         $this->command->info('');
         $this->command->info('📋 Bill Summary by Village:');

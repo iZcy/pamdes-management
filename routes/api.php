@@ -103,9 +103,9 @@ Route::middleware(['throttle:60,1'])->group(function () {
                     })->overdue()->count(),
                 ],
                 'payments' => [
-                    'this_month' => Payment::whereHas('bill.waterUsage.customer', function ($q) use ($villageId) {
+                    'this_month' => Payment::whereHas('bills.customer', function ($q) use ($villageId) {
                         $q->where('village_id', $villageId);
-                    })->thisMonth()->sum('amount_paid'),
+                    })->thisMonth()->sum('total_amount'),
                 ],
             ],
         ]);
@@ -134,7 +134,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
                     'bills_unpaid' => Bill::whereHas('waterUsage.customer', function ($q) use ($villageId) {
                         $q->where('village_id', $villageId);
                     })->unpaid()->count(),
-                    'payments_today' => Payment::whereHas('bill.waterUsage.customer', function ($q) use ($villageId) {
+                    'payments_today' => Payment::whereHas('bills.customer', function ($q) use ($villageId) {
                         $q->where('village_id', $villageId);
                     })->whereDate('payment_date', today())->count(),
                 ],

@@ -64,18 +64,69 @@ class WaterTariffResource extends Resource
         return $user?->isSuperAdmin() || $user?->role === 'village_admin';
     }
 
+    /**
+     * Get the current village ID with proper fallback logic
+     */
+    protected static function getCurrentVillageId(): ?string
+    {
+        $user = User::find(Auth::user()->id);
+
+        if (!$user) {
+            return null;
+        }
+
+        // For super admins, use village context if available
+        if ($user->isSuperAdmin()) {
+            return $user->getCurrentVillageContext();
+        }
+
+        // For village users, try multiple approaches
+        $villageId = $user->getCurrentVillageContext();
+
+        // If still no village, try fallbacks
+        if (!$villageId) {
+            // Try config directly
+            $villageId = config('pamdes.current_village_id');
+
+            if (!$villageId) {
+                // Try primary village
+                $villageId = $user->getPrimaryVillageId();
+            }
+
+            if (!$villageId) {
+                // Try first accessible village
+                $firstVillage = $user->getAccessibleVillages()->first();
+                $villageId = $firstVillage?->id;
+            }
+        }
+
+        // Verify user has access to this village
+        if ($villageId && !$user->hasAccessToVillage($villageId)) {
+            // Fall back to first accessible village
+            $firstVillage = $user->getAccessibleVillages()->first();
+            $villageId = $firstVillage?->id;
+        }
+
+        return $villageId;
+    }
+
     public static function getEloquentQuery(): Builder
     {
         $query = parent::getEloquentQuery()->with('village');
 
         $user = User::find(Auth::user()->id);
-        $currentVillage = $user?->getCurrentVillageContext();
+        $currentVillage = static::getCurrentVillageId();
 
         if ($user?->isSuperAdmin() && $currentVillage) {
             $query->where('village_id', $currentVillage);
         } elseif ($user?->isVillageAdmin()) {
             $accessibleVillages = $user->getAccessibleVillages()->pluck('id');
-            $query->whereIn('village_id', $accessibleVillages);
+            if ($accessibleVillages->isNotEmpty()) {
+                $query->whereIn('village_id', $accessibleVillages);
+            } else {
+                // If no accessible villages, return empty result
+                $query->whereRaw('1 = 0');
+            }
         }
 
         return $query;
@@ -85,7 +136,7 @@ class WaterTariffResource extends Resource
     {
         $user = Auth::user();
         $user = User::find($user->id);
-        $currentVillageId = $user?->getCurrentVillageContext();
+        $currentVillageId = static::getCurrentVillageId();
 
         return $form
             ->schema([
@@ -119,7 +170,20 @@ class WaterTariffResource extends Resource
                             ->visible(fn() => !$user?->isSuperAdmin()),
 
                         Forms\Components\Hidden::make('village_id')
-                            ->default($currentVillageId)
+                            ->default(function () use ($currentVillageId, $user) {
+                                if ($user?->isSuperAdmin()) {
+                                    return null; // Super admin selects manually
+                                }
+
+                                // For other roles, use current village context or fallback
+                                if ($currentVillageId) {
+                                    return $currentVillageId;
+                                }
+
+                                // Fallback to first accessible village for village admin
+                                $firstVillage = $user?->getAccessibleVillages()->first();
+                                return $firstVillage?->id;
+                            })
                             ->visible(fn() => !$user?->isSuperAdmin()),
 
                         Forms\Components\Toggle::make('is_active')

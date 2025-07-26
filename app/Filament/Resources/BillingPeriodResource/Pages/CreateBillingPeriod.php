@@ -20,8 +20,8 @@ class CreateBillingPeriod extends CreateRecord
 
         if ($existingPeriod) {
             Notification::make()
-                ->title('Error')
-                ->body('A billing period for this year, month, and village already exists.')
+                ->title('Kesalahan')
+                ->body('Periode tagihan untuk tahun, bulan, dan desa ini sudah ada.')
                 ->danger()
                 ->send();
 

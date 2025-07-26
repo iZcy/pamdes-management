@@ -21,8 +21,8 @@ class CreateWaterUsage extends CreateRecord
 
         if ($existingUsage) {
             Notification::make()
-                ->title('Error')
-                ->body('A water usage record for this customer and billing period already exists.')
+                ->title('Kesalahan')
+                ->body('Data pembacaan meter untuk pelanggan dan periode tagihan ini sudah ada.')
                 ->danger()
                 ->send();
 

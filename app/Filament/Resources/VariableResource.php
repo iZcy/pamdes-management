@@ -94,12 +94,58 @@ class VariableResource extends Resource
         return $user && !in_array($user->role, ['collector', 'operator']);
     }
 
+    /**
+     * Get the current village ID with proper fallback logic
+     */
+    protected static function getCurrentVillageId(): ?string
+    {
+        $user = User::find(Auth::user()->id);
+
+        if (!$user) {
+            return null;
+        }
+
+        // For super admins, use village context if available
+        if ($user->isSuperAdmin()) {
+            return $user->getCurrentVillageContext();
+        }
+
+        // For village users, try multiple approaches
+        $villageId = $user->getCurrentVillageContext();
+
+        // If still no village, try fallbacks
+        if (!$villageId) {
+            // Try config directly
+            $villageId = config('pamdes.current_village_id');
+
+            if (!$villageId) {
+                // Try primary village
+                $villageId = $user->getPrimaryVillageId();
+            }
+
+            if (!$villageId) {
+                // Try first accessible village
+                $firstVillage = $user->getAccessibleVillages()->first();
+                $villageId = $firstVillage?->id;
+            }
+        }
+
+        // Verify user has access to this village
+        if ($villageId && !$user->hasAccessToVillage($villageId)) {
+            // Fall back to first accessible village
+            $firstVillage = $user->getAccessibleVillages()->first();
+            $villageId = $firstVillage?->id;
+        }
+
+        return $villageId;
+    }
+
     public static function getEloquentQuery(): Builder
     {
         $query = parent::getEloquentQuery();
 
         $user = User::find(Auth::user()->id);
-        $currentVillage = $user?->getCurrentVillageContext();
+        $currentVillage = static::getCurrentVillageId();
 
         if ($user?->isSuperAdmin() && $currentVillage) {
             // Super admin sees settings for current village context
@@ -107,7 +153,12 @@ class VariableResource extends Resource
         } elseif ($user?->isVillageAdmin()) {
             // Village admin sees settings for their accessible villages
             $accessibleVillages = $user->getAccessibleVillages()->pluck('id');
-            $query->whereIn('village_id', $accessibleVillages);
+            if ($accessibleVillages->isNotEmpty()) {
+                $query->whereIn('village_id', $accessibleVillages);
+            } else {
+                // If no accessible villages, return empty result
+                $query->whereRaw('1 = 0');
+            }
         }
 
         return $query;
@@ -126,10 +177,9 @@ class VariableResource extends Resource
                                 if ($record && $record->village) {
                                     return $record->village->name;
                                 }
-                                $user = User::find(Auth::user()->id);
-                                $currentVillage = $user?->getCurrentVillageContext();
-                                if ($currentVillage) {
-                                    $village = \App\Models\Village::find($currentVillage);
+                                $currentVillageId = static::getCurrentVillageId();
+                                if ($currentVillageId) {
+                                    $village = \App\Models\Village::find($currentVillageId);
                                     return $village?->name ?? 'Unknown Village';
                                 }
                                 return 'No Village Context';
@@ -139,7 +189,16 @@ class VariableResource extends Resource
                         Forms\Components\Hidden::make('village_id')
                             ->default(function () {
                                 $user = User::find(Auth::user()->id);
-                                return $user?->getCurrentVillageContext();
+                                $currentVillageId = static::getCurrentVillageId();
+                                
+                                // For all roles, use current village context or fallback
+                                if ($currentVillageId) {
+                                    return $currentVillageId;
+                                }
+                                
+                                // Fallback to first accessible village for village admin
+                                $firstVillage = $user?->getAccessibleVillages()->first();
+                                return $firstVillage?->id;
                             }),
 
                         Forms\Components\Group::make([
