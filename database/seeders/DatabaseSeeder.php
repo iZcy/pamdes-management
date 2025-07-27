@@ -57,9 +57,9 @@ class DatabaseSeeder extends Seeder
         $this->call(PaymentSeeder::class);
         $this->validateStep('payments', 300);
 
-        // 9. Create bundle bills for customers with multiple bills
-        $this->command->info('9️⃣ Creating bundle bills...');
-        $this->createBundleBills();
+        // 9. Bundle payments are already created by PaymentSeeder 
+        $this->command->info('9️⃣ Bundle payments created by PaymentSeeder (using current Payment-based architecture)');
+        // $this->createBundleBills(); // Disabled - uses deprecated architecture
 
         $this->command->info('✅ Database seeding completed successfully!');
         $this->command->info('');
@@ -247,17 +247,15 @@ class DatabaseSeeder extends Seeder
             // Get customers with multiple unpaid bills
             $customersWithMultipleBills = \App\Models\Customer::where('village_id', $village->id)
                 ->whereHas('bills', function ($query) {
-                    $query->where('status', 'unpaid')
-                        ->where('bill_count', 1); // Only single bills
+                    $query->where('status', 'unpaid');
                 }, '>=', 2)
                 ->with(['bills' => function ($query) {
                     $query->where('status', 'unpaid')
-                        ->where('bill_count', 1)
                         ->orderBy('due_date', 'asc');
                 }])
                 ->get()
                 ->filter(function ($customer) {
-                    return $customer->bills->where('status', 'unpaid')->where('bill_count', 1)->count() >= 2;
+                    return $customer->bills->where('status', 'unpaid')->count() >= 2;
                 });
 
             if ($customersWithMultipleBills->isEmpty()) {
