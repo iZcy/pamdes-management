@@ -182,7 +182,7 @@ class ExportService
         $bills = $query->with([
             'waterUsage.customer.village',
             'waterUsage.billingPeriod',
-            'latestPayment.collector'
+            'payments'
         ])->get();
 
         $columns = [

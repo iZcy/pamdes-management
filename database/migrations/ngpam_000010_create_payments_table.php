@@ -16,6 +16,7 @@ return new class extends Migration
             $table->decimal('total_amount', 10, 2); // Total amount for this payment
             $table->decimal('change_given', 10, 2)->default(0);
             $table->enum('payment_method', ['cash', 'transfer', 'qris', 'other'])->default('cash');
+            $table->enum('status', ['pending', 'completed', 'expired'])->default('pending');
             $table->string('transaction_ref')->nullable(); // Tripay transaction reference
             $table->json('tripay_data')->nullable(); // Tripay response data
             $table->foreignId('collector_id')->nullable();
@@ -24,6 +25,7 @@ return new class extends Migration
 
             $table->index('payment_date');
             $table->index('payment_method');
+            $table->index('status');
             $table->index('transaction_ref');
 
             $table->foreign('collector_id')->references('id')->on('users')->onDelete('set null');

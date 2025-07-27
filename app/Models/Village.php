@@ -6,6 +6,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Str;
 
 class Village extends Model
@@ -79,6 +80,11 @@ class Village extends Model
     public function waterTariffs(): HasMany
     {
         return $this->hasMany(WaterTariff::class, 'village_id', 'id');
+    }
+
+    public function variables(): HasOne
+    {
+        return $this->hasOne(Variable::class, 'village_id', 'id');
     }
 
     // Scopes

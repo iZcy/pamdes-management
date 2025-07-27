@@ -253,7 +253,7 @@
           </div>
           <div class="bg-gray-50 p-4 rounded-xl border border-gray-100">
             <p class="text-sm text-gray-600 font-medium mb-1">Total Tagihan</p>
-            <p class="text-lg font-bold text-gray-800">{{ $bills->count() }} tagihan</p>
+            <p class="text-lg font-bold text-gray-800">{{ $totalUnpaidBills }} tagihan</p>
           </div>
         </div>
       </div>
@@ -387,7 +387,7 @@
                             </span>
                           </div>
                           <!-- Bundle Payment - Continue -->
-                          <a href="{{ route('tripay.form', ['village' => $customer->village->slug, 'bill' => $bundle->first_bill->bill_id]) }}"
+                          <a href="{{ route('tripay.bundle.form', ['village' => $customer->village->slug, 'paymentId' => $bundle->payment_id]) }}"
                             class="inline-flex items-center px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-lg transition-colors duration-200">
                             <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m-2 0h-2m2-4v-3m2 3V9l-6 6 2-2z"></path>

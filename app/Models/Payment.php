@@ -20,6 +20,7 @@ class Payment extends Model
         'total_amount',
         'change_given',
         'payment_method',
+        'status',
         'transaction_ref',
         'tripay_data',
         'collector_id',
@@ -47,6 +48,21 @@ class Payment extends Model
             ->withTimestamps();
     }
 
+    // Legacy single bill relationship for backward compatibility
+    public function bill()
+    {
+        return $this->belongsToMany(Bill::class, 'bill_payment', 'payment_id', 'bill_id')
+            ->withPivot('amount_paid')
+            ->withTimestamps()
+            ->limit(1);
+    }
+
+    // Get first bill instance (not relationship)
+    public function getFirstBillAttribute()
+    {
+        return $this->bills()->first();
+    }
+
     public function collector(): BelongsTo
     {
         return $this->belongsTo(User::class, 'collector_id', 'id');
@@ -69,6 +85,21 @@ class Payment extends Model
     }
 
     // Scopes
+    public function scopePending(Builder $query): Builder
+    {
+        return $query->where('status', 'pending');
+    }
+
+    public function scopeCompleted(Builder $query): Builder
+    {
+        return $query->where('status', 'completed');
+    }
+
+    public function scopeExpired(Builder $query): Builder
+    {
+        return $query->where('status', 'expired');
+    }
+
     public function scopeToday(Builder $query): Builder
     {
         return $query->whereDate('payment_date', today());
@@ -105,6 +136,31 @@ class Payment extends Model
             'other' => 'Lainnya',
             default => 'Unknown'
         };
+    }
+
+    public function getStatusLabel(): string
+    {
+        return match ($this->status) {
+            'pending' => 'Menunggu',
+            'completed' => 'Selesai',
+            'expired' => 'Kedaluwarsa',
+            default => ucfirst($this->status)
+        };
+    }
+
+    public function isPending(): bool
+    {
+        return $this->status === 'pending';
+    }
+
+    public function isCompleted(): bool
+    {
+        return $this->status === 'completed';
+    }
+
+    public function isExpired(): bool
+    {
+        return $this->status === 'expired';
     }
 
     public function hasChange(): bool
@@ -160,5 +216,70 @@ class Payment extends Model
         }
 
         return $payment;
+    }
+
+    // Create payment for bills (without completing them - for pending online payments)
+    public static function createPayment(array $billIds, array $paymentData): self
+    {
+        $bills = Bill::whereIn('bill_id', $billIds)
+            ->where('status', 'unpaid')
+            ->whereDoesntHave('payments', function($q) {
+                $q->where('status', 'pending');
+            })
+            ->get();
+        
+        if ($bills->isEmpty()) {
+            throw new \Exception('No available bills found for payment');
+        }
+
+        $totalAmount = $bills->sum('total_amount');
+        
+        // Create payment with pending status for online payments, completed for manual
+        $status = ($paymentData['payment_method'] ?? 'cash') === 'cash' ? 'completed' : 'pending';
+        
+        $payment = self::create([
+            'payment_date' => $paymentData['payment_date'] ?? now()->toDateString(),
+            'total_amount' => $totalAmount,
+            'change_given' => $paymentData['change_given'] ?? 0,
+            'payment_method' => $paymentData['payment_method'] ?? 'cash',
+            'status' => $status,
+            'transaction_ref' => $paymentData['transaction_ref'] ?? null,
+            'tripay_data' => $paymentData['tripay_data'] ?? null,
+            'collector_id' => $paymentData['collector_id'] ?? null,
+            'notes' => $paymentData['notes'] ?? null,
+        ]);
+
+        // Attach bills to payment
+        foreach ($bills as $bill) {
+            $payment->bills()->attach($bill->bill_id, [
+                'amount_paid' => $bill->total_amount
+            ]);
+        }
+
+        // If manual payment (cash), mark bills as paid immediately
+        if ($status === 'completed') {
+            $payment->completeBillPayments();
+        }
+
+        return $payment;
+    }
+
+    // Complete payment and mark bills as paid
+    public function completeBillPayments(): void
+    {
+        $this->update(['status' => 'completed']);
+        
+        foreach ($this->bills as $bill) {
+            if ($bill->status === 'unpaid') {
+                $bill->markAsPaid($this->payment_date);
+            }
+        }
+    }
+
+    // Expire payment and free up bills for new payments
+    public function expirePayment(): void
+    {
+        $this->update(['status' => 'expired']);
+        // Bills remain unpaid and can be included in new payments
     }
 }

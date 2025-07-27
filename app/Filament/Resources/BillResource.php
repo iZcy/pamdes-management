@@ -24,7 +24,7 @@ class BillResource extends Resource
 
     protected static ?string $model = Bill::class;
     protected static ?string $navigationIcon = 'heroicon-o-document-text';
-    protected static ?string $navigationLabel = 'Tagihan & Bundel';
+    protected static ?string $navigationLabel = 'Tagihan';
     protected static ?string $modelLabel = 'Tagihan';
     protected static ?string $pluralModelLabel = 'Tagihan';
     protected static ?int $navigationSort = 4;
@@ -408,13 +408,25 @@ class BillResource extends Resource
                     ->date()
                     ->sortable(),
 
+                Tables\Columns\TextColumn::make('payment_date')
+                    ->label('Tanggal Bayar')
+                    ->date()
+                    ->sortable()
+                    ->placeholder('-')
+                    ->formatStateUsing(function (?string $state, ?Bill $record = null): string {
+                        if (!$record || $record->status !== 'paid' || !$state) {
+                            return '-';
+                        }
+                        return \Carbon\Carbon::parse($state)->format('d/m/Y');
+                    }),
+
                 Tables\Columns\TextColumn::make('bundle_info')
                     ->label('Bundel')
                     ->badge()
                     ->color('warning')
                     ->formatStateUsing(function (?Bill $record = null) {
                         if (!$record || !$record->transaction_ref) return null;
-                        
+
                         // Count bills with same transaction_ref
                         $bundleCount = Bill::where('transaction_ref', $record->transaction_ref)->count();
                         if ($bundleCount > 1) {
@@ -426,7 +438,7 @@ class BillResource extends Resource
                     ->visible(fn (?Bill $record = null) => $record && $record->transaction_ref)
                     ->tooltip(function (?Bill $record = null) {
                         if (!$record || !$record->transaction_ref) return null;
-                        
+
                         $bundledBills = Bill::where('transaction_ref', $record->transaction_ref)->get();
                         if ($bundledBills->count() > 1) {
                             return $bundledBills->map(function ($bill) {
@@ -546,14 +558,14 @@ class BillResource extends Resource
                                         ->label('Tagihan Tersedia')
                                         ->options(function (?Bill $record = null) {
                                             if (!$record) return [];
-                                            
+
                                             $customerId = $record->waterUsage?->customer_id ?? $record->customer_id;
                                             if (!$customerId) return [];
-                                            
+
                                             // Use same logic as frontend - get customer and available bills
                                             $customer = \App\Models\Customer::find($customerId);
                                             if (!$customer) return [];
-                                            
+
                                             return \App\Http\Controllers\BundlePaymentController::getAvailableBillsForBundle($customer)
                                             ->where('bill_id', '!=', $record->bill_id) // Exclude current bill
                                             ->mapWithKeys(function ($bill) {
@@ -585,29 +597,29 @@ class BillResource extends Resource
                         ])
                         ->action(function (?Bill $record, array $data) {
                             if (!$record) return;
-                            
+
                             $selectedBills = collect($data['selected_bills']);
                             $selectedBills->push($record->bill_id);
-                            
+
                             // Use same validation logic as frontend
                             $customer = $record->customer ?? $record->waterUsage?->customer;
                             if (!$customer) {
                                 throw new \Exception('Customer not found for this bill');
                             }
-                            
+
                             $billIds = array_merge([$record->bill_id], $selectedBills->toArray());
                             $controller = new \App\Http\Controllers\BundlePaymentController();
                             $bills = $controller->validateBillsForBundle($customer, $billIds);
-                            
+
                             if ($bills->count() !== count($billIds)) {
                                 throw new \Exception('Some bills are not valid for bundling');
                             }
-                            
+
                             // Generate transaction reference and mark bills as bundle using bulk update
                             $transactionRef = 'ADM-' . strtoupper($customer->village->slug) . '-' . now()->format('YmdHis') . '-' . uniqid();
                             Bill::whereIn('bill_id', $bills->pluck('bill_id'))
                                 ->update(['transaction_ref' => $transactionRef]);
-                            
+
                             // Create payment record using Payment model
                             $payment = \App\Models\Payment::payBills($bills->pluck('bill_id')->toArray(), [
                                 'payment_method' => $data['payment_method'],
@@ -615,7 +627,7 @@ class BillResource extends Resource
                                 'notes' => $data['notes'] ?? 'Bundle payment created via admin panel',
                                 'transaction_ref' => $transactionRef,
                             ]);
-                            
+
                             \Filament\Notifications\Notification::make()
                                 ->title('Bundle pembayaran berhasil dibuat')
                                 ->body("Bundle {$transactionRef} dengan {$bills->count()} tagihan senilai Rp " . number_format($bills->sum('total_amount')))
@@ -679,25 +691,25 @@ class BillResource extends Resource
                             $bundlesCreated = 0;
                             foreach ($billsByCustomer as $customerId => $bills) {
                                 if ($bills->count() < 1) continue; // Skip empty groups
-                                
+
                                 try {
                                     $firstBill = $bills->first();
                                     $customer = $firstBill->customer ?? $firstBill->waterUsage?->customer;
                                     if (!$customer) continue;
-                                    
+
                                     $billIds = $bills->pluck('bill_id')->toArray();
-                                    
+
                                     // Use same validation logic as frontend
                                     $controller = new \App\Http\Controllers\BundlePaymentController();
                                     $validBills = $controller->validateBillsForBundle($customer, $billIds);
-                                    
+
                                     if ($validBills->count() !== count($billIds)) continue; // Skip invalid bills
-                                    
+
                                     // Generate transaction reference and mark bills as bundle using bulk update
                                     $transactionRef = 'BULK-' . strtoupper($customer->village->slug) . '-' . now()->format('YmdHis') . '-' . uniqid();
                                     Bill::whereIn('bill_id', $validBills->pluck('bill_id'))
                                         ->update(['transaction_ref' => $transactionRef]);
-                                    
+
                                     // Create payment record using Payment model
                                     $payment = \App\Models\Payment::payBills($validBills->pluck('bill_id')->toArray(), [
                                         'payment_method' => $data['payment_method'],
@@ -705,14 +717,14 @@ class BillResource extends Resource
                                         'notes' => $data['notes'] ?? 'Bundle payment created via bulk action',
                                         'transaction_ref' => $transactionRef,
                                     ]);
-                                    
+
                                     $bundlesCreated++;
                                 } catch (\Exception $e) {
                                     // Skip if bundle creation fails
                                     continue;
                                 }
                             }
-                            
+
                             if ($bundlesCreated > 0) {
                                 \Filament\Notifications\Notification::make()
                                     ->title('Bundel berhasil dibuat')

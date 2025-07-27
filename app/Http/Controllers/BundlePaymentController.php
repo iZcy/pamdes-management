@@ -44,7 +44,9 @@ class BundlePaymentController extends Controller
             $bills = Bill::whereIn('bill_id', $request->bill_ids)
                 ->where('customer_id', $customer->customer_id)
                 ->whereIn('status', ['unpaid', 'overdue'])
-                ->whereNull('transaction_ref') // Ensure no pending payments
+                ->whereDoesntHave('payments', function($q) {
+                    $q->where('status', 'pending');
+                }) // Ensure no pending payments
                 ->with(['waterUsage.billingPeriod'])
                 ->get();
 
@@ -70,7 +72,11 @@ class BundlePaymentController extends Controller
                 
                 // Context information
                 'showingBundleForm' => true,
-                'selectedBillIds' => $request->bill_ids
+                'selectedBillIds' => $request->bill_ids,
+                
+                // Payment status information (for new bundle creation - no pending payment)
+                'hasPendingPayment' => false,
+                'pendingPayment' => null
             ]);
         } catch (\Exception $e) {
             Log::error('Bundle payment form error', [
@@ -148,15 +154,36 @@ class BundlePaymentController extends Controller
             $totalAmount = $bills->sum('total_amount');
             $returnUrl = route('portal.bills', ['customer_code' => $customerCode]);
             
+            // Create pending payment record first
+            $payment = Payment::createPayment($bills->pluck('bill_id')->toArray(), [
+                'payment_method' => 'qris',
+                'transaction_ref' => $transactionRef,
+                'collector_id' => null,
+                'notes' => 'Bundle payment via Tripay'
+            ]);
+
             $paymentResult = $tripayService->createBundlePayment($bills, $customerData, $transactionRef, $returnUrl);
 
             if (!$paymentResult['success']) {
+                // Remove payment if Tripay creation failed
+                $payment->delete();
                 throw new \Exception('Tripay payment creation failed: ' . ($paymentResult['message'] ?? 'Unknown error'));
             }
 
-            // Set transaction_ref on all bills using bulk update (matches frontend logic)
-            Bill::whereIn('bill_id', $bills->pluck('bill_id'))
-                ->update(['transaction_ref' => $transactionRef]);
+            // Update payment with Tripay data and reference only
+            $tripayReference = $paymentResult['tripay_reference'] ?? $paymentResult['data']['reference'] ?? $transactionRef;
+            
+            Log::info('Updating payment with references', [
+                'tripay_reference' => $paymentResult['tripay_reference'] ?? 'not found',
+                'data_reference' => $paymentResult['data']['reference'] ?? 'not found', 
+                'merchant_ref' => $transactionRef,
+                'final_ref' => $tripayReference
+            ]);
+            
+            $payment->update([
+                'transaction_ref' => $tripayReference,
+                'tripay_data' => $paymentResult
+            ]);
 
             Log::info('Bundle payment created successfully', [
                 'customer_code' => $customerCode,
@@ -404,17 +431,18 @@ class BundlePaymentController extends Controller
     }
 
     /**
-     * Perform bill cleanup for a customer (same logic as portal)
+     * Perform payment cleanup for a customer (same logic as portal)
      */
     private function performBillCleanup($customer)
     {
-        // Clean up expired unpaid bills older than 7 days with pending transactions
-        // Use updated_at since it changes when transaction_ref is assigned
-        Bill::where('customer_id', $customer->customer_id)
-            ->where('status', 'unpaid')
-            ->whereNotNull('transaction_ref') // Bills with pending transactions
+        // Clean up expired payments older than 7 days
+        $expiredPayments = \App\Models\Payment::where('status', 'pending')
             ->where('updated_at', '<', now()->subDays(7))
-            ->update(['transaction_ref' => null]); // Clear expired transaction refs
+            ->whereHas('bills', function($q) use ($customer) {
+                $q->where('customer_id', $customer->customer_id);
+            });
+
+        $expiredPayments->update(['status' => 'expired']);
 
         // No additional cleanup needed in simplified architecture
     }
@@ -427,14 +455,18 @@ class BundlePaymentController extends Controller
         // Simplified version for new architecture
         $availableUnpaidBills = $customer->bills()
             ->where('status', 'unpaid')
-            ->whereNull('transaction_ref') // Not in pending payment
+            ->whereDoesntHave('payments', function($q) {
+                $q->where('status', 'pending');
+            }) // Not in pending payment
             ->with(['waterUsage.billingPeriod'])
             ->orderBy('due_date', 'asc')
             ->get();
 
         $pendingBills = $customer->bills()
             ->where('status', 'unpaid')
-            ->whereNotNull('transaction_ref') // Has pending payment
+            ->whereHas('payments', function($q) {
+                $q->where('status', 'pending');
+            }) // Has pending payment
             ->with(['waterUsage.billingPeriod'])
             ->orderBy('created_at', 'desc')
             ->get();
@@ -465,7 +497,9 @@ class BundlePaymentController extends Controller
         return Bill::whereIn('bill_id', $billIds)
             ->where('customer_id', $customer->customer_id) // Same customer
             ->whereIn('status', ['unpaid', 'overdue']) // Not paid (matches frontend)
-            ->whereNull('transaction_ref') // No pending payments (matches frontend)
+            ->whereDoesntHave('payments', function($q) {
+                $q->where('status', 'pending');
+            }) // No pending payments (matches frontend)
             ->get();
     }
 
@@ -476,7 +510,9 @@ class BundlePaymentController extends Controller
     {
         return Bill::where('customer_id', $customer->customer_id)
             ->whereIn('status', ['unpaid', 'overdue']) // Available for payment
-            ->whereNull('transaction_ref') // Not in pending payment
+            ->whereDoesntHave('payments', function($q) {
+                $q->where('status', 'pending');
+            }) // Not in pending payment
             ->with(['waterUsage.billingPeriod']) // Include relationships
             ->orderBy('due_date', 'asc') // Oldest first
             ->get();

@@ -24,7 +24,6 @@ class Bill extends Model
         'maintenance_fee',
         'total_amount',
         'status',
-        'transaction_ref',
         'due_date',
         'payment_date',
         'notes',
@@ -62,6 +61,7 @@ class Bill extends Model
             ->withPivot('amount_paid')
             ->withTimestamps();
     }
+
 
     // Latest payment relationship for backward compatibility
     public function getLatestPaymentAttribute()
@@ -104,7 +104,7 @@ class Bill extends Model
 
     public function getIsPendingPaymentAttribute(): bool
     {
-        return $this->status === 'unpaid' && $this->transaction_ref !== null;
+        return $this->payments()->where('status', 'pending')->exists();
     }
 
     // Scopes
@@ -127,7 +127,9 @@ class Bill extends Model
     public function scopePendingPayment(Builder $query): Builder
     {
         return $query->where('status', 'unpaid')
-            ->whereNotNull('transaction_ref');
+            ->whereHas('payments', function($q) {
+                $q->where('status', 'pending');
+            });
     }
 
     public function scopeForCustomer(Builder $query, $customerId): Builder
@@ -151,7 +153,9 @@ class Bill extends Model
 
     public function scopeByTransactionRef(Builder $query, string $transactionRef): Builder
     {
-        return $query->where('transaction_ref', $transactionRef);
+        return $query->whereHas('payments', function($q) use ($transactionRef) {
+            $q->where('transaction_ref', $transactionRef);
+        });
     }
 
     // Helper methods
@@ -173,19 +177,26 @@ class Bill extends Model
         return $this->is_pending_payment;
     }
 
-    // Get bills that are part of the same bundle (same transaction_ref)
+    // Get bills that are part of the same payment (bundle)
     public function getBundledBills()
     {
-        if (!$this->transaction_ref) {
+        $payment = $this->payments()->latest()->first();
+        if (!$payment) {
             return collect([$this]);
         }
 
-        return static::where('transaction_ref', $this->transaction_ref)->get();
+        return $payment->bills;
     }
 
-    // Calculate bundle total for bills with same transaction_ref
-    public function getBundleTotal(): float
+    // Get current pending payment if any
+    public function getPendingPayment()
     {
-        return $this->getBundledBills()->sum('total_amount');
+        return $this->payments()->where('status', 'pending')->latest()->first();
+    }
+
+    // Check if bill can be included in new payment
+    public function canBeIncludedInPayment(): bool
+    {
+        return $this->status === 'unpaid' && !$this->getPendingPayment();
     }
 }

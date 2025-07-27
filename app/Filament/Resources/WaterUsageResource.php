@@ -756,13 +756,14 @@ class WaterUsageResource extends Resource
                 Tables\Actions\BulkActionGroup::make([
                     // Bulk generate bills for admin roles
                     Tables\Actions\BulkAction::make('bulk_generate_bills')
-                        ->label('Buat Tagihan Massal')
+                        ->label('Buat Tagihan')
                         ->icon('heroicon-o-document-plus')
                         ->color('success')
                         ->visible(fn() => !$isCollector && !$isOperator)
                         ->action(function ($records) {
                             $generated = 0;
                             $failed = 0;
+                            $errors = [];
 
                             foreach ($records as $record) {
                                 if ($record->bill === null) {
@@ -774,17 +775,38 @@ class WaterUsageResource extends Resource
                                         $generated++;
                                     } catch (\Exception $e) {
                                         $failed++;
+                                        $errors[] = "Customer {$record->customer->customer_code}: " . $e->getMessage();
                                     }
+                                } else {
+                                    // Skip if bill already exists
+                                    continue;
                                 }
                             }
 
+                            $message = "Berhasil membuat {$generated} tagihan";
+                            if ($failed > 0) {
+                                $message .= ", {$failed} gagal";
+                            }
+
                             \Filament\Notifications\Notification::make()
-                                ->title('Tagihan massal selesai')
-                                ->body("Berhasil: {$generated}, Gagal: {$failed}")
+                                ->title('Pembuatan tagihan selesai')
+                                ->body($message)
                                 ->success()
                                 ->send();
+
+                            if (!empty($errors)) {
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Detail error')
+                                    ->body(implode("\n", array_slice($errors, 0, 5)))
+                                    ->warning()
+                                    ->send();
+                            }
                         })
-                        ->deselectRecordsAfterCompletion(),
+                        ->deselectRecordsAfterCompletion()
+                        ->requiresConfirmation()
+                        ->modalHeading('Konfirmasi Pembuatan Tagihan')
+                        ->modalDescription('Apakah Anda yakin ingin membuat tagihan untuk semua data penggunaan air yang dipilih?')
+                        ->modalSubmitActionLabel('Ya, Buat Tagihan'),
 
                     // Export actions only for admin and operator roles
                     ...($isCollector ? [] : static::getExportBulkActions()),

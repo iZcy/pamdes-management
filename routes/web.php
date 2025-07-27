@@ -104,42 +104,49 @@ Route::middleware(['village.context'])->group(function () {
                 ->with('village')
                 ->firstOrFail();
 
-            // Get pending transactions for this customer (bills with transaction_ref but not paid)
+
+            // Get pending transactions for this customer (bills with pending payments) - after status update
             $pendingTransactions = \App\Models\Bill::where('customer_id', $customer->customer_id)
                 ->where('status', 'unpaid')
-                ->whereNotNull('transaction_ref')
+                ->whereHas('payments', function ($q) {
+                    $q->where('status', 'pending');
+                })
                 ->get();
 
             // Log debugging info before cleanup
             Log::info('Pending transactions found (before cleanup)', [
                 'customer_id' => $customer->customer_id,
                 'pending_transactions_count' => $pendingTransactions->count(),
-                'transaction_refs' => $pendingTransactions->pluck('transaction_ref')->unique()->values()->toArray()
+                'transaction_refs' => $pendingTransactions->map(fn($bill) => $bill->getPendingPayment()?->transaction_ref)->filter()->unique()->values()->toArray()
             ]);
 
-            // Clean up expired transactions (older than 7 days)
-            // Use updated_at since it changes when transaction_ref is assigned
-            $expiredUpdated = \App\Models\Bill::where('customer_id', $customer->customer_id)
-                ->where('status', 'unpaid')
-                ->whereNotNull('transaction_ref')
+            // Clean up expired payments (older than 7 days)
+            $expiredPayments = \App\Models\Payment::where('status', 'pending')
                 ->where('updated_at', '<', now()->subDays(7))
-                ->update(['transaction_ref' => null]);
+                ->whereHas('bills', function ($q) use ($customer) {
+                    $q->where('customer_id', $customer->customer_id);
+                });
 
-            Log::info('Bill cleanup performed', [
+            $expiredCount = $expiredPayments->count();
+            $expiredPayments->update(['status' => 'expired']);
+
+            Log::info('Payment cleanup performed', [
                 'customer_id' => $customer->customer_id,
-                'expired_transactions_cleared' => $expiredUpdated,
+                'expired_payments_cleared' => $expiredCount,
             ]);
 
             // Re-fetch pending transactions after cleanup
             $pendingTransactionsAfterCleanup = \App\Models\Bill::where('customer_id', $customer->customer_id)
                 ->where('status', 'unpaid')
-                ->whereNotNull('transaction_ref')
+                ->whereHas('payments', function ($q) {
+                    $q->where('status', 'pending');
+                })
                 ->get();
 
             Log::info('Valid pending transactions after cleanup', [
                 'customer_id' => $customer->customer_id,
                 'valid_pending_transactions_count' => $pendingTransactionsAfterCleanup->count(),
-                'transaction_refs' => $pendingTransactionsAfterCleanup->pluck('transaction_ref')->unique()->values()->toArray()
+                'transaction_refs' => $pendingTransactionsAfterCleanup->map(fn($bill) => $bill->getPendingPayment()?->transaction_ref)->filter()->unique()->values()->toArray()
             ]);
 
             // Get unpaid bills (exclude bills already in pending transactions)
@@ -147,7 +154,9 @@ Route::middleware(['village.context'])->group(function () {
                 ->where('status', 'unpaid');
 
             // Exclude bills that are already in pending transactions
-            $billsQuery->whereNull('transaction_ref');
+            $billsQuery->whereDoesntHave('payments', function ($q) {
+                $q->where('status', 'pending');
+            });
 
             $bills = $billsQuery->with(['waterUsage.billingPeriod'])
                 ->orderBy('due_date', 'asc')
@@ -165,29 +174,32 @@ Route::middleware(['village.context'])->group(function () {
                 })
             ]);
 
-            // The pending transactions are now just bills with transaction_ref
-            // Group them by transaction_ref to identify bundles vs individual bills
+            // Group pending transactions by payment to identify bundles vs individual bills
             $pendingBills = collect();
             $pendingBundles = collect();
-            
-            $transactionGroups = $pendingTransactionsAfterCleanup->groupBy('transaction_ref');
-            
-            foreach ($transactionGroups as $transactionRef => $billsInTransaction) {
-                if ($billsInTransaction->count() > 1) {
-                    // This is a bundle (multiple bills with same transaction_ref)
+
+            $paymentGroups = $pendingTransactionsAfterCleanup->groupBy(function ($bill) {
+                return $bill->getPendingPayment()?->payment_id;
+            })->filter();
+
+            foreach ($paymentGroups as $paymentId => $billsInPayment) {
+                $payment = $billsInPayment->first()->getPendingPayment();
+                if ($billsInPayment->count() > 1) {
+                    // This is a bundle (multiple bills in same payment)
                     // Create a bundle object for the template
                     $bundleData = (object) [
-                        'transaction_ref' => $transactionRef,
-                        'bills' => $billsInTransaction,
-                        'bill_count' => $billsInTransaction->count(),
-                        'total_amount' => $billsInTransaction->sum('total_amount'),
-                        'first_bill' => $billsInTransaction->first(),
-                        'customer' => $billsInTransaction->first()->waterUsage->customer ?? $customer
+                        'payment_id' => $paymentId,
+                        'transaction_ref' => $payment?->transaction_ref,
+                        'bills' => $billsInPayment,
+                        'bill_count' => $billsInPayment->count(),
+                        'total_amount' => $billsInPayment->sum('total_amount'),
+                        'first_bill' => $billsInPayment->first(),
+                        'customer' => $billsInPayment->first()->waterUsage->customer ?? $customer
                     ];
                     $pendingBundles->push($bundleData);
                 } else {
                     // This is an individual bill
-                    $pendingBills = $pendingBills->concat($billsInTransaction);
+                    $pendingBills = $pendingBills->concat($billsInPayment);
                 }
             }
 
@@ -195,7 +207,7 @@ Route::middleware(['village.context'])->group(function () {
                 'customer_id' => $customer->customer_id,
                 'individual_pending_bills' => $pendingBills->count(),
                 'pending_bundle_bills' => $pendingBundles->count(),
-                'transaction_groups' => count($transactionGroups)
+                'payment_groups' => count($paymentGroups)
             ]);
 
             // Get paid bills - separate individual and bundle payments
@@ -208,33 +220,42 @@ Route::middleware(['village.context'])->group(function () {
             // Separate individual paid bills from bundle payments
             $paidBills = collect();
             $paidBundles = collect();
-            
-            $paidTransactionGroups = $allPaidBills->groupBy('transaction_ref');
-            
-            foreach ($paidTransactionGroups as $transactionRef => $billsInTransaction) {
-                if ($transactionRef && $billsInTransaction->count() > 1) {
+
+            $paidPaymentGroups = $allPaidBills->groupBy(function ($bill) {
+                return $bill->payments->where('status', 'completed')->first()?->payment_id;
+            })->filter();
+
+            foreach ($paidPaymentGroups as $paymentId => $billsInPayment) {
+                $payment = $billsInPayment->first()->payments->where('status', 'completed')->first();
+                if ($billsInPayment->count() > 1) {
                     // This was a bundle payment - create bundle object
                     $bundleData = (object) [
-                        'transaction_ref' => $transactionRef,
-                        'bills' => $billsInTransaction,
-                        'bill_count' => $billsInTransaction->count(),
-                        'total_amount' => $billsInTransaction->sum('total_amount'),
-                        'first_bill' => $billsInTransaction->first(),
-                        'payment_date' => $billsInTransaction->first()->payment_date,
-                        'customer' => $billsInTransaction->first()->waterUsage->customer ?? $customer
+                        'payment_id' => $paymentId,
+                        'transaction_ref' => $payment?->transaction_ref,
+                        'bills' => $billsInPayment,
+                        'bill_count' => $billsInPayment->count(),
+                        'total_amount' => $billsInPayment->sum('total_amount'),
+                        'first_bill' => $billsInPayment->first(),
+                        'payment_date' => $billsInPayment->first()->payment_date,
+                        'customer' => $billsInPayment->first()->waterUsage->customer ?? $customer
                     ];
                     $paidBundles->push($bundleData);
                 } else {
                     // This was an individual payment
-                    $paidBills = $paidBills->concat($billsInTransaction);
+                    $paidBills = $paidBills->concat($billsInPayment);
                 }
             }
-            
+
             // Limit to 10 most recent
             $paidBills = $paidBills->take(10);
             $paidBundles = $paidBundles->take(10);
 
-            return view('customer-portal.bills', compact('customer', 'bills', 'pendingBills', 'pendingBundles', 'paidBills', 'paidBundles'));
+            // Get total count of all unpaid bills (including pending ones) for the "Total Tagihan" display
+            $totalUnpaidBills = $customer->bills()
+                ->where('status', 'unpaid')
+                ->count();
+
+            return view('customer-portal.bills', compact('customer', 'bills', 'pendingBills', 'pendingBundles', 'paidBills', 'paidBundles', 'totalUnpaidBills'));
         })->name('bills');
     });
 
@@ -278,7 +299,7 @@ Route::middleware(['village.context'])->group(function () {
             $bill->load([
                 'waterUsage.customer.village',
                 'waterUsage.billingPeriod',
-                'latestPayment.collector'
+                'payments'
             ]);
 
             return view('receipts.bill', compact('bill'));
@@ -290,9 +311,11 @@ Route::middleware(['village.context'])->group(function () {
             $customer = Customer::where('customer_code', $customerCode)->firstOrFail();
 
             // Find bills with this transaction_ref (bundle payment)
-            $bundleBills = \App\Models\Bill::where('transaction_ref', $bundleReference)
-                ->where('customer_id', $customer->customer_id)
+            $bundleBills = \App\Models\Bill::where('customer_id', $customer->customer_id)
                 ->where('status', 'paid')
+                ->whereHas('payments', function ($q) use ($bundleReference) {
+                    $q->where('transaction_ref', $bundleReference)->where('status', 'completed');
+                })
                 ->with([
                     'waterUsage.customer.village',
                     'waterUsage.billingPeriod',
@@ -381,12 +404,21 @@ Route::middleware(['village.context'])->group(function () {
             // Check payment status (AJAX)
             Route::get('/payment/status', [TripayController::class, 'checkStatus'])
                 ->name('tripay.status');
+            
+            // Check payment status by reference (AJAX)
+            Route::get('/payment/status/{reference}', [TripayController::class, 'checkStatusByReference'])
+                ->name('tripay.status.reference');
 
             // Continue payment
             Route::get('/payment/continue', [TripayController::class, 'continuePayment'])
                 ->name('tripay.continue');
         });
+
+        // Bundle payment form route (outside of bill-specific group)
+        Route::get('/bundle/{paymentId}', [TripayController::class, 'showBundlePaymentForm'])
+            ->name('tripay.bundle.form');
     });
+
 
     Route::fallback(function () {
         if (!config('pamdes.is_super_admin_domain')) {
@@ -400,7 +432,7 @@ Route::middleware(['village.context'])->group(function () {
 // Public Tripay callback routes (no authentication or village context required)
 Route::prefix('tripay')->group(function () {
     // Webhook callback from Tripay
-    Route::post('/callback', [TripayController::class, 'handleCallback'])
+    Route::post('/callback', [App\Http\Controllers\TripayCallbackController::class, 'handle'])
         ->name('tripay.callback');
 
     // Bundle payment callback
@@ -428,11 +460,11 @@ Route::middleware([App\Http\Middleware\RequireOperator::class])->prefix('admin/m
 Route::middleware(['auth'])->prefix('admin')->group(function () {
     // Payment receipt (existing)
     Route::get('payments/{payment}/receipt', function (\App\Models\Payment $payment) {
-        // Load bill
-        $bill = $payment->bill()->with([
+        // Load bills with relationships - get first bill for single payment receipt
+        $bill = $payment->bills()->with([
             'waterUsage.customer.village',
             'waterUsage.billingPeriod',
-            'latestPayment.collector'
+            'payments.collector'
         ])->firstOrFail();
 
         return view('receipts.bill', compact('bill'));
@@ -444,7 +476,7 @@ Route::middleware(['auth'])->prefix('admin')->group(function () {
         $bill->load([
             'waterUsage.customer.village',
             'waterUsage.billingPeriod',
-            'latestPayment.collector'
+            'payments'
         ]);
 
         return view('receipts.bill', compact('bill'));

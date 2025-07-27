@@ -11,6 +11,7 @@ use App\Models\Village;
 use App\Traits\ExportableResource;
 use Filament\Forms;
 use Filament\Forms\Form;
+use Filament\Forms\Get;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -210,7 +211,8 @@ class PaymentResource extends Resource
                             ->preload()
                             ->required()
                             ->columnSpan(2)
-                            ->reactive(),
+                            ->disabled(true) // Always disabled - bills are not editable
+                            ->helperText('Tagihan tidak dapat diubah setelah pembayaran dibuat'),
 
                         // Collector field - auto-fill for collectors, selectable for admins
                         Forms\Components\Select::make('collector_id')
@@ -241,7 +243,9 @@ class PaymentResource extends Resource
                                 // Auto-fill collector ID for collectors
                                 return $isCollector ? Auth::id() : null;
                             })
-                            ->disabled($isCollector) // Collectors cannot change this
+                            ->disabled(fn (Get $get): bool => 
+                                $isCollector || $get('payment_method') === 'qris'
+                            ) // Collectors cannot change this, QRIS payments cannot change collector
                             ->dehydrated(),
 
                         Forms\Components\TextInput::make('total_amount')
@@ -251,6 +255,7 @@ class PaymentResource extends Resource
                             ->prefix('Rp')
                             ->step(100)
                             ->reactive()
+                            ->disabled(fn (Get $get): bool => $get('payment_method') === 'qris')
                             ->afterStateUpdated(fn($state, callable $set, callable $get) => static::updateChangeGiven($set, $get)),
 
                         Forms\Components\TextInput::make('change_given')
@@ -258,6 +263,7 @@ class PaymentResource extends Resource
                             ->numeric()
                             ->prefix('Rp')
                             ->default(0)
+                            ->disabled(fn (Get $get): bool => $get('payment_method') === 'qris')
                             ->readOnly()
                             ->extraAttributes(['class' => 'bg-gray-100']),
 
@@ -271,18 +277,36 @@ class PaymentResource extends Resource
                             ])
                             ->searchable()
                             ->default('cash')
-                            ->required(),
+                            ->required()
+                            ->reactive()
+                            ->disabled(fn (Get $get): bool => $get('payment_method') === 'qris'),
+
+                        Forms\Components\Select::make('status')
+                            ->label('Status Pembayaran')
+                            ->options([
+                                'completed' => 'Selesai',
+                                'pending' => 'Menunggu',
+                                'expired' => 'Kedaluwarsa',
+                                'failed' => 'Gagal',
+                            ])
+                            ->searchable()
+                            ->default('completed')
+                            ->required()
+                            ->disabled(fn (Get $get): bool => $get('payment_method') === 'qris')
+                            ->helperText('Status pembayaran QRIS dikelola otomatis oleh sistem'),
 
                         Forms\Components\DatePicker::make('payment_date')
                             ->label('Tanggal Pembayaran')
                             ->default(now())
                             ->required()
+                            ->disabled(fn (Get $get): bool => $get('payment_method') === 'qris')
                             ->displayFormat('d M Y'),
 
-                        Forms\Components\TextInput::make('payment_reference')
+                        Forms\Components\TextInput::make('transaction_ref')
                             ->label('Referensi Pembayaran')
                             ->maxLength(255)
-                            ->helperText('Nomor referensi untuk transfer/QRIS'),
+                            ->disabled(fn (Get $get): bool => $get('payment_method') === 'qris')
+                            ->helperText('Nomor referensi untuk transfer/QRIS/Tripay'),
 
                         Forms\Components\Textarea::make('notes')
                             ->label('Catatan')
@@ -360,13 +384,30 @@ class PaymentResource extends Resource
                         'other' => 'Lainnya',
                     }),
 
+                Tables\Columns\TextColumn::make('status')
+                    ->label('Status')
+                    ->badge()
+                    ->colors([
+                        'success' => 'completed',
+                        'warning' => 'pending',
+                        'danger' => 'expired',
+                        'gray' => 'failed',
+                    ])
+                    ->formatStateUsing(fn(string $state): string => match ($state) {
+                        'completed' => 'Selesai',
+                        'pending' => 'Menunggu',
+                        'expired' => 'Kedaluwarsa',
+                        'failed' => 'Gagal',
+                        default => ucfirst($state),
+                    }),
+
                 Tables\Columns\TextColumn::make('collector.name')
                     ->label('Penagih')
                     ->searchable()
                     ->sortable()
                     ->toggleable(),
 
-                Tables\Columns\TextColumn::make('payment_reference')
+                Tables\Columns\TextColumn::make('transaction_ref')
                     ->label('Referensi')
                     ->limit(20)
                     ->searchable()
@@ -396,6 +437,16 @@ class PaymentResource extends Resource
                         'transfer' => 'Transfer Bank',
                         'qris' => 'QRIS',
                         'other' => 'Lainnya',
+                    ])
+                    ->searchable(),
+
+                Tables\Filters\SelectFilter::make('status')
+                    ->label('Status Pembayaran')
+                    ->options([
+                        'completed' => 'Selesai',
+                        'pending' => 'Menunggu',
+                        'expired' => 'Kedaluwarsa',
+                        'failed' => 'Gagal',
                     ])
                     ->searchable(),
 

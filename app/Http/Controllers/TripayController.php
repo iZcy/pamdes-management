@@ -4,6 +4,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Bill;
+use App\Models\Payment;
 use App\Models\Village;
 use App\Services\TripayService;
 use Illuminate\Http\Request;
@@ -19,17 +20,20 @@ class TripayController extends Controller
     public function showPaymentForm($villageSlug, $billId)
     {
         try {
-            $village = Village::where('slug', $villageSlug)->firstOrFail();
+            $village = Village::where('slug', $villageSlug)->with('variables')->firstOrFail();
             $bill = Bill::where('bill_id', $billId)
                 ->whereHas('waterUsage.customer', function ($q) use ($village) {
                     $q->where('village_id', $village->id);
                 })
-                ->where('status', '!=', 'paid')
                 ->firstOrFail();
 
-            return view('tripay.payment-form', compact('village', 'bill'));
+            // Check if bill has pending payment
+            $pendingPayment = $bill->getPendingPayment();
+            $hasPendingPayment = $pendingPayment !== null;
+
+            return view('tripay.payment-form', compact('village', 'bill', 'hasPendingPayment', 'pendingPayment'));
         } catch (\Exception $e) {
-            return redirect()->back()->with('error', 'Tagihan tidak ditemukan atau sudah dibayar');
+            return redirect()->back()->with('error', 'Tagihan tidak ditemukan atau sudah dibayar ' . $e->getMessage());
         }
     }
 
@@ -56,17 +60,20 @@ class TripayController extends Controller
                 ->whereHas('waterUsage.customer', function ($q) use ($village) {
                     $q->where('village_id', $village->id);
                 })
-                ->where('status', '!=', 'paid')
                 ->firstOrFail();
 
-            // Check if bill already has a pending payment
+            // Check bill status and handle accordingly
+            if ($bill->status === 'paid') {
+                return back()->with('error', 'Tagihan ini sudah dibayar.');
+            }
+
             if ($bill->status === 'pending' && $bill->bill_ref) {
                 return back()->with('error', 'Tagihan ini sudah memiliki pembayaran yang sedang diproses. Silakan selesaikan pembayaran tersebut terlebih dahulu.');
             }
 
             // Use database transaction to ensure atomicity
             return DB::transaction(function () use ($bill, $village, $request, $villageSlug, $billId) {
-                
+
                 // Initialize Tripay service
                 $tripayService = new TripayService($village);
 
@@ -79,17 +86,21 @@ class TripayController extends Controller
 
                 // Create payment with Tripay
                 $paymentResult = $tripayService->createPayment($bill, $customerData, $request->query('return'));
-                
+
                 // Only proceed if Tripay payment creation was successful
                 if (!$paymentResult['success']) {
                     // This will trigger transaction rollback
                     throw new \Exception('Tripay payment creation failed: ' . ($paymentResult['message'] ?? 'Unknown error'));
                 }
 
-                // Save bill reference and update status only after Tripay success
-                $bill->bill_ref = $paymentResult['data']['reference'] ?? null;
-                $bill->status = 'pending';
-                $bill->save();
+                // Create payment record with Tripay reference only as transaction_ref
+                $payment = Payment::createPayment([$bill->bill_id], [
+                    'payment_method' => 'qris',
+                    'transaction_ref' => $paymentResult['data']['reference'] ?? null,
+                    'tripay_data' => $paymentResult,
+                    'collector_id' => null,
+                    'notes' => 'Single payment via Tripay'
+                ]);
 
                 Log::info('Single payment created successfully', [
                     'bill_id' => $bill->bill_id,
@@ -101,7 +112,6 @@ class TripayController extends Controller
                 // Redirect to Tripay payment page
                 return redirect($paymentResult['data']['checkout_url']);
             });
-
         } catch (\Exception $e) {
             Log::error('Failed to create Tripay payment', [
                 'village_slug' => $villageSlug,
@@ -191,7 +201,7 @@ class TripayController extends Controller
     }
 
     /**
-     * Handle continue from Tripay payment page
+     * Handle continue payment - check status and redirect accordingly
      */
     public function continuePayment(Request $request, $villageSlug, $billId)
     {
@@ -204,23 +214,42 @@ class TripayController extends Controller
                 })
                 ->firstOrFail();
 
+            // Get pending payment for this bill
+            $payment = $bill->getPendingPayment();
+
+            if (!$payment || !$payment->transaction_ref) {
+                return redirect()->back()->with('error', 'Tidak ada pembayaran yang sedang berlangsung untuk tagihan ini.');
+            }
+
             // Initialize Tripay service
             $tripayService = new TripayService($village);
 
-            // Check if the bill has a payment reference
-            if (!$bill->bill_ref) {
-                return redirect()->back()->with('error', 'Referensi pembayaran tidak ditemukan untuk tagihan ini.');
+            // Check payment status first
+            $statusResult = $tripayService->checkPaymentStatus($payment->transaction_ref);
+
+            if ($statusResult['success']) {
+                $status = $statusResult['data']['status'] ?? null;
+
+                if ($status === 'PAID') {
+                    // Payment completed - update payment and bills
+                    $payment->completeBillPayments();
+                    return redirect()->back()->with('success', 'Pembayaran telah berhasil diselesaikan.');
+                } elseif (in_array($status, ['EXPIRED', 'FAILED', 'CANCELLED'])) {
+                    // Payment failed/expired - mark as expired
+                    $payment->expirePayment();
+                    return redirect()->back()->with('warning', 'Pembayaran telah kedaluwarsa. Silakan buat pembayaran baru.');
+                } elseif ($status === 'PENDING') {
+                    // Still pending - construct checkout URL directly
+                    $continueResult = $tripayService->continuePayment($payment->transaction_ref);
+                    if ($continueResult['success']) {
+                        return redirect($continueResult['checkout_url']);
+                    } else {
+                        return redirect()->back()->with('error', 'Gagal mendapatkan URL pembayaran.');
+                    }
+                }
             }
 
-            // Continue payment process
-            $paymentResult = $tripayService->continuePayment($bill->bill_ref);
-
-            if ($paymentResult['success']) {
-                // Redirect to Tripay payment page
-                return redirect($paymentResult['checkout_url']);
-            } else {
-                return redirect()->back()->with('error', 'Gagal melanjutkan pembayaran: ' . $paymentResult['message']);
-            }
+            return redirect()->back()->with('error', 'Gagal memeriksa status pembayaran.');
         } catch (\Exception $e) {
             Log::error('Failed to continue payment', [
                 'village_slug' => $villageSlug,
@@ -245,45 +274,67 @@ class TripayController extends Controller
                 })
                 ->firstOrFail();
 
-            if (!$bill->bill_ref) {
-                // Change bill status to unpaid if no payment reference found
-                $bill->status = 'unpaid';
-                $bill->save();
+            // Get pending payment for this bill
+            $payment = $bill->getPendingPayment();
 
+            if (!$payment || !$payment->transaction_ref) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Referensi pembayaran tidak ditemukan'
+                    'message' => 'Tidak ada pembayaran yang sedang berlangsung'
                 ]);
             }
 
             // Initialize Tripay service
             $tripayService = new TripayService($village);
 
-            // Check payment status
-            $statusResult = $tripayService->checkTransactionStatus($bill->bill_ref);
-            $retrieveSignature = $tripayService->generateSignature($bill->bill_ref, $statusResult['amount'] ?? null);
+            // Get Tripay reference from tripay_data for status checking
+            $tripayReference = $payment->tripay_data['data']['reference'] ?? $payment->tripay_data['merchant_ref'] ?? null;
 
-            if ($statusResult['status']) {
-                // Update bill status based on payment status
-                $finalBill = $tripayService->processCallback([
-                    'merchant_ref' => $bill->bill_ref,
-                    'status' => $statusResult['status'],
-                    'signature' => $retrieveSignature ?? null,
-                    'amount' => $statusResult['amount'] ?? null,
-                    'data' => $statusResult['data'] ?? [],
-                ]);
-
-                return response()->json([
-                    'success' => true,
-                    'status' => $finalBill->status,
-                    'message' => 'Status pembayaran berhasil diperiksa'
-                ]);
-            } else {
+            if (!$tripayReference) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Gagal memeriksa status pembayaran'
+                    'message' => 'Referensi Tripay tidak ditemukan'
                 ]);
             }
+
+            // Check payment status using Tripay reference
+            $statusResult = $tripayService->checkPaymentStatus($tripayReference);
+
+            if ($statusResult['success']) {
+                $status = $statusResult['data']['status'] ?? null;
+
+                if ($status === 'PAID') {
+                    // Payment completed - update payment and bills
+                    $payment->completeBillPayments();
+
+                    return response()->json([
+                        'success' => true,
+                        'status' => 'paid',
+                        'message' => 'Pembayaran berhasil diselesaikan'
+                    ]);
+                } elseif (in_array($status, ['EXPIRED', 'FAILED', 'CANCELLED'])) {
+                    // Payment failed/expired - mark as expired
+                    $payment->expirePayment();
+
+                    return response()->json([
+                        'success' => true,
+                        'status' => 'expired',
+                        'message' => 'Pembayaran telah kedaluwarsa'
+                    ]);
+                } else {
+                    // Still pending
+                    return response()->json([
+                        'success' => true,
+                        'status' => 'pending',
+                        'message' => 'Pembayaran masih dalam proses'
+                    ]);
+                }
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal memeriksa status pembayaran'
+            ]);
         } catch (\Exception $e) {
             Log::error('Failed to check payment status', [
                 'village_slug' => $villageSlug,
@@ -295,6 +346,120 @@ class TripayController extends Controller
                 'success' => false,
                 'message' => 'Gagal memeriksa status pembayaran: ' . $e->getMessage()
             ], 500);
+        }
+    }
+
+    /**
+     * Check payment status by reference directly
+     */
+    public function checkStatusByReference(Request $request, $villageSlug, $billId, $reference)
+    {
+        try {
+            $village = Village::where('slug', $villageSlug)->firstOrFail();
+            
+            // Initialize Tripay service
+            $tripayService = new TripayService($village);
+
+            // Check payment status using the reference directly
+            Log::info('Checking payment status with reference', [
+                'reference' => $reference,
+                'village_slug' => $villageSlug
+            ]);
+            $statusResult = $tripayService->checkPaymentStatus($reference);
+
+            if ($statusResult['success']) {
+                $status = $statusResult['data']['status'] ?? null;
+                
+                // Find the payment by reference to update it
+                $payment = Payment::where('transaction_ref', $reference)->first();
+                
+                if ($payment && $status === 'PAID') {
+                    // Payment completed - update payment and bills
+                    $payment->completeBillPayments();
+                    
+                    return response()->json([
+                        'success' => true,
+                        'status' => 'paid',
+                        'message' => 'Pembayaran berhasil diselesaikan'
+                    ]);
+                } elseif ($payment && in_array($status, ['EXPIRED', 'FAILED', 'CANCELLED'])) {
+                    // Payment failed/expired - mark as expired
+                    $payment->expirePayment();
+                    
+                    return response()->json([
+                        'success' => true,
+                        'status' => 'expired',
+                        'message' => 'Pembayaran telah kedaluwarsa'
+                    ]);
+                } else {
+                    // Still pending or no payment found
+                    return response()->json([
+                        'success' => true,
+                        'status' => 'pending',
+                        'message' => 'Pembayaran masih dalam proses'
+                    ]);
+                }
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal memeriksa status pembayaran'
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to check payment status by reference', [
+                'village_slug' => $villageSlug,
+                'reference' => $reference,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal memeriksa status pembayaran: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Show bundle payment form
+     */
+    public function showBundlePaymentForm($villageSlug, $paymentId)
+    {
+        try {
+            $village = Village::where('slug', $villageSlug)->with('variables')->firstOrFail();
+            $payment = Payment::where('payment_id', $paymentId)
+                ->whereHas('bills.waterUsage.customer', function ($q) use ($village) {
+                    $q->where('village_id', $village->id);
+                })
+                ->with(['bills.waterUsage.customer', 'bills.waterUsage.billingPeriod'])
+                ->firstOrFail();
+
+            // Get bills associated with this payment
+            $bills = $payment->bills;
+            $customer = $bills->first()->waterUsage->customer;
+            
+            // Check if payment has pending status
+            $hasPendingPayment = $payment->status === 'pending';
+            $pendingPayment = $hasPendingPayment ? $payment : null;
+            
+            // Set flag for bundle payment form
+            $showingBundleForm = true;
+            $total_amount = $payment->total_amount;
+            
+            // Set action URL for bundle payment form (should not be used for existing payments)
+            $action_url = '#'; // Placeholder since this is for existing payments, not new ones
+
+            return view('tripay.payment-form', compact(
+                'village', 
+                'bills', 
+                'customer', 
+                'hasPendingPayment', 
+                'pendingPayment',
+                'showingBundleForm',
+                'total_amount',
+                'action_url'
+            ));
+        } catch (\Exception $e) {
+            return redirect()->back()->with('error', 'Bundle payment tidak ditemukan: ' . $e->getMessage());
         }
     }
 }

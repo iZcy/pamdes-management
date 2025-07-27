@@ -26,9 +26,8 @@ return new class extends Migration
             $table->decimal('maintenance_fee', 10, 2)->default(0);
             $table->decimal('total_amount', 10, 2);
             
-            // Simple status and payment tracking
+            // Simple status - pure bill status without payment references
             $table->enum('status', ['unpaid', 'paid'])->default('unpaid');
-            $table->string('transaction_ref')->nullable(); // Tripay transaction reference for bundling
             
             // Due dates and payment dates
             $table->date('due_date')->nullable();
@@ -43,7 +42,6 @@ return new class extends Migration
             $table->index(['customer_id', 'status']);
             $table->index(['status', 'due_date']);
             $table->index('payment_date');
-            $table->index('transaction_ref'); // For grouping bundled payments
             $table->index('usage_id');
         });
     }

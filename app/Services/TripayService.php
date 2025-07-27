@@ -115,7 +115,7 @@ class TripayService
             if (!$this->village) {
                 throw new \Exception('Village not available for payment processing');
             }
-            
+
             $villageSlug = $this->village->slug;
             $villageCode = strtoupper($villageSlug);
             $yearMonth = $bill->waterUsage->billingPeriod->created_at->format('Ym');
@@ -217,7 +217,7 @@ class TripayService
             if (!$this->village) {
                 throw new \Exception('Village not available for bundle payment processing');
             }
-            
+
             $villageSlug = $this->village->slug;
             $villageCode = strtoupper($villageSlug);
             $yearMonth = now()->format('Ym');
@@ -227,13 +227,16 @@ class TripayService
             $timeout = Carbon::now()->addMinutes($this->timeoutMinutes)->timestamp;
             $totalAmount = $bills->sum('total_amount');
 
-            // Prepare order items for bundle
-            $orderItems = [[
-                "sku" => "BUNDLE-{$transactionRef}",
-                "name" => "Bundle Pembayaran Tagihan Air ({$bills->count()} tagihan)",
-                "price" => (int) $totalAmount,
-                "quantity" => 1,
-            ]];
+            // Prepare order items for bundle - individual items for each bill
+            $orderItems = [];
+            foreach ($bills as $bill) {
+                $orderItems[] = [
+                    "sku" => "BILL-{$bill->bill_id}",
+                    "name" => "Tagihan Air " . ($bill->waterUsage->billingPeriod->period_name ?? 'Periode ' . $bill->bill_id),
+                    "price" => (int) $bill->total_amount,
+                    "quantity" => 1,
+                ];
+            }
 
             // Generate signature
             $signature = $this->generateSignature($merchantRef, $totalAmount);
@@ -272,7 +275,7 @@ class TripayService
                     'response' => $response->body(),
                     'status' => $response->status(),
                 ]);
-                
+
                 return [
                     'success' => false,
                     'message' => $errorMessage,
@@ -300,7 +303,7 @@ class TripayService
                 'error' => $e->getMessage(),
                 'village_id' => $this->village?->id,
             ]);
-            
+
             return [
                 'success' => false,
                 'message' => $e->getMessage(),
@@ -328,7 +331,51 @@ class TripayService
     }
 
     /**
-     * Check transaction status
+     * Check payment status for continue payment flow
+     */
+    public function checkPaymentStatus($reference)
+    {
+        try {
+            Log::info('TripayService checkPaymentStatus called', [
+                'reference' => $reference,
+                'reference_length' => strlen($reference),
+                'starts_with_T' => str_starts_with($reference, 'T')
+            ]);
+            
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $this->apiKey,
+            ])->get($this->baseUrl . '/transaction/detail', [
+                'reference' => $reference,
+            ]);
+
+            if (!$response->successful()) {
+                return [
+                    'success' => false,
+                    'message' => 'Failed to check payment status'
+                ];
+            }
+
+            $data = $response->json()['data'];
+
+            return [
+                'success' => true,
+                'data' => $data
+            ];
+        } catch (\Exception $e) {
+            Log::error('Failed to check Tripay payment status', [
+                'reference' => $reference,
+                'error' => $e->getMessage()
+            ]);
+
+            return [
+                'success' => false,
+                'message' => $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Check transaction status (legacy method)
      */
     public function checkTransactionStatus($reference)
     {
@@ -506,7 +553,7 @@ class TripayService
                     'response' => $response->body(),
                     'status' => $response->status(),
                 ]);
-                
+
                 return [
                     'success' => false,
                     'message' => $errorMessage,
@@ -532,7 +579,7 @@ class TripayService
                 'error' => $e->getMessage(),
                 'village_id' => $village->id,
             ]);
-            
+
             return [
                 'success' => false,
                 'message' => $e->getMessage(),
@@ -547,7 +594,7 @@ class TripayService
     {
         try {
             $transactionData = $this->checkTransactionStatus($reference);
-            
+
             return [
                 'success' => true,
                 'data' => $transactionData,
@@ -558,7 +605,7 @@ class TripayService
                 'error' => $e->getMessage(),
                 'village_id' => $village->id,
             ]);
-            
+
             return [
                 'success' => false,
                 'message' => $e->getMessage(),
