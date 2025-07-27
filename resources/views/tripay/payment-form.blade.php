@@ -487,7 +487,7 @@
 
             <!-- Continue Payment -->
             <button
-              onclick="location.href='{{ isset($pendingPayment) && $pendingPayment->transaction_ref ? 'https://tripay.co.id/checkout/' . $pendingPayment->transaction_ref : (isset($bill) ? route('tripay.continue', ['village' => $village->slug, 'bill' => $bill->bill_id]) : '#') }}'"
+              onclick="location.href='{{ isset($pendingPayment) && $pendingPayment->transaction_ref ? 'https://tripay.co.id/checkout/' . $pendingPayment->transaction_ref : (isset($bill) ? route('tripay.continue', ['bill' => $bill->bill_id]) : '#') }}'"
               class="w-full bg-blue-600 text-white py-3 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 font-medium transition duration-200 mb-4">
               @if (isset($showingBundleForm) && $showingBundleForm)
                 Lanjutkan Bundle Payment
@@ -504,7 +504,7 @@
           @else
             <!-- Single Bill Payment Form -->
             <form
-              action="{{ isset($bill) ? route('tripay.create', ['village' => $village->slug, 'bill' => $bill->bill_id, 'return' => route('portal.bills', $bill->waterUsage->customer->customer_code)]) : '#' }}"
+              action="{{ isset($bill) ? route('tripay.create', ['bill' => $bill->bill_id, 'return' => route('portal.bills', $bill->waterUsage->customer->customer_code)]) : '#' }}"
               method="POST" class="space-y-4">
               @csrf
           @endif
@@ -1100,7 +1100,7 @@
         // Make AJAX request to check status using payment reference
         @if (isset($pendingPayment) && $pendingPayment->transaction_ref)
           fetch(
-            `{{ route('tripay.status.reference', ['village' => $village->slug, 'bill' => 'bundle', 'reference' => $pendingPayment->transaction_ref]) }}`
+            `{{ route('tripay.status.reference', ['bill' => 'bundle', 'reference' => $pendingPayment->transaction_ref]) }}`
             )
         @else
           fetch('#')
@@ -1195,11 +1195,11 @@
           // Make AJAX request to check status using payment reference
           @if (isset($pendingPayment) && $pendingPayment->transaction_ref)
             fetch(
-              `{{ route('tripay.status.reference', ['village' => $village->slug, 'bill' => $bill->bill_id ?? 'unknown', 'reference' => $pendingPayment->transaction_ref]) }}`
+              `{{ route('tripay.status.reference', ['bill' => $bill->bill_id ?? 'unknown', 'reference' => $pendingPayment->transaction_ref]) }}`
               )
           @else
             fetch(
-              `{{ isset($bill) ? route('tripay.status', ['village' => $village->slug, 'bill' => $bill->bill_id]) : '#' }}`
+              `{{ isset($bill) ? route('tripay.status', ['bill' => $bill->bill_id]) : '#' }}`
               )
           @endif
           .then(response => response.json())

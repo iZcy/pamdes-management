@@ -17,11 +17,13 @@ class TripayController extends Controller
     /**
      * Show payment form
      */
-    public function showPaymentForm($villageSlug, $billId)
+    public function showPaymentForm($bill)
     {
         try {
-            $village = Village::where('slug', $villageSlug)->with('variables')->firstOrFail();
-            $bill = Bill::where('bill_id', $billId)
+            // Get village from current context (subdomain)
+            $villageId = config('pamdes.current_village_id');
+            $village = Village::where('id', $villageId)->with('variables')->firstOrFail();
+            $bill = Bill::where('bill_id', $bill)
                 ->whereHas('waterUsage.customer', function ($q) use ($village) {
                     $q->where('village_id', $village->id);
                 })
@@ -40,7 +42,7 @@ class TripayController extends Controller
     /**
      * Create QRIS payment for a bill with proper transaction handling
      */
-    public function createPayment(Request $request, $villageSlug, $billId)
+    public function createPayment(Request $request, $bill)
     {
         try {
             // Validate input
@@ -54,9 +56,10 @@ class TripayController extends Controller
                 return back()->withErrors($validator)->withInput();
             }
 
-            // Find village and bill
-            $village = Village::where('slug', $villageSlug)->firstOrFail();
-            $bill = Bill::where('bill_id', $billId)
+            // Get village from current context and find bill
+            $villageId = config('pamdes.current_village_id');
+            $village = Village::where('id', $villageId)->firstOrFail();
+            $bill = Bill::where('bill_id', $bill)
                 ->whereHas('waterUsage.customer', function ($q) use ($village) {
                     $q->where('village_id', $village->id);
                 })
@@ -72,7 +75,7 @@ class TripayController extends Controller
             }
 
             // Use database transaction to ensure atomicity
-            return DB::transaction(function () use ($bill, $village, $request, $villageSlug, $billId) {
+            return DB::transaction(function () use ($bill, $village, $request) {
 
                 // Initialize Tripay service
                 $tripayService = new TripayService($village);
@@ -104,7 +107,7 @@ class TripayController extends Controller
 
                 Log::info('Single payment created successfully', [
                     'bill_id' => $bill->bill_id,
-                    'village_slug' => $villageSlug,
+                    'village_id' => $village->id,
                     'total_amount' => $bill->total_amount,
                     'tripay_reference' => $bill->bill_ref,
                 ]);
@@ -114,8 +117,7 @@ class TripayController extends Controller
             });
         } catch (\Exception $e) {
             Log::error('Failed to create Tripay payment', [
-                'village_slug' => $villageSlug,
-                'bill_id' => $billId,
+                'bill_id' => $bill,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
@@ -203,12 +205,13 @@ class TripayController extends Controller
     /**
      * Handle continue payment - check status and redirect accordingly
      */
-    public function continuePayment(Request $request, $villageSlug, $billId)
+    public function continuePayment(Request $request, $bill)
     {
         try {
-            // Find village and bill
-            $village = Village::where('slug', $villageSlug)->firstOrFail();
-            $bill = Bill::where('bill_id', $billId)
+            // Get village from current context and find bill
+            $villageId = config('pamdes.current_village_id');
+            $village = Village::where('id', $villageId)->firstOrFail();
+            $bill = Bill::where('bill_id', $bill)
                 ->whereHas('waterUsage.customer', function ($q) use ($village) {
                     $q->where('village_id', $village->id);
                 })
@@ -252,8 +255,7 @@ class TripayController extends Controller
             return redirect()->back()->with('error', 'Gagal memeriksa status pembayaran.');
         } catch (\Exception $e) {
             Log::error('Failed to continue payment', [
-                'village_slug' => $villageSlug,
-                'bill_id' => $billId,
+                'bill_id' => $bill,
                 'error' => $e->getMessage(),
             ]);
 
@@ -264,11 +266,12 @@ class TripayController extends Controller
     /**
      * Check payment status
      */
-    public function checkStatus(Request $request, $villageSlug, $billId)
+    public function checkStatus(Request $request, $bill)
     {
         try {
-            $village = Village::where('slug', $villageSlug)->firstOrFail();
-            $bill = Bill::where('bill_id', $billId)
+            $villageId = config('pamdes.current_village_id');
+            $village = Village::where('id', $villageId)->firstOrFail();
+            $bill = Bill::where('bill_id', $bill)
                 ->whereHas('waterUsage.customer', function ($q) use ($village) {
                     $q->where('village_id', $village->id);
                 })
@@ -337,8 +340,7 @@ class TripayController extends Controller
             ]);
         } catch (\Exception $e) {
             Log::error('Failed to check payment status', [
-                'village_slug' => $villageSlug,
-                'bill_id' => $billId,
+                'bill_id' => $bill,
                 'error' => $e->getMessage(),
             ]);
 
@@ -352,10 +354,12 @@ class TripayController extends Controller
     /**
      * Check payment status by reference directly
      */
-    public function checkStatusByReference(Request $request, $villageSlug, $billId, $reference)
+    public function checkStatusByReference(Request $request, $bill, $reference)
     {
         try {
-            $village = Village::where('slug', $villageSlug)->firstOrFail();
+            // Get village from current context (subdomain)
+            $villageId = config('pamdes.current_village_id');
+            $village = Village::where('id', $villageId)->firstOrFail();
             
             // Initialize Tripay service
             $tripayService = new TripayService($village);
@@ -363,7 +367,7 @@ class TripayController extends Controller
             // Check payment status using the reference directly
             Log::info('Checking payment status with reference', [
                 'reference' => $reference,
-                'village_slug' => $villageSlug
+                'village_id' => $village->id
             ]);
             $statusResult = $tripayService->checkPaymentStatus($reference);
 
@@ -407,7 +411,7 @@ class TripayController extends Controller
             ]);
         } catch (\Exception $e) {
             Log::error('Failed to check payment status by reference', [
-                'village_slug' => $villageSlug,
+                'village_id' => $villageId ?? null,
                 'reference' => $reference,
                 'error' => $e->getMessage(),
             ]);
@@ -422,10 +426,12 @@ class TripayController extends Controller
     /**
      * Show bundle payment form
      */
-    public function showBundlePaymentForm($villageSlug, $paymentId)
+    public function showBundlePaymentForm($paymentId)
     {
         try {
-            $village = Village::where('slug', $villageSlug)->with('variables')->firstOrFail();
+            // Get village from current context (subdomain)
+            $villageId = config('pamdes.current_village_id');
+            $village = Village::where('id', $villageId)->with('variables')->firstOrFail();
             $payment = Payment::where('payment_id', $paymentId)
                 ->whereHas('bills.waterUsage.customer', function ($q) use ($village) {
                     $q->where('village_id', $village->id);

@@ -390,34 +390,32 @@ Route::middleware(['village.context'])->group(function () {
         })->name('invoice.multiple');
     });
 
-    // Tripay Payment Routes - Village-specific
-    Route::prefix('{village}')->group(function () {
-        Route::prefix('bill/{bill}')->group(function () {
-            // Show payment form
-            Route::get('/payment', [TripayController::class, 'showPaymentForm'])
-                ->name('tripay.form');
+    // Tripay Payment Routes - Use village context from subdomain
+    Route::prefix('bill/{bill}')->group(function () {
+        // Show payment form
+        Route::get('/payment', [TripayController::class, 'showPaymentForm'])
+            ->name('tripay.form');
 
-            // Create payment
-            Route::post('/payment/create', [TripayController::class, 'createPayment'])
-                ->name('tripay.create');
+        // Create payment
+        Route::post('/payment/create', [TripayController::class, 'createPayment'])
+            ->name('tripay.create');
 
-            // Check payment status (AJAX)
-            Route::get('/payment/status', [TripayController::class, 'checkStatus'])
-                ->name('tripay.status');
-            
-            // Check payment status by reference (AJAX)
-            Route::get('/payment/status/{reference}', [TripayController::class, 'checkStatusByReference'])
-                ->name('tripay.status.reference');
+        // Check payment status (AJAX)
+        Route::get('/payment/status', [TripayController::class, 'checkStatus'])
+            ->name('tripay.status');
+        
+        // Check payment status by reference (AJAX)
+        Route::get('/payment/status/{reference}', [TripayController::class, 'checkStatusByReference'])
+            ->name('tripay.status.reference');
 
-            // Continue payment
-            Route::get('/payment/continue', [TripayController::class, 'continuePayment'])
-                ->name('tripay.continue');
-        });
-
-        // Bundle payment form route (outside of bill-specific group)
-        Route::get('/bundle/{paymentId}', [TripayController::class, 'showBundlePaymentForm'])
-            ->name('tripay.bundle.form');
+        // Continue payment
+        Route::get('/payment/continue', [TripayController::class, 'continuePayment'])
+            ->name('tripay.continue');
     });
+
+    // Bundle payment form route
+    Route::get('/bundle/{paymentId}', [TripayController::class, 'showBundlePaymentForm'])
+        ->name('tripay.bundle.form');
 
 
     Route::fallback(function () {
