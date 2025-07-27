@@ -425,28 +425,41 @@ class BillResource extends Resource
                     ->badge()
                     ->color('warning')
                     ->formatStateUsing(function (?Bill $record = null) {
-                        if (!$record || !$record->transaction_ref) return null;
+                        if (!$record) return null;
 
-                        // Count bills with same transaction_ref
-                        $bundleCount = Bill::where('transaction_ref', $record->transaction_ref)->count();
+                        // Check if bill has any payments (pending or completed)
+                        $payment = $record->payments()->latest()->first();
+                        if (!$payment || !$payment->transaction_ref) return null;
+
+                        // Count bills in the same payment
+                        $bundleCount = $payment->bills()->count();
                         if ($bundleCount > 1) {
-                            return "Bundle: {$record->transaction_ref} ({$bundleCount} tagihan)";
+                            return "Bundle: {$payment->transaction_ref} ({$bundleCount} tagihan)";
                         } else {
-                            return "Pembayaran tertunda: {$record->transaction_ref}";
+                            return $payment->status === 'pending' 
+                                ? "Pembayaran tertunda: {$payment->transaction_ref}"
+                                : "Pembayaran: {$payment->transaction_ref}";
                         }
                     })
-                    ->visible(fn (?Bill $record = null) => $record && $record->transaction_ref)
+                    ->visible(function (?Bill $record = null) {
+                        if (!$record) return false;
+                        $payment = $record->payments()->latest()->first();
+                        return $payment && $payment->transaction_ref;
+                    })
                     ->tooltip(function (?Bill $record = null) {
-                        if (!$record || !$record->transaction_ref) return null;
+                        if (!$record) return null;
 
-                        $bundledBills = Bill::where('transaction_ref', $record->transaction_ref)->get();
+                        $payment = $record->payments()->latest()->first();
+                        if (!$payment || !$payment->transaction_ref) return null;
+
+                        $bundledBills = $payment->bills;
                         if ($bundledBills->count() > 1) {
                             return $bundledBills->map(function ($bill) {
                                 $period = $bill->waterUsage?->billingPeriod?->period_name ?? 'Unknown';
                                 return "Periode: {$period} - Rp " . number_format($bill->total_amount);
                             })->join('\n');
                         }
-                        return null;
+                        return "Status: " . ucfirst($payment->status);
                     }),
             ])
             ->filters([
@@ -615,10 +628,8 @@ class BillResource extends Resource
                                 throw new \Exception('Some bills are not valid for bundling');
                             }
 
-                            // Generate transaction reference and mark bills as bundle using bulk update
+                            // Generate transaction reference for bundle payment
                             $transactionRef = 'ADM-' . strtoupper($customer->village->slug) . '-' . now()->format('YmdHis') . '-' . uniqid();
-                            Bill::whereIn('bill_id', $bills->pluck('bill_id'))
-                                ->update(['transaction_ref' => $transactionRef]);
 
                             // Create payment record using Payment model
                             $payment = \App\Models\Payment::payBills($bills->pluck('bill_id')->toArray(), [
@@ -705,10 +716,8 @@ class BillResource extends Resource
 
                                     if ($validBills->count() !== count($billIds)) continue; // Skip invalid bills
 
-                                    // Generate transaction reference and mark bills as bundle using bulk update
+                                    // Generate transaction reference for bulk bundle payment
                                     $transactionRef = 'BULK-' . strtoupper($customer->village->slug) . '-' . now()->format('YmdHis') . '-' . uniqid();
-                                    Bill::whereIn('bill_id', $validBills->pluck('bill_id'))
-                                        ->update(['transaction_ref' => $transactionRef]);
 
                                     // Create payment record using Payment model
                                     $payment = \App\Models\Payment::payBills($validBills->pluck('bill_id')->toArray(), [

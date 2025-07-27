@@ -208,11 +208,6 @@ class Payment extends Model
             ]);
             
             $bill->markAsPaid($payment->payment_date);
-            
-            // Set transaction_ref on the bill if provided
-            if (isset($paymentData['transaction_ref'])) {
-                $bill->update(['transaction_ref' => $paymentData['transaction_ref']]);
-            }
         }
 
         return $payment;

@@ -97,16 +97,24 @@ class TripayService
      */
     public function createPayment(Bill $bill, array $customerData, string $return)
     {
+        // Check if bill has pending payment
+        $pendingPayment = $bill->getPendingPayment();
+        
         Log::info('TripayService createPayment called', [
             'bill_id' => $bill->bill_id,
             'customer_id' => $bill->customer_id,
             'bill_status' => $bill->status,
-            'transaction_ref' => $bill->transaction_ref
+            'has_pending_payment' => $pendingPayment !== null,
+            'pending_transaction_ref' => $pendingPayment?->transaction_ref
         ]);
 
         // If bill has pending transaction, reject
-        if ($bill->transaction_ref) {
-            Log::warning('Payment already pending for bill', ['bill_id' => $bill->bill_id]);
+        if ($pendingPayment) {
+            Log::warning('Payment already pending for bill', [
+                'bill_id' => $bill->bill_id,
+                'pending_payment_id' => $pendingPayment->payment_id,
+                'transaction_ref' => $pendingPayment->transaction_ref
+            ]);
             throw new \Exception('Payment is already pending for this bill. Please complete or cancel the existing payment first.');
         }
 
