@@ -152,7 +152,9 @@ class DatabaseSeeder extends Seeder
         $usages = \App\Models\WaterUsage::count();
         $bills = \App\Models\Bill::count();
         $payments = \App\Models\Payment::count();
-        $bundleBills = \App\Models\Bill::bundles()->count();
+        $bundlePayments = \App\Models\Payment::whereHas('bills', function($q) {
+            // Count payments that have more than 1 bill (bundle payments)
+        }, '>', 1)->count();
         $tariffs = \App\Models\WaterTariff::count();
 
         $this->command->info("Villages: {$villages}");
@@ -163,7 +165,7 @@ class DatabaseSeeder extends Seeder
         $this->command->info("Water Usages: {$usages}");
         $this->command->info("Bills: {$bills}");
         $this->command->info("Payments: {$payments}");
-        $this->command->info("Bundle Bills: {$bundleBills}");
+        $this->command->info("Bundle Payments: {$bundlePayments}");
         $this->command->info('');
 
         // Show tariff validation summary
