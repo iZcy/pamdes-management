@@ -26,7 +26,7 @@ class TripayCallbackController extends Controller
                     'provided' => $signature,
                     'expected' => $expectedSignature
                 ]);
-                return response()->json(['message' => 'Invalid signature'], 400);
+                return response()->json(['success' => false, 'message' => 'Invalid signature'], 400);
             }
 
             $data = $request->json()->all();
@@ -37,7 +37,7 @@ class TripayCallbackController extends Controller
 
             if (!$tripayReference && !$merchantRef) {
                 Log::error('Tripay callback missing both reference and merchant_ref', $data);
-                return response()->json(['message' => 'Missing reference'], 400);
+                return response()->json(['success' => false, 'message' => 'Missing reference'], 400);
             }
 
             // Find payment by transaction reference - try both Tripay reference and merchant reference
@@ -60,7 +60,7 @@ class TripayCallbackController extends Controller
                     'status' => $status,
                     'event' => $event
                 ]);
-                return response()->json(['message' => 'Payment not found'], 404);
+                return response()->json(['success' => false, 'message' => 'Payment not found'], 404);
             }
 
             Log::info('Tripay callback received', [
@@ -117,7 +117,7 @@ class TripayCallbackController extends Controller
                 'tripay_data' => array_merge($payment->tripay_data ?? [], $data)
             ]);
 
-            return response()->json(['message' => 'Callback processed successfully']);
+            return response()->json(['success' => true]);
 
         } catch (\Exception $e) {
             Log::error('Error processing Tripay callback', [
@@ -126,7 +126,7 @@ class TripayCallbackController extends Controller
                 'request_data' => $request->all()
             ]);
 
-            return response()->json(['message' => 'Internal server error'], 500);
+            return response()->json(['success' => false, 'message' => 'Internal server error'], 500);
         }
     }
 }
