@@ -96,10 +96,11 @@ class TripayController extends Controller
                     throw new \Exception('Tripay payment creation failed: ' . ($paymentResult['message'] ?? 'Unknown error'));
                 }
 
-                // Create payment record with Tripay reference only as transaction_ref
+                // Create payment record with merchant reference as transaction_ref for consistency
+                $merchantRef = $paymentResult['data']['merchant_ref'] ?? null;
                 $payment = Payment::createPayment([$bill->bill_id], [
                     'payment_method' => 'qris',
-                    'transaction_ref' => $paymentResult['data']['reference'] ?? null,
+                    'transaction_ref' => $merchantRef,
                     'tripay_data' => $paymentResult,
                     'collector_id' => null,
                     'notes' => 'Single payment via Tripay'

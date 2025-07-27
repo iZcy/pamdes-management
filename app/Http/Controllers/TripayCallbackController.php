@@ -30,21 +30,33 @@ class TripayCallbackController extends Controller
             }
 
             $data = $request->json()->all();
-            $reference = $data['reference'] ?? null;
+            $tripayReference = $data['reference'] ?? null;  // Tripay's internal reference
+            $merchantRef = $data['merchant_ref'] ?? null;   // Our merchant reference
             $status = $data['status'] ?? null;
             $event = $data['event'] ?? null;
 
-            if (!$reference) {
-                Log::error('Tripay callback missing reference', $data);
+            if (!$tripayReference && !$merchantRef) {
+                Log::error('Tripay callback missing both reference and merchant_ref', $data);
                 return response()->json(['message' => 'Missing reference'], 400);
             }
 
-            // Find payment by transaction reference
-            $payment = Payment::where('transaction_ref', $reference)->first();
+            // Find payment by transaction reference - try both Tripay reference and merchant reference
+            $payment = null;
+            
+            // First try to find by Tripay reference (for single payments)
+            if ($tripayReference) {
+                $payment = Payment::where('transaction_ref', $tripayReference)->first();
+            }
+            
+            // If not found, try merchant reference (for bundle payments and some single payments)
+            if (!$payment && $merchantRef) {
+                $payment = Payment::where('transaction_ref', $merchantRef)->first();
+            }
             
             if (!$payment) {
                 Log::warning('Payment not found for Tripay callback', [
-                    'reference' => $reference,
+                    'tripay_reference' => $tripayReference,
+                    'merchant_ref' => $merchantRef,
                     'status' => $status,
                     'event' => $event
                 ]);
@@ -53,7 +65,8 @@ class TripayCallbackController extends Controller
 
             Log::info('Tripay callback received', [
                 'payment_id' => $payment->payment_id,
-                'reference' => $reference,
+                'tripay_reference' => $tripayReference,
+                'merchant_ref' => $merchantRef,
                 'status' => $status,
                 'event' => $event,
                 'current_payment_status' => $payment->status
@@ -66,7 +79,8 @@ class TripayCallbackController extends Controller
                         $payment->completeBillPayments();
                         Log::info('Payment completed via Tripay callback', [
                             'payment_id' => $payment->payment_id,
-                            'reference' => $reference
+                            'tripay_reference' => $tripayReference,
+                            'merchant_ref' => $merchantRef
                         ]);
                     }
                     break;
@@ -78,7 +92,8 @@ class TripayCallbackController extends Controller
                         $payment->expirePayment();
                         Log::info('Payment expired/failed via Tripay callback', [
                             'payment_id' => $payment->payment_id,
-                            'reference' => $reference,
+                            'tripay_reference' => $tripayReference,
+                            'merchant_ref' => $merchantRef,
                             'status' => $status
                         ]);
                     }
@@ -91,7 +106,8 @@ class TripayCallbackController extends Controller
                 default:
                     Log::warning('Unknown payment status in Tripay callback', [
                         'payment_id' => $payment->payment_id,
-                        'reference' => $reference,
+                        'tripay_reference' => $tripayReference,
+                        'merchant_ref' => $merchantRef,
                         'status' => $status
                     ]);
             }

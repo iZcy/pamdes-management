@@ -13,6 +13,17 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 
+// Public Tripay callback routes (no CSRF protection, no village context required)
+Route::withoutMiddleware(['web'])->prefix('tripay')->group(function () {
+    // Webhook callback from Tripay - handles both single and bundle payments
+    Route::post('/callback', [App\Http\Controllers\TripayCallbackController::class, 'handle'])
+        ->name('tripay.callback');
+
+    // Bundle payment callback (legacy route - keeping for compatibility)
+    Route::post('/callback/bundle/{village}', [App\Http\Controllers\BundlePaymentController::class, 'handleCallback'])
+        ->name('tripay.callback.bundle');
+});
+
 // Apply village context middleware to all routes
 Route::middleware(['village.context'])->group(function () {
     Route::get('/', function () {
@@ -417,6 +428,10 @@ Route::middleware(['village.context'])->group(function () {
     Route::get('/bundle/{paymentId}', [TripayController::class, 'showBundlePaymentForm'])
         ->name('tripay.bundle.form');
 
+    // Return URL after payment (needs village context for proper redirect)
+    Route::get('/tripay/return', [TripayController::class, 'handleReturn'])
+        ->name('tripay.return');
+
 
     Route::fallback(function () {
         if (!config('pamdes.is_super_admin_domain')) {
@@ -427,20 +442,6 @@ Route::middleware(['village.context'])->group(function () {
     });
 });
 
-// Public Tripay callback routes (no authentication or village context required)
-Route::prefix('tripay')->group(function () {
-    // Webhook callback from Tripay
-    Route::post('/callback', [App\Http\Controllers\TripayCallbackController::class, 'handle'])
-        ->name('tripay.callback');
-
-    // Bundle payment callback
-    Route::post('/callback/bundle/{village}', [App\Http\Controllers\BundlePaymentController::class, 'handleCallback'])
-        ->name('tripay.callback.bundle');
-
-    // Return URL after payment
-    Route::get('/return', [TripayController::class, 'handleReturn'])
-        ->name('tripay.return');
-});
 
 // Operator meter reading routes (separate from auth middleware group)
 Route::middleware([App\Http\Middleware\RequireOperator::class])->prefix('admin/meter')->group(function () {
