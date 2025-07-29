@@ -46,8 +46,36 @@ class AdminPanelProvider extends PanelProvider
 
                 return 'PAMDes Super Admin';
             })
-            // ->brandLogo(asset('images/logo.png'))
-            ->favicon(asset('favicon.ico'))
+            ->brandLogo(function () {
+                // Get subdomain
+                $subdomain = request()->getHost();
+
+                // Parse "pamdes-{village}" from subdomain
+                $villageSlug = explode('.', preg_replace('/^pamdes-/', '', $subdomain))[0];
+                // Find village by slug
+                $village = Village::where('slug', $villageSlug)->first();
+
+                if ($village && $village->hasLogo()) {
+                    return $village->getLogoUrl();
+                }
+
+                return asset('images/logo.png');
+            })
+            ->favicon(function () {
+                // Get subdomain
+                $subdomain = request()->getHost();
+
+                // Parse "pamdes-{village}" from subdomain
+                $villageSlug = explode('.', preg_replace('/^pamdes-/', '', $subdomain))[0];
+                // Find village by slug
+                $village = Village::where('slug', $villageSlug)->first();
+
+                if ($village && $village->hasLogo()) {
+                    return $village->getFaviconUrl();
+                }
+
+                return asset('favicon.ico');
+            })
             ->colors([
                 'primary' => Color::Blue,
                 'gray' => Color::Slate,

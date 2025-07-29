@@ -5,7 +5,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Invoice Tagihan Air</title>
+  <title>Invoice Tagihan Air - {{ $bills->first()->waterUsage->customer->village->name ?? 'PAMDes' }}</title>
+  <link rel="icon" type="image/x-icon" href="{{ $bills->first()->waterUsage->customer->village->getFaviconUrl() }}">
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -242,6 +243,13 @@
 
   {{-- Document Header --}}
   <div class="header">
+    @if ($bills->first()->waterUsage->customer->village->hasLogo())
+      <div style="margin-bottom: 10px;">
+        <img src="{{ $bills->first()->waterUsage->customer->village->getLogoUrl() }}" 
+             alt="Logo {{ $bills->first()->waterUsage->customer->village->name }}" 
+             style="width: 60px; height: 60px; object-fit: contain; margin: 0 auto; display: block;">
+      </div>
+    @endif
     <h2>INVOICE TAGIHAN AIR</h2>
     <h3>PAMDes {{ $bills->first()->waterUsage->customer->village->name ?? 'Desa' }}</h3>
     @if ($bills->first()->waterUsage->customer->village->address)

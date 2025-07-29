@@ -100,11 +100,120 @@ class VillageSettingsResource extends Resource
                             ->label('Nama Desa')
                             ->content(fn(?Village $record) => $record?->name ?? '-'),
                             
-                        Forms\Components\Placeholder::make('description')
+                        Forms\Components\Textarea::make('description')
                             ->label('Deskripsi')
-                            ->content(fn(?Village $record) => $record?->description ?? '-'),
+                            ->rows(3)
+                            ->maxLength(1000)
+                            ->helperText('Deskripsi singkat tentang desa'),
+
+                        Forms\Components\DateTimePicker::make('established_at')
+                            ->label('Tanggal Berdiri')
+                            ->helperText('Tanggal pendirian desa')
+                            ->displayFormat('d/m/Y H:i')
+                            ->native(false),
                     ])
                     ->columns(2),
+
+                Forms\Components\Section::make('Informasi Kontak')
+                    ->schema([
+                        Forms\Components\TextInput::make('phone_number')
+                            ->label('Nomor Telepon')
+                            ->tel()
+                            ->helperText('Nomor telepon desa (format: +62 xxx xxx xxxx)')
+                            ->maxLength(20),
+
+                        Forms\Components\TextInput::make('email')
+                            ->label('Email')
+                            ->email()
+                            ->helperText('Alamat email resmi desa')
+                            ->maxLength(255),
+
+                        Forms\Components\Textarea::make('address')
+                            ->label('Alamat Lengkap')
+                            ->rows(3)
+                            ->helperText('Alamat lengkap kantor desa')
+                            ->columnSpanFull(),
+                    ])
+                    ->columns(2),
+
+                Forms\Components\Section::make('Informasi Geografis')
+                    ->schema([
+                        Forms\Components\TextInput::make('latitude')
+                            ->label('Latitude')
+                            ->numeric()
+                            ->step(0.00000001)
+                            ->helperText('Koordinat lintang (contoh: -8.3469)')
+                            ->placeholder('-8.3469'),
+
+                        Forms\Components\TextInput::make('longitude')
+                            ->label('Longitude')
+                            ->numeric()
+                            ->step(0.00000001)
+                            ->helperText('Koordinat bujur (contoh: 116.3186)')
+                            ->placeholder('116.3186'),
+                    ])
+                    ->columns(2),
+
+                Forms\Components\Section::make('Media & Domain')
+                    ->schema([
+                        Forms\Components\FileUpload::make('image_url')
+                            ->label('Logo Desa')
+                            ->helperText('Upload logo desa (format: PNG, JPG, JPEG, SVG | Max: 2MB)')
+                            ->image()
+                            ->imageEditor()
+                            ->imageEditorAspectRatios([
+                                '1:1',
+                                '16:9',
+                                '4:3',
+                            ])
+                            ->directory('village-logos')
+                            ->disk('public')
+                            ->visibility('public')
+                            ->acceptedFileTypes(['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml'])
+                            ->maxSize(2048)
+                            ->downloadable()
+                            ->previewable()
+                            ->columnSpanFull(),
+
+                        Forms\Components\TextInput::make('domain')
+                            ->label('Domain Kustom')
+                            ->helperText('Domain kustom untuk desa (opsional)')
+                            ->maxLength(255)
+                            ->placeholder('desa.example.com'),
+                    ])
+                    ->columns(2),
+
+                Forms\Components\Section::make('Pengaturan Sistem')
+                    ->schema([
+                        Forms\Components\Select::make('settings.timezone')
+                            ->label('Zona Waktu')
+                            ->options([
+                                'Asia/Jakarta' => 'WIB (Asia/Jakarta)',
+                                'Asia/Makassar' => 'WITA (Asia/Makassar)',
+                                'Asia/Jayapura' => 'WIT (Asia/Jayapura)',
+                            ])
+                            ->default('Asia/Makassar')
+                            ->helperText('Zona waktu yang digunakan'),
+
+                        Forms\Components\Select::make('settings.currency')
+                            ->label('Mata Uang')
+                            ->options([
+                                'IDR' => 'Rupiah Indonesia (IDR)',
+                                'USD' => 'US Dollar (USD)',
+                            ])
+                            ->default('IDR')
+                            ->helperText('Mata uang yang digunakan'),
+
+                        Forms\Components\Select::make('settings.language')
+                            ->label('Bahasa')
+                            ->options([
+                                'id' => 'Bahasa Indonesia',
+                                'en' => 'English',
+                            ])
+                            ->default('id')
+                            ->helperText('Bahasa default sistem'),
+                    ])
+                    ->columns(3),
 
                 Forms\Components\Section::make('Pengaturan Biaya')
                     ->description('Atur biaya admin dan pemeliharaan untuk tagihan air')
@@ -128,6 +237,26 @@ class VillageSettingsResource extends Resource
                             ->required()
                             ->minValue(0)
                             ->maxValue(50000),
+
+                        Forms\Components\TextInput::make('pamdes_settings.overdue_threshold_days')
+                            ->label('Batas Hari Tunggakan')
+                            ->helperText('Jumlah hari sebelum tagihan dianggap terlambat')
+                            ->numeric()
+                            ->default(30)
+                            ->suffix('hari')
+                            ->required()
+                            ->minValue(1)
+                            ->maxValue(365),
+
+                        Forms\Components\TextInput::make('pamdes_settings.late_fee_amount')
+                            ->label('Jumlah Denda Keterlambatan')
+                            ->helperText('Jumlah denda yang dikenakan untuk tagihan terlambat')
+                            ->numeric()
+                            ->default(1000)
+                            ->prefix('Rp')
+                            ->minValue(0)
+                            ->maxValue(50000)
+                            ->visible(fn(Forms\Get $get) => $get('pamdes_settings.late_fee_enabled')),
                     ])
                     ->columns(2),
 
@@ -159,7 +288,26 @@ class VillageSettingsResource extends Resource
                 Tables\Columns\TextColumn::make('name')
                     ->label('Nama Desa')
                     ->searchable()
-                    ->sortable(),
+                    ->sortable()
+                    ->weight('medium'),
+
+                Tables\Columns\TextColumn::make('description')
+                    ->label('Deskripsi')
+                    ->limit(50)
+                    ->searchable()
+                    ->toggleable(),
+
+                Tables\Columns\TextColumn::make('phone_number')
+                    ->label('Telepon')
+                    ->searchable()
+                    ->toggleable()
+                    ->copyable(),
+
+                Tables\Columns\TextColumn::make('email')
+                    ->label('Email')
+                    ->searchable()
+                    ->toggleable()
+                    ->copyable(),
 
                 Tables\Columns\TextColumn::make('pamdes_settings.default_admin_fee')
                     ->label('Biaya Admin')
@@ -171,15 +319,34 @@ class VillageSettingsResource extends Resource
                     ->money('IDR')
                     ->sortable(),
 
+                Tables\Columns\TextColumn::make('pamdes_settings.overdue_threshold_days')
+                    ->label('Batas Tunggakan')
+                    ->suffix(' hari')
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
+
                 Tables\Columns\IconColumn::make('pamdes_settings.auto_generate_bills')
-                    ->label('Auto Generate')
+                    ->label('Auto Bill')
                     ->boolean()
                     ->trueIcon('heroicon-o-check-circle')
                     ->falseIcon('heroicon-o-x-circle'),
 
+                Tables\Columns\IconColumn::make('pamdes_settings.late_fee_enabled')
+                    ->label('Late Fee')
+                    ->boolean()
+                    ->trueIcon('heroicon-o-check-circle')
+                    ->falseIcon('heroicon-o-x-circle')
+                    ->toggleable(isToggledHiddenByDefault: true),
+
+                Tables\Columns\TextColumn::make('established_at')
+                    ->label('Tanggal Berdiri')
+                    ->date('d/m/Y')
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
+
                 Tables\Columns\TextColumn::make('updated_at')
                     ->label('Terakhir Diubah')
-                    ->dateTime()
+                    ->dateTime('d/m/Y H:i')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])

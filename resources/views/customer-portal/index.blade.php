@@ -9,6 +9,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Portal Pelanggan - PAMDes {{ $village['name'] ?? 'Desa' }}</title>
+  <link rel="icon" type="image/x-icon" href="{{ $villageModel->getFaviconUrl() }}">
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
@@ -117,13 +118,20 @@
 
     <div class="container mx-auto px-4 py-16 relative z-10">
       <div class="text-center">
-        <!-- Water Drop Icon -->
+        <!-- Village Logo or Default Icon -->
         <div class="mb-6">
-          <div class="inline-flex items-center justify-center w-20 h-20 bg-blue-500 bg-opacity-20 rounded-full mb-4">
-            <svg class="w-10 h-10 text-blue-900 water-drop" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 2c0 0-6 5.686-6 10a6 6 0 0 0 12 0c0-4.314-6-10-6-10z" />
-            </svg>
-          </div>
+          @if($villageModel->hasLogo())
+            <div class="inline-flex items-center justify-center mb-4">
+              <img src="{{ $villageModel->getLogoUrl() }}" alt="Logo {{ $village['name'] }}" 
+                   class="w-20 h-20 object-contain rounded-full shadow-lg bg-white/20 p-2">
+            </div>
+          @else
+            <div class="inline-flex items-center justify-center w-20 h-20 bg-blue-500 bg-opacity-20 rounded-full mb-4">
+              <svg class="w-10 h-10 text-blue-900 water-drop" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 2c0 0-6 5.686-6 10a6 6 0 0 0 12 0c0-4.314-6-10-6-10z" />
+              </svg>
+            </div>
+          @endif
         </div>
 
         <h1 class="text-4xl md:text-5xl font-bold mb-4 tracking-tight text-black">
@@ -137,84 +145,12 @@
   <main class="container mx-auto px-4 pb-12">
     <div class="max-w-6xl mx-auto">
 
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div class="max-w-4xl mx-auto">
 
-        <!-- Left Column - Two Rows -->
-        <div class="space-y-8 order-2 lg:order-1">
-
-          <!-- Top Row - Service Information -->
-          <div class="card-gradient rounded-3xl shadow-xl p-8 border border-gray-100 h-full">
-            <div class="flex items-center mb-6">
-              <div
-                class="w-12 h-12 bg-gradient-to-r from-green-400 to-blue-500 rounded-xl flex items-center justify-center mr-4">
-                <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                </svg>
-              </div>
-              <h3 class="text-xl font-bold text-gray-800">Informasi Layanan</h3>
-            </div>
-
-            <div class="grid grid-cols-1 grid-rows-2 gap-6">
-              <!-- Operating Hours -->
-              <div
-                class="feature-card bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-2xl border border-blue-100">
-                <div class="flex items-center mb-3">
-                  <svg class="w-6 h-6 text-blue-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                  </svg>
-                  <h4 class="font-semibold text-blue-800">Jam Pelayanan</h4>
-                </div>
-                <div class="text-blue-700 space-y-1">
-                  <p class="flex justify-between">
-                    <span>Senin - Jumat:</span>
-                    <span class="font-medium">08:00 - 16:00</span>
-                  </p>
-                  <p class="flex justify-between">
-                    <span>Sabtu:</span>
-                    <span class="font-medium">08:00 - 12:00</span>
-                  </p>
-                  <p class="flex justify-between">
-                    <span>Minggu:</span>
-                    <span class="font-medium text-red-600">Tutup</span>
-                  </p>
-                </div>
-              </div>
-
-              <!-- Payment Methods -->
-              <div
-                class="feature-card bg-gradient-to-r from-green-50 to-emerald-50 p-6 rounded-2xl border border-green-100">
-                <div class="flex items-center mb-3">
-                  <svg class="w-6 h-6 text-green-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                      d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z">
-                    </path>
-                  </svg>
-                  <h4 class="font-semibold text-green-800">Metode Pembayaran</h4>
-                </div>
-                <div class="space-y-3">
-                  <div class="flex items-center text-green-700">
-                    <div class="w-2 h-2 bg-green-500 rounded-full mr-3"></div>
-                    <span>💰 Tunai di kantor desa</span>
-                  </div>
-                  <div class="flex items-center text-green-700">
-                    <div class="w-2 h-2 bg-green-500 rounded-full mr-3"></div>
-                    <span>🏦 Transfer bank</span>
-                  </div>
-                  <div class="flex items-center text-green-700">
-                    <div class="w-2 h-2 bg-green-500 rounded-full mr-3"></div>
-                    <span>📱 QRIS (E-wallet & Mobile Banking)</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Right Column - Customer Code Input Form -->
-        <div class="order-1 lg:order-2">
-          <div class="card-gradient rounded-3xl shadow-2xl p-8 border border-gray-100 h-full flex flex-col">
+        <!-- Single Column - Check Bills Form -->
+        <div class="card-gradient rounded-3xl shadow-2xl p-8 border border-gray-100">
+          
+          <!-- Customer Code Input Form Section -->
             <div class="text-center mb-8">
               <div
                 class="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl mb-4">
@@ -285,31 +221,58 @@
               </form>
             </div>
 
-            <!-- Help Text -->
-            <div class="mt-8 p-4 bg-blue-50 rounded-xl border border-blue-100">
-              <div class="flex items-start">
-                <svg class="w-5 h-5 text-blue-500 mr-3 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd"
-                    d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
-                    clip-rule="evenodd"></path>
-                </svg>
-                <div>
-                  <h4 class="text-blue-800 font-medium mb-1">Tidak tahu kode pelanggan?</h4>
-                  <p class="text-blue-700 text-sm leading-relaxed">
-                    Hubungi petugas PAMDes atau lihat pada tagihan terakhir Anda.
-                    Kode pelanggan biasanya terdiri dari huruf dan angka seperti PAM001 atau C123456.
-                  </p>
-                </div>
+          <!-- Help Text -->
+          <div class="mt-8 p-4 bg-blue-50 rounded-xl border border-blue-100">
+            <div class="flex items-start">
+              <svg class="w-5 h-5 text-blue-500 mr-3 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd"
+                  d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
+                  clip-rule="evenodd"></path>
+              </svg>
+              <div>
+                <h4 class="text-blue-800 font-medium mb-1">Tidak tahu kode pelanggan?</h4>
+                <p class="text-blue-700 text-sm leading-relaxed">
+                  Hubungi petugas PAMDes atau lihat pada tagihan terakhir Anda.
+                  Kode pelanggan biasanya terdiri dari huruf dan angka seperti PAM001 atau C123456.
+                </p>
               </div>
             </div>
           </div>
+
+          <!-- Payment Methods -->
+          <div class="mt-8 feature-card bg-gradient-to-r from-green-50 to-emerald-50 p-6 rounded-2xl border border-green-100">
+            <div class="flex items-center mb-3">
+              <svg class="w-6 h-6 text-green-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z">
+                </path>
+              </svg>
+              <h4 class="font-semibold text-green-800">Metode Pembayaran</h4>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div class="flex items-center text-green-700">
+                <div class="w-2 h-2 bg-green-500 rounded-full mr-3"></div>
+                <span>💰 Tunai di kantor desa</span>
+              </div>
+              <div class="flex items-center text-green-700">
+                <div class="w-2 h-2 bg-green-500 rounded-full mr-3"></div>
+                <span>🏦 Transfer bank</span>
+              </div>
+              <div class="flex items-center text-green-700">
+                <div class="w-2 h-2 bg-green-500 rounded-full mr-3"></div>
+                <span>📱 QRIS (E-wallet & Mobile Banking)</span>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
 
       <!-- Bottom CTA Section -->
       <div class="mt-16">
-        <div
-          class="bg-gradient-to-r from-blue-600 via-purple-600 to-blue-800 rounded-3xl p-8 text-white text-center relative overflow-hidden">
+        <div class="max-w-4xl mx-auto">
+          <div
+            class="bg-gradient-to-r from-blue-600 via-purple-600 to-blue-800 rounded-3xl p-8 text-white text-center relative overflow-hidden">
           <!-- Background Pattern -->
           <div class="absolute inset-0 opacity-10">
             <div class="absolute top-0 left-0 w-40 h-40 bg-white rounded-full -translate-x-20 -translate-y-20"></div>
@@ -346,6 +309,7 @@
         </div>
       </div>
     </div>
+  </div>
   </main>
 
   <!-- Footer -->
@@ -353,11 +317,18 @@
     <div class="container mx-auto px-4">
       <div class="text-center">
         <div class="mb-4">
-          <div class="inline-flex items-center justify-center w-12 h-12 bg-blue-600 rounded-xl mb-4">
-            <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12 2c0 0-6 5.686-6 10a6 6 0 0 0 12 0c0-4.314-6-10-6-10z" />
-            </svg>
-          </div>
+          @if($villageModel->hasLogo())
+            <div class="inline-flex items-center justify-center mb-4">
+              <img src="{{ $villageModel->getLogoUrl() }}" alt="Logo {{ $village['name'] }}" 
+                   class="w-12 h-12 object-contain rounded-xl bg-blue-600 p-2">
+            </div>
+          @else
+            <div class="inline-flex items-center justify-center w-12 h-12 bg-blue-600 rounded-xl mb-4">
+              <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 2c0 0-6 5.686-6 10a6 6 0 0 0 12 0c0-4.314-6-10-6-10z" />
+              </svg>
+            </div>
+          @endif
         </div>
         <h3 class="text-xl font-bold mb-2">PAMDes {{ $village['name'] ?? 'Desa' }}</h3>
         <p class="text-gray-400 mb-6">Sistem Pengelolaan Air Minum Desa</p>

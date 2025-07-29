@@ -199,4 +199,58 @@ class Village extends Model
         }
         return null;
     }
+
+    // Logo-related helper methods
+    public function getLogoUrl(): ?string
+    {
+        if ($this->image_url) {
+            // If it's already a full URL, return as is
+            if (filter_var($this->image_url, FILTER_VALIDATE_URL)) {
+                return $this->image_url;
+            }
+            
+            // Check if file exists before returning URL
+            $filePath = storage_path('app/public/' . $this->image_url);
+            if (file_exists($filePath)) {
+                return asset('storage/' . $this->image_url);
+            }
+            
+            // File doesn't exist, return null to use fallback
+            return null;
+        }
+        
+        return null;
+    }
+
+    public function getLogoPath(): ?string
+    {
+        return $this->image_url;
+    }
+
+    public function hasLogo(): bool
+    {
+        if (empty($this->image_url)) {
+            return false;
+        }
+        
+        // If it's a URL, assume it exists
+        if (filter_var($this->image_url, FILTER_VALIDATE_URL)) {
+            return true;
+        }
+        
+        // Check if local file exists
+        $filePath = storage_path('app/public/' . $this->image_url);
+        return file_exists($filePath);
+    }
+
+    public function getLogoOrDefault(): string
+    {
+        return $this->getLogoUrl() ?? asset('images/logo.png');
+    }
+
+    public function getFaviconUrl(): string
+    {
+        // Use village logo as favicon if available, otherwise use default
+        return $this->getLogoUrl() ?? asset('favicon.ico');
+    }
 }

@@ -266,7 +266,11 @@ Route::middleware(['village.context'])->group(function () {
                 ->where('status', 'unpaid')
                 ->count();
 
-            return view('customer-portal.bills', compact('customer', 'bills', 'pendingBills', 'pendingBundles', 'paidBills', 'paidBundles', 'totalUnpaidBills'));
+            // Get village model for logo usage
+            $village = config('pamdes.current_village');
+            $villageModel = \App\Models\Village::find($village['id']);
+            
+            return view('customer-portal.bills', compact('customer', 'bills', 'pendingBills', 'pendingBundles', 'paidBills', 'paidBundles', 'totalUnpaidBills', 'village', 'villageModel'));
         })->name('bills');
     });
 

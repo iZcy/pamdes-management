@@ -310,7 +310,7 @@ class CustomerResource extends Resource
                             ->maxLength(5),
 
                         Forms\Components\TextInput::make('village')
-                            ->label('Desa/Kelurahan')
+                            ->label('Dusun')
                             ->maxLength(100),
                     ])
                     ->columns([
@@ -354,6 +354,17 @@ class CustomerResource extends Resource
 
                 Tables\Columns\TextColumn::make('phone_number')
                     ->label('Telepon')
+                    ->searchable()
+                    ->toggleable(),
+
+                Tables\Columns\TextColumn::make('address')
+                    ->label('Alamat')
+                    ->searchable()
+                    ->limit(50)
+                    ->toggleable(),
+
+                Tables\Columns\TextColumn::make('village')
+                    ->label('Dusun')
                     ->searchable()
                     ->toggleable(),
 

@@ -5,7 +5,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kwitansi Pembayaran Bundle</title>
+  <title>Kwitansi Pembayaran Bundle - {{ $bundlePayment->customer->village->name ?? 'PAMDes' }}</title>
+  <link rel="icon" type="image/x-icon" href="{{ $bundlePayment->customer->village->getFaviconUrl() }}">
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -247,6 +248,13 @@
 
   {{-- Document Header --}}
   <div class="header">
+    @if ($bundlePayment->customer->village->hasLogo())
+      <div style="margin-bottom: 10px;">
+        <img src="{{ $bundlePayment->customer->village->getLogoUrl() }}" 
+             alt="Logo {{ $bundlePayment->customer->village->name }}" 
+             style="width: 60px; height: 60px; object-fit: contain; margin: 0 auto; display: block;">
+      </div>
+    @endif
     <h2>KWITANSI PEMBAYARAN BUNDLE</h2>
     <h3>PAMDes {{ $bundlePayment->customer->village->name ?? 'Desa' }}</h3>
     @if ($bundlePayment->customer->village->address)
